@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX FCMPE - Floating Compare with Epsilon
+// FCMPE $X,$Y,$Z: $X = fp_cmp_epsilon($Y, $Z, rE)
+// Opcode: 0x10
+// Note: Simplified - same as FCMP for now
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var is_lt[0:0];
+var is_eq[0:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x10;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+
+// FP compare using supported intrinsics (simplified - ignores epsilon rE)
+is_lt = fp_lt_d(y_val, z_val);
+is_eq = fp_eq_d(y_val, z_val);
+
+// Result: -1 if Y<Z, 0 if Y==Z, 1 if Y>Z
+result = is_lt ? 64'hFFFFFFFFFFFFFFFF :
+         is_eq ? 64'h0 : 64'h1;
+
+rf[x] = result;
+pc = pc + 4;

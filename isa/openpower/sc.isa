@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER sc - System Call (SC-Form)
+// sc LEV
+// Primary opcode 17
+// Generates system call exception
+// Saves current state and jumps to system call handler
+// SRR0 <- NIA; SRR1 <- MSR; PC <- 0xC00 (system call vector)
+// Note: Power ISA uses MSB-first bit numbering (bit 0 is leftmost)
+// Verilog uses LSB-first (bit 31 is leftmost for 32-bit word)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state srr0[63:0];
+isa_state srr1[63:0];
+isa_state msr[63:0];
+
+var lev[6:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 17 in bits 31:26 (Power bits 0:5)
+assume instr[31:26] == 17;
+// Bits 1:0 should be 0b10 (Power bits 30:31)
+assume instr[1:0] == 2'b10;
+
+// Extract LEV field (Power bits 20:26 = Verilog bits 11:5)
+lev = instr[11:5];
+
+// Save current state
+srr0 = pc + 4;
+srr1 = msr;
+
+// Set MSR to interrupt state: SF=1, HV=1, ME=preserved, all else 0
+var exception_msr[63:0];
+exception_msr = {1'b1, 2'b0, 1'b1, 47'b0, msr[12], 12'b0};
+msr = exception_msr;
+
+// Jump to system call exception vector
+pc = 64'hC00;

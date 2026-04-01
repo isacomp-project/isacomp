@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32r2 ROTR - Rotate Word Right
+// rd = rt rotated right by sa bits
+// Encoding: 000000 00001 rt rd sa 000010
+//           SPECIAL R=1              SRL (with R=1 becomes ROTR)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rt[4:0];
+var rd[4:0];
+var sa[4:0];
+var rt_val[31:0];
+var result[31:0];
+var right_part[31:0];
+var left_part[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// ROTR encoding (SRL with R=1)
+assume instr[31:26] == 6'b000000;  // SPECIAL opcode
+assume instr[25:21] == 5'b00001;   // R = 1 (distinguishes from SRL)
+assume instr[5:0] == 6'b000010;    // SRL/ROTR function
+
+rt = instr[20:16];
+rd = instr[15:11];
+sa = instr[10:6];
+
+rt_val = rf[rt];
+
+// Rotate right: (rt >> sa) | (rt << (32 - sa))
+right_part = rt_val >> sa;
+left_part = rt_val << (32 - {1'b0, sa});
+
+// Handle sa = 0 case (no rotation)
+result = (sa == 5'b00000) ? rt_val : (right_part | left_part);
+
+rf[rd] = result;
+
+pc = pc + 4;

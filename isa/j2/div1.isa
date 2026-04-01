@@ -1,0 +1,118 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+var div1_rb[0:0];
+var div1_rn_lo[2:0];
+var div1_rm_lo[2:0];
+var div1_rn_bk[0:0];
+var div1_rm_bk[0:0];
+
+// Division algorithm variables
+var old_Q[0:0];
+var M[0:0];
+var Q[0:0];
+var shifted[31:0];
+var tmp[31:0];
+var new_Q[0:0];
+var borrow[0:0];
+var carry[0:0];
+var old_sr[31:0];
+
+// Intermediate wires for new_Q computation
+var inv_borrow[0:0];
+var inv_carry[0:0];
+var div1_sel[1:0];
+var new_t[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:12] == 0x3;
+assume instr[3:0] == 0x4;
+rn = instr[11:8];
+rm = instr[7:4];
+
+div1_rn_lo = rn[2:0];
+div1_rm_lo = rm[2:0];
+div1_rb = sr[28];
+div1_rn_bk = (rn[3] == 1'b0) & div1_rb;
+div1_rm_bk = (rm[3] == 1'b0) & div1_rb;
+
+Rn = div1_rn_bk ? rf_bank[div1_rn_lo] : rf[rn];
+Rm = div1_rm_bk ? rf_bank[div1_rm_lo] : rf[rm];
+
+// DIV1 - Single step of SH2 division algorithm
+// Step 1: Save old Q, compute new Q from Rn MSB
+old_sr = sr;
+old_Q = old_sr[8];
+Q = Rn[31];
+M = old_sr[9];
+
+// Step 2: Shift Rn left by 1, bring in T
+shifted = {Rn[30:0], t};
+
+// Step 3: Add or subtract based on old_Q XOR M
+// If old_Q == M: subtract Rm from shifted
+// If old_Q != M: add Rm to shifted
+tmp = (old_Q == M) ? (shifted - Rm) : (shifted + Rm);
+
+// Step 4: Compute borrow (for subtraction) or carry (for addition)
+// For subtraction: borrow = 1 if shifted < Rm (result would underflow)
+// For addition: carry = 1 if result < shifted (overflow occurred)
+borrow = (shifted < Rm) ? 1'b1 : 1'b0;
+carry = (tmp < shifted) ? 1'b1 : 1'b0;
+
+// Step 5: Update Q based on old_Q, M, current Q, and carry/borrow
+// This follows the SH2 algorithm:
+// When old_Q == M (subtraction): new_Q = Q XOR borrow
+// When old_Q != M (addition): new_Q = Q XOR ~carry
+
+// Compute intermediate values
+inv_borrow = ~borrow;
+inv_carry = ~carry;
+
+// Case selector: {old_Q == M, Q}
+div1_sel = {(old_Q == M) ? 1'b1 : 1'b0, Q};
+
+// Case statement for new_Q
+// Formula: new_Q = (Q XOR M) XOR borrow/carry
+case (div1_sel) {
+    2'b00: new_Q = carry;       // addition, Q=0: new_Q = (0^M)^carry = carry (M=0)
+    2'b01: new_Q = inv_carry;   // addition, Q=1: new_Q = (1^M)^carry = ~carry (M=0)
+    2'b10: new_Q = borrow;      // subtraction, Q=0: new_Q = (0^M)^borrow = borrow (M=0)
+    2'b11: new_Q = inv_borrow;  // subtraction, Q=1: new_Q = (1^M)^borrow = ~borrow (M=0)
+}
+
+// Step 6: T = (new_Q == M)
+new_t = (new_Q == M) ? 1'b1 : 1'b0;
+t when (exc_taken == 0) = new_t;
+
+// Step 7: Update Q in SR (write full SR with only bit 8 modified, and T in bit 0)
+sr = {old_sr[31:9], new_Q, old_sr[7:1], new_t};
+
+// Step 8: Store result back to Rn
+rf[rn] when (div1_rn_bk == 0) = tmp;
+rf_bank[div1_rn_lo] when (div1_rn_bk) = tmp;
+
+pc = pc + 2;

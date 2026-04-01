@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.mtspr with MMU - Move To Special Purpose Register
+// Format: l.mtspr rA, rB, K
+// SPR[rA|K] <- rB
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[23:0];
+isa_state spr[31:0][15:0];
+isa_state cam itlb_tag[19:0]@[6:0][];
+isa_state itlb_tr_cam[31:0][6:0];
+isa_state cam dtlb_tag[19:0]@[6:0][];
+isa_state dtlb_tr_cam[31:0][6:0];
+isa_state sr[31:0];
+isa_state epcr0[31:0];
+isa_state esr0[31:0];
+isa_state eear0[31:0];
+isa_state flag[0:0];
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+isa_state ttmr[31:0];
+isa_state ttcr[31:0];
+isa_state picmr[31:0];
+isa_state picsr[31:0];
+
+
+var rA[4:0];
+var rB[4:0];
+var imm_high[4:0];
+var imm_low[10:0];
+var imm[15:0];
+var spr_addr[15:0];
+var base[31:0];
+var data[31:0];
+
+// Instruction fetch MMU translation
+aspect delay_slot.isa gates delay_slot;
+aspect mmu.isa gates pc, sr, epcr0, esr0, eear0;
+
+instr = umem[pc_pa];
+assume instr[31:26] == 0x30;
+pc = (in_delay_slot & ~exception_taken) ? branch_target : pc + 4;
+imm_high = instr[25:21];
+rA = instr[20:16];
+rB = instr[15:11];
+imm_low = instr[10:0];
+
+imm = {imm_high, imm_low};
+base = rf[rA];
+spr_addr = base[15:0] | imm;
+data = rf[rB];
+
+spr[spr_addr] when (~exception_taken) = data;
+
+// Key SPRs are isa_state registers - update them when written
+// SR = SPR group 0, index 17 = 0x0011
+var is_sr[0:0];
+is_sr = (spr_addr == 16'h0011);
+sr when (is_sr & ~exception_taken) = data;
+flag when (is_sr & ~exception_taken) = data[9];
+
+// EPCR0 = SPR group 0, index 32 = 0x0020
+var is_epcr0[0:0];
+is_epcr0 = (spr_addr == 16'h0020);
+epcr0 when (is_epcr0 & ~exception_taken) = data;
+
+// EEAR0 = SPR group 0, index 48 = 0x0030
+var is_eear0[0:0];
+is_eear0 = (spr_addr == 16'h0030);
+eear0 when (is_eear0 & ~exception_taken) = data;
+
+// ESR0 = SPR group 0, index 64 = 0x0040
+var is_esr0[0:0];
+is_esr0 = (spr_addr == 16'h0040);
+esr0 when (is_esr0 & ~exception_taken) = data;
+
+// =========================================================================
+// ITLB CAM writes (Group 2 = IMMU, spr_addr[15:11] == 5'b00010)
+// =========================================================================
+// SPR layout within IMMU group:
+//   spr_addr[9:8] = way, spr_addr[7] = 0(MR)/1(TR), spr_addr[6:0] = set
+// Linux boot handler writes to Way 2 (spr_addr[9:8]=10), but we accept any way.
+// CAM tag = {Valid, VPN[31:13]} from Match Register data
+// CAM data = Translate Register data
+var is_immu_group[0:0];
+var itlb_mr_update[0:0];
+var itlb_tr_update[0:0];
+var itlb_cam_set[6:0];
+is_immu_group = (spr_addr[15:11] == 5'b00010);
+itlb_mr_update = is_immu_group & ~spr_addr[7];
+itlb_tr_update = is_immu_group & spr_addr[7];
+itlb_cam_set = spr_addr[6:0];
+
+// Write ITLB Match: store {Valid, VPN[31:13]} as CAM tag
+itlb_tag[itlb_cam_set] when (itlb_mr_update & ~exception_taken) = {data[0], data[31:13]};
+
+// Write ITLB Translate: store full translate register data
+itlb_tr_cam[itlb_cam_set] when (itlb_tr_update & ~exception_taken) = data;
+
+// =========================================================================
+// DTLB CAM writes (Group 1 = DMMU, spr_addr[15:11] == 5'b00001)
+// =========================================================================
+var is_dmmu_group[0:0];
+var dtlb_mr_update[0:0];
+var dtlb_tr_update[0:0];
+var dtlb_cam_set[6:0];
+is_dmmu_group = (spr_addr[15:11] == 5'b00001);
+dtlb_mr_update = is_dmmu_group & ~spr_addr[7];
+dtlb_tr_update = is_dmmu_group & spr_addr[7];
+dtlb_cam_set = spr_addr[6:0];
+
+// Write DTLB Match: store {Valid, VPN[31:13]} as CAM tag
+dtlb_tag[dtlb_cam_set] when (dtlb_mr_update & ~exception_taken) = {data[0], data[31:13]};
+
+// Write DTLB Translate: store full translate register data
+dtlb_tr_cam[dtlb_cam_set] when (dtlb_tr_update & ~exception_taken) = data;
+
+// Tick timer: counter increment and IP flag management
+var tt_mode[1:0];
+tt_mode = ttmr[31:30];
+var tt_en[0:0];
+tt_en = (tt_mode != 2'b00);
+var tt_match[0:0];
+tt_match = tt_en & (ttcr[27:0] == ttmr[27:0]);
+var tt_new_count[27:0];
+tt_new_count = tt_match ?
+    ((tt_mode == 2'b01) ? 28'b0 :
+     (tt_mode == 2'b10) ? ttcr[27:0] :
+     ttcr[27:0] + 1) :
+    ttcr[27:0] + 1;
+ttcr = tt_en ? {ttcr[31:28], tt_new_count} : ttcr;
+ttmr = tt_match ? (ttmr | 32'h10000000) : ttmr;
+
+// TTMR write (Group 10, index 0 = SPR 0x5000)
+// l.mtspr override: explicit write takes priority over timer increment
+var is_ttmr[0:0];
+is_ttmr = (spr_addr == 16'h5000);
+ttmr when (is_ttmr & ~exception_taken) = data;
+
+// TTCR write (Group 10, index 1 = SPR 0x5001)
+var is_ttcr[0:0];
+is_ttcr = (spr_addr == 16'h5001);
+ttcr when (is_ttcr & ~exception_taken) = data;
+
+// PICMR write (Group 9, index 0 = SPR 0x4800)
+var is_picmr[0:0];
+is_picmr = (spr_addr == 16'h4800);
+picmr when (is_picmr & ~exception_taken) = data;
+
+// PICSR write (Group 9, index 2 = SPR 0x4802) - write-1-to-clear
+var is_picsr[0:0];
+is_picsr = (spr_addr == 16'h4802);
+picsr when (is_picsr & ~exception_taken) = picsr & ~data;

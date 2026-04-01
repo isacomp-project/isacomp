@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+var R0[31:0];
+var casl_addr[31:0];
+var mem_val[31:0];
+
+// Address error checking variables
+var load_addr[31:0];
+var load_size[1:0];
+var casl_no_error[0:0];
+
+// Register banking variables
+var casl_rn_lo[2:0];
+var casl_rm_lo[2:0];
+var casl_r0_lo[2:0];
+var casl_rb[0:0];
+var casl_rn_bk[0:0];
+var casl_rm_bk[0:0];
+var casl_r0_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+// Include address error detection for loads (CAS reads first)
+aspect addr_error_load.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+instr = umem[pc];
+assume instr[15:12] == 0x2;
+assume instr[3:0] == 0x3;
+rn = instr[11:8];
+rm = instr[7:4];
+
+// Register banking logic
+casl_rn_lo = rn[2:0];
+casl_rm_lo = rm[2:0];
+casl_r0_lo = 3'b000;
+casl_rb = sr[29];  // RB bit (bit 29 in SR)
+casl_rn_bk = (rn[3] == 1'b0) & casl_rb;
+casl_rm_bk = (rm[3] == 1'b0) & casl_rb;
+casl_r0_bk = casl_rb;  // R0 is always in bank when RB=1
+
+Rn = casl_rn_bk ? rf_bank[casl_rn_lo] : rf[rn];
+Rm = casl_rm_bk ? rf_bank[casl_rm_lo] : rf[rm];
+R0 = casl_r0_bk ? rf_bank[casl_r0_lo] : rf[0];
+
+// CAS.L Rm, Rn, @R0: Compare-and-swap
+// If @R0 == Rn, then @R0 = Rm and T = 1
+// Else Rn = @R0 and T = 0
+casl_addr = R0;
+
+// Set up address error checking
+load_addr = casl_addr;
+load_size = 2'b11;  // Long access (32-bit)
+
+// Compute the no-error condition (bits 1:0 must be 00)
+casl_no_error = (casl_addr[1:0] == 2'b00);
+
+mem_val = umem[casl_addr];
+
+// Only perform compare-and-swap if no address error
+t when (casl_no_error) = (mem_val == Rn) ? 1'b1 : 1'b0;
+rf[rn] when (casl_no_error & (casl_rn_bk == 0)) = (mem_val == Rn) ? Rn : mem_val;
+rf_bank[casl_rn_lo] when (casl_no_error & casl_rn_bk) = (mem_val == Rn) ? Rn : mem_val;
+umem[casl_addr] when (casl_no_error) = (mem_val == Rn) ? Rm : mem_val;
+
+// Only advance PC if no address error
+pc when (casl_no_error) = pc + 2;

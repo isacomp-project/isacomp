@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV r/m8, r8 (0x88) - CONSOLIDATED ALL ADDRESSING MODES
+// Move 8-bit register to r/m8 (register or memory destination)
+// Supports all addressing modes via ModR/M byte:
+//   mod=00: [SI], [DI], [BX] - indirect
+//   mod=01: [SI+disp8], [DI+disp8], [BX+disp8] - indirect + 8-bit displacement
+//   mod=10: [SI+disp16], [DI+disp16], [BX+disp16] - indirect + 16-bit displacement
+//   mod=11: AL, CL, DL, BL, AH, CH, DH, BH - register direct
+// Register encoding: 0-3 = low byte (AL,CL,DL,BL), 4-7 = high byte (AH,CH,DH,BH)
+
+isa_state xregs[31:0][2:0];    // 32-bit registers array
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var src_idx[2:0];
+var dst_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var physical_addr[19:0];
+var src_val[7:0];
+var src_is_high[0:0];
+var dst_is_high[0:0];
+var result[7:0];
+var is_mem_dest[0:0];
+var dst_reg_val[31:0];
+var updated_reg_val[31:0];
+var updated_reg_low[31:0];
+var updated_reg_high[31:0];
+var write_low_byte[0:0];
+var write_high_byte[0:0];
+var phys_reg_idx[2:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x88;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+src_idx = reg_idx;
+dst_reg_idx = rm_bits;
+
+// Determine if source is high byte register
+case (src_idx) {
+  0b100: src_is_high = 1'b1;
+  0b101: src_is_high = 1'b1;
+  0b110: src_is_high = 1'b1;
+  0b111: src_is_high = 1'b1;
+}
+
+// Read source value from 8-bit register (handle high/low byte)
+case (src_is_high) {
+  1'b1: src_val = xregs[src_idx - 3'b100][15:8];  // High byte (AH,CH,DH,BH)
+  1'b0: src_val = xregs[src_idx][7:0];             // Low byte (AL,CL,DL,BL)
+}
+
+// Pre-calculate address register index for memory modes
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;  // SI
+  0b101: addr_reg_idx = 3'b111;  // DI
+  0b111: addr_reg_idx = 3'b011;  // BX
+}
+
+// Read base offset from address register
+base_offset = xregs[addr_reg_idx];
+
+// Read potential displacement bytes
+disp8 = imem[eip + 2];
+disp16_lo = imem[eip + 2];
+disp16_hi = imem[eip + 3];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+// Calculate offset based on addressing mode
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+// Set destination type flag
+case (mod_bits) {
+  0b00: is_mem_dest = 1'b1;
+  0b01: is_mem_dest = 1'b1;
+  0b10: is_mem_dest = 1'b1;
+  0b11: is_mem_dest = 1'b0;
+}
+
+// Advance IP based on displacement bytes consumed
+case (mod_bits) {
+  0b00: eip = eip + 2;
+  0b01: eip = eip + 3;
+  0b10: eip = eip + 4;
+  0b11: eip = eip + 2;
+}
+
+// Calculate physical address for 8-bit memory access
+physical_addr = (DS << 4) + offset;
+
+// Perform MOV operation (just copy source to result)
+result = src_val;
+
+// Determine if destination register is high byte
+case (dst_reg_idx) {
+  0b100: dst_is_high = 1'b1;
+  0b101: dst_is_high = 1'b1;
+  0b110: dst_is_high = 1'b1;
+  0b111: dst_is_high = 1'b1;
+}
+
+// Calculate physical register index for high byte access
+case (dst_is_high) {
+  1'b1: phys_reg_idx = dst_reg_idx - 3'b100;
+  1'b0: phys_reg_idx = dst_reg_idx;
+}
+
+// Read current destination register value
+dst_reg_val = xregs[phys_reg_idx];
+
+// Determine if we're writing to low byte of register
+write_low_byte = ~is_mem_dest & ~dst_is_high;
+write_high_byte = ~is_mem_dest & dst_is_high;
+
+// Compute possible updated values
+updated_reg_low = {dst_reg_val[31:8], result};
+updated_reg_high = {dst_reg_val[31:16], result, dst_reg_val[7:0]};
+
+// Select final value based on write type
+case (write_low_byte) {
+  1'b1: updated_reg_val = updated_reg_low;
+  1'b0: updated_reg_val = write_high_byte == 1'b1 ? updated_reg_high : dst_reg_val;
+}
+
+// Write result to destination (memory or register)
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr] = result;
+  1'b0: xregs[phys_reg_idx] = updated_reg_val;
+}

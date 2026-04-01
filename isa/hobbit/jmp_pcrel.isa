@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: JMP dst (unconditional jump, PC-relative)
+// One-parcel encoding: opcode 0x03, 2 bytes
+// PC = PC + sign_extend(offset10) * 2
+
+isa_state pc[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var opcode[4:0];
+var offset[9:0];
+var sign_ext_offset[31:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+opcode = instr[14:10];
+assume opcode == 0x03;
+
+offset = instr[9:0];
+
+// Sign-extend 10-bit offset and multiply by 2 for parcel alignment
+sign_ext_offset = {{21{offset[9]}}, offset, 1'b0};
+
+pc = pc + sign_ext_offset;

@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA 2.0 UADDCM instruction
+// UADDCM r1,r2,t - Unsigned Add Complement
+// Computes r1 + ~r2 (ones complement of r2)
+// Opcode: 0x02 (bits 31:26), Sub-opcode: 0x4C (bits 11:5)
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var t[4:0];
+var src1[63:0];
+var src2[63:0];
+var res65[64:0];
+var result[63:0];
+var carry_out[0:0];
+var psw_c[63:0];
+
+instr = umem[pc_pa];
+
+// UADDCM encoding: opcode=0x02, sub-opcode=0x4C (bits 11:5)
+assume instr[31:26] == 0b000010;
+assume instr[11:6] == 0b100110;
+
+// PA-RISC opcode 0x02 convention: bits[25:21]=r2, bits[20:16]=r1
+r2 = instr[25:21];
+r1 = instr[20:16];
+t = instr[4:0];
+
+var psw_W[0:0];
+psw_W = psw[27];
+// d bit (instr[5]): 0=32-bit, 1=64-bit. Only use wide when PSW.W=1 AND d=1.
+var d_bit[0:0];
+d_bit = instr[5];
+var use_wide[0:0];
+use_wide = psw_W;
+src1 = (r1 == 0) ? 64'h0 : (use_wide ? rf[r1] : {{32{rf[r1][31]}}, rf[r1][31:0]});
+src2 = (r2 == 0) ? 64'h0 : (use_wide ? rf[r2] : {{32{rf[r2][31]}}, rf[r2][31:0]});
+
+// UADDCM: result = r1 + ones_complement(r2), 65-bit to capture carry
+res65 = {1'b0, src1} + {1'b0, ~src2};
+var result_raw[63:0];
+result_raw = res65[63:0];
+result = use_wide ? result_raw : {{32{result_raw[31]}}, result_raw[31:0]};
+carry_out = use_wide ? res65[64] : res65[32];
+// Word carry: carry from bit 31 (always)
+var carry_word[0:0];
+carry_word = res65[32];
+
+// Update PSW.C (bit 15) with MSB carry, PSW word carry (bit 14)
+psw_c = carry_out ? (psw | 64'h0000000000008000) : (psw & 64'hFFFFFFFFFFFF7FFF);
+var psw_cw[63:0];
+psw_cw = carry_word ? (psw_c | 64'h0000000000004000) : (psw_c & 64'hFFFFFFFFFFFFBFFF);
+psw when (~instr_trap_taken & ~in_nullified) = psw_cw;
+
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = result;
+pc = pc + 4;

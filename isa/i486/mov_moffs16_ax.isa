@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV moffs16, AX (0xA3)
+// Store AX to memory at direct address
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+isa_state DS[15:0];
+
+var offset_lo[7:0];
+var offset_hi[7:0];
+var offset[15:0];
+var phys_addr[19:0];
+
+instr = imem[eip];
+assume instr == 0xA3;
+
+offset_lo = imem[eip + 1];
+offset_hi = imem[eip + 2];
+offset = {offset_hi, offset_lo};
+
+phys_addr = (DS << 4) + offset;
+dmem[phys_addr] = xregs[0][7:0];
+dmem[phys_addr + 1] = xregs[0][15:8];
+
+// Update EIP: opcode (1) + offset (2) = 3 bytes
+eip = eip + 3;

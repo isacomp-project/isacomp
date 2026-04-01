@@ -1,0 +1,129 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 MOVE.B Dn,(bd16,An,Xn) - Move byte from data register to full indexed word displacement
+// Full ext: BS=0 (base used), IS=0 (index used), BD=word (16-bit), I/IS=0000
+// EA = An + sign_extend(bd16) + Xn * scale
+// Opcode: 0001 RRR 110 000 SSS + full ext + bd16
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var mbdfw_src_reg[2:0];
+var mbdfw_addr_reg[2:0];
+var mbdfw_ext[15:0];
+var mbdfw_idx_is_areg[0:0];
+var mbdfw_idx_reg[2:0];
+var mbdfw_idx_is_long[0:0];
+var mbdfw_scale[1:0];
+var mbdfw_idx_raw[31:0];
+var mbdfw_idx_val[31:0];
+var mbdfw_scaled_idx[31:0];
+var mbdfw_bd16[15:0];
+var mbdfw_bd16_ext[31:0];
+var mbdfw_eff_addr[31:0];
+var mbdfw_src_val[7:0];
+var mbdfw_mem_word[15:0];
+var mbdfw_new_word[15:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0001;  // MOVE.B
+assume instr[8:6] == 0b110;     // Dest mode: indexed
+assume instr[5:3] == 0b000;     // Source mode: Dn
+pc when (~m68k_exc_taken) = pc + 2;
+
+mbdfw_addr_reg = instr[11:9];
+mbdfw_src_reg = instr[2:0];
+
+// Fetch full extension word (for destination addressing)
+mbdfw_ext = dmem[pc + pc_pa_delta];
+assume mbdfw_ext[8] == 0b1;       // Full format
+assume mbdfw_ext[7] == 0b0;       // BS=0: base register used
+assume mbdfw_ext[6] == 0b0;       // IS=0: index used
+assume mbdfw_ext[5:4] == 0b10;    // BD size = word (16-bit)
+assume mbdfw_ext[3:0] == 0b0000;  // No memory indirect
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode extension word
+mbdfw_idx_is_areg = mbdfw_ext[15];
+mbdfw_idx_reg = mbdfw_ext[14:12];
+mbdfw_idx_is_long = mbdfw_ext[11];
+mbdfw_scale = mbdfw_ext[10:9];
+
+// Fetch 16-bit base displacement
+mbdfw_bd16 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+mbdfw_bd16_ext = {{16{mbdfw_bd16[15]}}, mbdfw_bd16};
+
+// Index value
+mbdfw_idx_raw = mbdfw_idx_is_areg ? aregs[mbdfw_idx_reg] : dregs[mbdfw_idx_reg];
+mbdfw_idx_val = mbdfw_idx_is_long ? mbdfw_idx_raw : (mbdfw_idx_raw[15] ? {16'hFFFF, mbdfw_idx_raw[15:0]} : {16'h0000, mbdfw_idx_raw[15:0]});
+
+// Scale
+mbdfw_scaled_idx = mbdfw_scale == 0 ? mbdfw_idx_val :
+                   mbdfw_scale == 1 ? (mbdfw_idx_val << 1) :
+                   mbdfw_scale == 2 ? (mbdfw_idx_val << 2) :
+                                      (mbdfw_idx_val << 3);
+
+// Effective address = An + sign_extend(bd16) + Xn*scale
+mbdfw_eff_addr = aregs[mbdfw_addr_reg] + mbdfw_bd16_ext + mbdfw_scaled_idx;
+
+// Get source data
+mbdfw_src_val = dregs[mbdfw_src_reg][7:0];
+
+// Read-modify-write: read word, update byte, write back (big-endian)
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = {mbdfw_eff_addr[31:1], 1'b0};
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+mbdfw_mem_word = dmem[ea_pa];
+#else
+mbdfw_mem_word = dmem[{mbdfw_eff_addr[31:1], 1'b0}];
+#endif
+mbdfw_new_word = mbdfw_eff_addr[0] ? {mbdfw_mem_word[15:8], mbdfw_src_val} : {mbdfw_src_val, mbdfw_mem_word[7:0]};
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = mbdfw_new_word;
+#else
+dmem[{mbdfw_eff_addr[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = mbdfw_new_word;
+#endif
+
+// Update CCR
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = mbdfw_src_val[7];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = mbdfw_src_val == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.mfspr - Move From Special Purpose Register
+// Format: l.mfspr rD, rA, K
+// rD <- SPR[spr_addr], where spr_addr = rA | K
+// SPR address space: bits[15:11] = group, bits[10:0] = index
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state spr[31:0][15:0];
+
+var rD[4:0];
+var rA[4:0];
+var imm[15:0];
+var spr_addr[15:0];
+var base[31:0];
+var data[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x2D;
+pc = pc + 4;
+rD = instr[25:21];
+rA = instr[20:16];
+imm = instr[15:0];
+
+base = rf[rA];
+spr_addr = base[15:0] | imm;
+
+data = spr[spr_addr];
+rf[rD] = data;

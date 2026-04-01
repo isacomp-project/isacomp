@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68K External Interrupt Handling Aspect
+// Checks for pending external interrupts and triggers exception processing.
+//
+// M68K interrupt conditions:
+// 1. IPL > SR interrupt mask (bits 10:8), OR IPL == 7 (NMI, always taken)
+// 2. Not in halted state (STOP waits for interrupt - that's handled separately)
+//
+// When an interrupt is taken:
+// - Sets m68k_exc_taken=1 to trigger exception processing
+// - Sets m68k_exc_vector to autovector number (24 + IPL level)
+// - Sets m68k_exc_new_ipl to the interrupt level (for SR mask update)
+//
+// The actual exception frame push and state update are in m68k_exception.isa.
+
+// External interrupt input (becomes a module input port)
+ext isa_state ipl[2:0];
+
+// System state
+isa_state sr[15:0];
+
+// Internal variables for interrupt checking
+var m68k_int_mask[2:0];         // Current interrupt mask from SR[10:8]
+var m68k_int_priority_ok[0:0];  // IPL > mask check
+var m68k_int_is_nmi[0:0];       // IPL == 7 (non-maskable)
+var m68k_int_should_take[0:0];  // All conditions met
+
+// Output variables (consumed by m68k_exception.isa)
+var m68k_exc_taken[0:0];
+var m68k_exc_vector[7:0];
+var m68k_exc_new_ipl[2:0];
+var m68k_exc_is_buserr[0:0];
+
+// Bus error from MMU instruction fetch fault (computed by atc_translate_instr aspect;
+// declaration only here so the compiler resolves it to the aspect's value)
+var instr_access_exception[0:0];
+
+// Instruction fault info (from atc_translate_instr.isa, declare-only to read)
+var instr_fault_addr[31:0];
+var instr_fault_ssw[15:0];
+
+// Bus error from MMU data access fault (computed by atc_translate_data aspect;
+// declaration only here so the compiler resolves it to the aspect's value.
+// For instructions without data ATC translation, this stays at 0.)
+var data_exc_taken[0:0];
+data_exc_taken = 1'b0;
+
+// Data fault info (from atc_translate_data.isa via OR-with-zero pattern;
+// default 0 here, overridden by data ATC aspect when present)
+var data_fault_addr[31:0];
+data_fault_addr = 32'd0;
+var data_fault_ssw[15:0];
+data_fault_ssw = 16'd0;
+
+// Merged bus error info: select data fault info when data fault, else instruction fault
+var m68k_bus_error_addr[31:0];
+m68k_bus_error_addr = data_exc_taken ? data_fault_addr : instr_fault_addr;
+var m68k_bus_error_ssw[15:0];
+m68k_bus_error_ssw = data_exc_taken ? data_fault_ssw : instr_fault_ssw;
+
+// Extract interrupt mask from SR bits [10:8]
+m68k_int_mask = sr[10:8];
+
+// Priority check: IPL must be strictly greater than current mask
+m68k_int_priority_ok = ipl > m68k_int_mask;
+
+// NMI check: IPL 7 is always taken (non-maskable)
+m68k_int_is_nmi = (ipl == 3'b111);
+
+// Take interrupt if (priority > mask) or NMI, and IPL != 0 (no interrupt)
+m68k_int_should_take = (m68k_int_priority_ok | m68k_int_is_nmi) & (ipl != 3'b000);
+
+// Bus error (vector 2) takes priority over external interrupt
+// Both instruction fetch faults AND data access faults trigger bus error
+m68k_exc_is_buserr = instr_access_exception | data_exc_taken;
+m68k_exc_taken = m68k_exc_is_buserr | m68k_int_should_take;
+
+// Vector: bus error = 2, interrupt = autovector (24 + IPL)
+m68k_exc_vector = m68k_exc_is_buserr ? 8'd2 : {5'b00011, ipl};
+
+// IPL mask update: keep current mask on bus error, use IPL on interrupt
+m68k_exc_new_ipl = m68k_exc_is_buserr ? m68k_int_mask : ipl;

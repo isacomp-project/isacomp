@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 EXTRU instruction (32-bit extract, 64-bit registers)
+// EXTRU r,pos,len,t - Extract Unsigned from 32-bit field
+// Extracts 'len' bits starting at position 'pos' from the low 32 bits of r,
+// zero-extends the result to 64 bits.
+// Opcode: 0x34 (bits 31:26), sub: bits[12:10]=110
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state sar[5:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var t[4:0];
+var pos[4:0];
+var clen[4:0];
+var len[5:0];
+var shift_amt[4:0];
+var src[63:0];
+var src32[31:0];
+var shifted[31:0];
+var mask[63:0];
+var res[63:0];
+var cond_eq[0:0];
+var cond_lt[0:0];
+var cond_od[0:0];
+var cond_base[0:0];
+var cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// EXTRU encoding: opcode=0x34, bits[12:10]=110
+assume instr[31:26] == 0b110100;
+assume instr[12:10] == 0b110;
+
+// Extract fields
+r = instr[25:21];
+t = instr[20:16];
+pos = instr[9:5];
+clen = instr[4:0];
+
+// Compute len and shift amount
+// len = 32 - clen (clen encodes 32-len)
+len = 6'b100000 - {1'b0, clen};
+// PA-RISC: "shifted right by 31 - pos positions"
+// pos field (bits[9:5]) is the PA-RISC bit position directly
+shift_amt = 5'b11111 - pos;
+
+// Read source register
+src = (r == 0) ? 64'h0 : rf[r];
+src32 = src[31:0];
+
+// Shift right and mask to extract 'len' bits
+shifted = src32 >> shift_amt;
+// mask = (1 << len) - 1
+mask = (64'h1 << len) - 64'h1;
+// Zero-extend to 64 bits
+res = {32'h0, shifted} & mask;
+
+// 3-bit conditional nullification (c=instr[15:13])
+cond_eq = (res == 0);
+cond_lt = res[63];
+cond_od = res[0];
+cond_base = (instr[13] & ~instr[14] & cond_eq) | (~instr[13] & instr[14] & cond_lt) | (instr[13] & instr[14] & cond_od);
+cond_met = cond_base ^ instr[15];
+psw when (cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC
+pc = pc + 4;

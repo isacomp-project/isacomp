@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CWDE (0x66 0x98 in 16-bit real mode)
+// Convert Word to Double Extended: Sign-extend AX into EAX
+// Same opcode as CBW but with 32-bit operand size (0x66 prefix in real mode)
+// No flags affected
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state EAX[31:0] of xregs[0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var sign_bit[0:0];
+
+// Fetch operand-size prefix (0x66 for 32-bit in real mode)
+instr = imem[eip];
+assume instr == 0x66;
+eip = eip + 1;
+
+// Fetch instruction opcode
+instr2 = imem[eip];
+assume instr2 == 0x98;
+eip = eip + 1;
+
+// Get sign bit of AX
+sign_bit = AX[15];
+
+// Sign-extend AX into EAX
+EAX = sign_bit ? {16'hFFFF, AX} : {16'h0000, AX};
+
+// CWDE does not affect any flags

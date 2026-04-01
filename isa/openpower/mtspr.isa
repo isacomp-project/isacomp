@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mtspr - Move To Special Purpose Register (XFX-Form)
+// mtspr SPR,RS
+// Primary opcode 31, XO=467
+// SPR <- (RS)
+// Note: This is a simplified version handling LR and CTR
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state lr[63:0];
+isa_state ctr[63:0];
+
+var rs[4:0];
+var spr[9:0];
+var spr_lo[4:0];
+var spr_hi[4:0];
+var rs_val[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 467
+assume instr[10:1] == 467;
+
+// Extract fields
+rs = instr[25:21];
+// SPR field is split: spr[4:0] in bits 20:16, spr[9:5] in bits 15:11
+spr_lo = instr[20:16];
+spr_hi = instr[15:11];
+spr = {spr_hi, spr_lo};
+
+rs_val = rf[rs];
+
+// Update SPR based on SPR number
+// SPR 8 = LR (Link Register)
+// SPR 9 = CTR (Count Register)
+lr when (spr == 10'h8) = rs_val;
+ctr when (spr == 10'h9) = rs_val;
+
+pc = pc + 4;

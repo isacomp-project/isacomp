@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV r32, TR4 (0x0F 24 /4)
+// Move test register 4 to general register
+// TR4 is used for cache testing on i486
+// Privileged instruction (CPL must be 0)
+// NOTE: Test registers were removed in Pentium
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state TR4[31:0];  // Test register 4 (cache test tag)
+
+isa_state imem[7:0][31:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+instr2 = imem[eip];
+assume instr2 == 0x24;
+eip = eip + 1;
+
+modrm = imem[eip];
+eip = eip + 1;
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume mod_bits == 0b11;
+assume reg_bits == 0b100;
+
+xregs[rm_bits] = TR4;

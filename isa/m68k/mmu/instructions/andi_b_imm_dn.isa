@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 ANDI.B #imm,Dn - AND Immediate Byte with Data Register
+// Opcode: 0000 0010 00 000 DDD followed by 16-bit word (byte in low 8 bits)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var imm_word[15:0];
+var imm_byte[7:0];
+var src_byte[7:0];
+var result_byte[7:0];
+var result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:8] == 0b00000010;  // ANDI
+assume instr[7:6] == 0b00;         // Byte size
+assume instr[5:3] == 0b000;        // EA mode: Dn
+pc when (~m68k_exc_taken) = pc + 2;
+
+dst_reg = instr[2:0];
+
+// Fetch 16-bit immediate (byte value in low 8 bits)
+imm_word = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+imm_byte = imm_word[7:0];
+
+// Execute AND on low byte only, preserve upper 24 bits
+src_byte = dregs[dst_reg][7:0];
+result_byte = src_byte & imm_byte;
+result = {dregs[dst_reg][31:8], result_byte};
+
+// Write result
+dregs[dst_reg] when (~m68k_exc_taken) = result;
+
+// Update CCR
+flag_N when (~m68k_exc_taken) = result_byte[7];
+flag_Z when (~m68k_exc_taken) = result_byte == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

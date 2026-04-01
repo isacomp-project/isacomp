@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 CVT.S.D - Convert Double to Single
+// Encoding: COP1 (010001), fmt=D (10001), 00000, fs, fd, func=CVT.S (100000)
+// CVT.S.D fd, fs: fd = (float)fs
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[63:0][4:0];
+isa_state fcsr[31:0];
+mem umem[12:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+var fs[4:0];
+var fd[4:0];
+var f1[63:0];
+var result[31:0];
+var rm[2:0];
+
+instr = umem[pc];
+assume instr[31:26] == 0b010001;   // COP1 opcode
+assume instr[25:21] == 0b10001;    // fmt = D (source is double)
+assume instr[20:16] == 0b00000;    // ft = 0
+assume instr[5:0] == 0b100000;     // func = CVT.S
+
+pc = pc + 4;
+
+fd = instr[10:6];
+fs = instr[15:11];
+
+f1 = frf[fs];
+
+rm = {1'b0, fcsr[1], fcsr[1] ^ fcsr[0]};
+
+// Convert double to single (may need rounding)
+result = fp_d2s(f1, rm);
+
+// Store in lower 32 bits, NaN-box upper bits
+frf[fd] = {32'hFFFFFFFF, result};

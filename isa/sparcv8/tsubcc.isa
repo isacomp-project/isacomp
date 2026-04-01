@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 TSUBcc instruction (tagged subtract, set condition codes)
+// Format 3: op=10, op3=100001
+// TSUBcc rs1, reg_or_imm, rd
+// rd <- rs1 - reg_or_imm, set icc
+// Tag overflow if either of low 2 bits of operands are non-zero or result overflows
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];  // 256 physical registers (136 used for 8 windows)
+isa_state cwp[2:0];       // Current Window Pointer (0-7)
+isa_state psr[31:0];      // Processor State Register (icc in bits 23:20)
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+
+var rd[4:0];
+var rs1[4:0];
+var imm[0:0];
+var rs2[4:0];
+var simm13[12:0];
+
+var r1[31:0];
+var r2[31:0];
+var operand2[31:0];
+var res[31:0];
+var res33[32:0];
+
+// Condition code temps
+var icc_n[0:0];
+var icc_z[0:0];
+var icc_v[0:0];
+var icc_c[0:0];
+var new_psr[31:0];
+var arith_overflow[0:0];
+var tag_overflow[0:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+var phys_rd[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;       // op = 10 (Format 3)
+assume instr[24:19] == 0b100001;   // op3 = TSUBcc
+
+rd = instr[29:25];
+rs1 = instr[18:14];
+imm = instr[13];
+rs2 = instr[4:0];
+simm13 = instr[12:0];
+
+// Compute physical register indices for windowed register file
+cwp_m1 = cwp + 3'b111;  // cwp - 1 mod 8
+phys_rs1 = (rs1[4:3] == 2'b00) ? {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs1[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs1[2:0]};
+phys_rs2 = (rs2[4:3] == 2'b00) ? {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs2[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs2[2:0]};
+phys_rd = (rd[4:3] == 2'b00) ? {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rd[2:0]} :
+          ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rd[2:0]};
+
+r1 = (rs1 == 0) ? 32'b0 : rf[phys_rs1];
+r2 = (rs2 == 0) ? 32'b0 : rf[phys_rs2];
+operand2 = imm ? {{19{simm13[12]}}, simm13} : r2;
+
+// Perform subtraction with borrow detection
+res33 = {1'b0, r1} - {1'b0, operand2};
+res = res33[31:0];
+
+// Arithmetic overflow (different sign operands, result sign differs from r1)
+arith_overflow = (r1[31] != operand2[31]) & (r1[31] != res[31]);
+
+// Tag overflow: either operand has non-zero low 2 bits, or arithmetic overflow
+tag_overflow = (r1[1:0] != 2'b00) | (operand2[1:0] != 2'b00) | arith_overflow;
+
+// Compute condition codes
+icc_n = res[31];                   // Negative
+icc_z = (res == 32'b0);            // Zero
+icc_c = res33[32];                 // Borrow (carry for subtraction)
+icc_v = tag_overflow;              // Overflow (tag overflow for TSUBcc)
+
+// Update PSR with new icc (bits 23:20 = n,z,v,c)
+new_psr = {psr[31:24], icc_n, icc_z, icc_v, icc_c, psr[19:0]};
+
+// Write result
+rf[phys_rd] when (rd != 0) = res;
+psr = new_psr;
+pc = pc + 4;

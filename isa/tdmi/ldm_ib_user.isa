@@ -1,0 +1,354 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TDMI LDM (Load Multiple) - Increment Before with S=1 (User bank access)
+// Encoding: cond|100|1|1|1|W|1|Rn|register_list
+// LDMIB{cond} Rn{!}, {register_list}^
+//
+// When S=1:
+//   - If R15 in register_list: Also loads CPSR from SPSR (exception return)
+//   - If R15 NOT in register_list: Loads from User mode registers
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];           // R0-R14 User/System mode
+isa_state cpsr[31:0];
+
+// Banked registers for FIQ mode (R8-R14)
+isa_state rf_fiq[31:0][2:0];       // R8_fiq(0) - R14_fiq(6)
+
+// Banked SP/LR for other privileged modes
+isa_state rf_irq_sp[31:0];
+isa_state rf_irq_lr[31:0];
+isa_state rf_svc_sp[31:0];
+isa_state rf_svc_lr[31:0];
+isa_state rf_abt_sp[31:0];
+isa_state rf_abt_lr[31:0];
+isa_state rf_und_sp[31:0];
+isa_state rf_und_lr[31:0];
+
+// Saved Program Status Registers
+isa_state spsr_fiq[31:0];
+isa_state spsr_irq[31:0];
+isa_state spsr_svc[31:0];
+isa_state spsr_abt[31:0];
+isa_state spsr_und[31:0];
+
+mem umem[21:0];
+
+var cond[3:0];
+var w_bit[0:0];
+var rn[3:0];
+var register_list[15:0];
+var Rn_val[31:0];
+var base[31:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+
+// Mode detection
+var mode[4:0];
+var is_fiq[0:0];
+var is_irq[0:0];
+var is_svc[0:0];
+var is_abt[0:0];
+var is_und[0:0];
+var rn_fiq_idx[2:0];
+var is_priv[0:0];
+
+// SPSR for current mode
+var current_spsr[31:0];
+
+// Cumulative population counts
+var pop0[4:0];
+var pop1[4:0];
+var pop2[4:0];
+var pop3[4:0];
+var pop4[4:0];
+var pop5[4:0];
+var pop6[4:0];
+var pop7[4:0];
+var pop8[4:0];
+var pop9[4:0];
+var pop10[4:0];
+var pop11[4:0];
+var pop12[4:0];
+var pop13[4:0];
+var pop14[4:0];
+var pop15[4:0];
+var total_count[4:0];
+
+// Addresses for each register
+var addr0[31:0];
+var addr1[31:0];
+var addr2[31:0];
+var addr3[31:0];
+var addr4[31:0];
+var addr5[31:0];
+var addr6[31:0];
+var addr7[31:0];
+var addr8[31:0];
+var addr9[31:0];
+var addr10[31:0];
+var addr11[31:0];
+var addr12[31:0];
+var addr13[31:0];
+var addr14[31:0];
+var addr15[31:0];
+
+// Loaded data
+var data0[31:0];
+var data1[31:0];
+var data2[31:0];
+var data3[31:0];
+var data4[31:0];
+var data5[31:0];
+var data6[31:0];
+var data7[31:0];
+var data8[31:0];
+var data9[31:0];
+var data10[31:0];
+var data11[31:0];
+var data12[31:0];
+var data13[31:0];
+var data14[31:0];
+var data15[31:0];
+
+var new_rn[31:0];
+
+// Per-register enable signals
+var en0[0:0];
+var en1[0:0];
+var en2[0:0];
+var en3[0:0];
+var en4[0:0];
+var en5[0:0];
+var en6[0:0];
+var en7[0:0];
+var en8[0:0];
+var en9[0:0];
+var en10[0:0];
+var en11[0:0];
+var en12[0:0];
+var en13[0:0];
+var en14[0:0];
+var en15[0:0];
+var en_wb[0:0];
+
+var load_cpsr[0:0];
+var to_user_bank[0:0];
+
+instr = umem[pc];
+
+// LDM IB with S=1: P=1, U=1, S=1, L=1
+assume instr[27:25] == 0b100;
+assume instr[24] == 0b1;       // P=1 (pre-indexed / increment before)
+assume instr[23] == 0b1;       // U=1 (increment)
+assume instr[22] == 0b1;       // S=1 (user mode / PSR transfer)
+assume instr[20] == 0b1;       // L=1 (load)
+
+cond = instr[31:28];
+w_bit = instr[21];
+rn = instr[19:16];
+register_list = instr[15:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |
+            ((cond == 0b0000) & z_flag) |
+            ((cond == 0b0001) & ~z_flag) |
+            ((cond == 0b0010) & c_flag) |
+            ((cond == 0b0011) & ~c_flag) |
+            ((cond == 0b0100) & n_flag) |
+            ((cond == 0b0101) & ~n_flag) |
+            ((cond == 0b0110) & v_flag) |
+            ((cond == 0b0111) & ~v_flag) |
+            ((cond == 0b1000) & c_flag & ~z_flag) |
+            ((cond == 0b1001) & (~c_flag | z_flag)) |
+            ((cond == 0b1010) & (n_flag == v_flag)) |
+            ((cond == 0b1011) & (n_flag != v_flag)) |
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) |
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag)));
+
+// Detect current processor mode
+mode = cpsr[4:0];
+is_fiq = (mode == 5'b10001);
+is_irq = (mode == 5'b10010);
+is_svc = (mode == 5'b10011);
+is_abt = (mode == 5'b10111);
+is_und = (mode == 5'b11011);
+rn_fiq_idx = rn[2:0];
+is_priv = is_fiq | is_irq | is_svc | is_abt | is_und;
+
+current_spsr = is_fiq ? spsr_fiq :
+               is_irq ? spsr_irq :
+               is_svc ? spsr_svc :
+               is_abt ? spsr_abt :
+               is_und ? spsr_und :
+               cpsr;
+
+// Read Rn from current mode's register bank
+Rn_val = (rn == 0b1111) ? (pc + 8) :
+         (rn == 4'b1101) ? (is_fiq ? rf_fiq[5] :
+                           is_irq ? rf_irq_sp :
+                           is_svc ? rf_svc_sp :
+                           is_abt ? rf_abt_sp :
+                           is_und ? rf_und_sp :
+                           rf[13]) :
+         (rn == 4'b1110) ? (is_fiq ? rf_fiq[6] :
+                           is_irq ? rf_irq_lr :
+                           is_svc ? rf_svc_lr :
+                           is_abt ? rf_abt_lr :
+                           is_und ? rf_und_lr :
+                           rf[14]) :
+         ((rn[3] == 1'b1) & (rn != 4'b1111) & is_fiq) ? rf_fiq[rn_fiq_idx] :
+         rf[rn];
+
+// Compute cumulative population counts
+pop0 = 0;
+pop1 = {4'b0, register_list[0]};
+pop2 = pop1 + {4'b0, register_list[1]};
+pop3 = pop2 + {4'b0, register_list[2]};
+pop4 = pop3 + {4'b0, register_list[3]};
+pop5 = pop4 + {4'b0, register_list[4]};
+pop6 = pop5 + {4'b0, register_list[5]};
+pop7 = pop6 + {4'b0, register_list[6]};
+pop8 = pop7 + {4'b0, register_list[7]};
+pop9 = pop8 + {4'b0, register_list[8]};
+pop10 = pop9 + {4'b0, register_list[9]};
+pop11 = pop10 + {4'b0, register_list[10]};
+pop12 = pop11 + {4'b0, register_list[11]};
+pop13 = pop12 + {4'b0, register_list[12]};
+pop14 = pop13 + {4'b0, register_list[13]};
+pop15 = pop14 + {4'b0, register_list[14]};
+total_count = pop15 + {4'b0, register_list[15]};
+
+// IB mode: base = Rn + 4, addr = base + 4*position
+base = Rn_val + 4;
+addr0 = base + {25'b0, pop0, 2'b00};
+addr1 = base + {25'b0, pop1, 2'b00};
+addr2 = base + {25'b0, pop2, 2'b00};
+addr3 = base + {25'b0, pop3, 2'b00};
+addr4 = base + {25'b0, pop4, 2'b00};
+addr5 = base + {25'b0, pop5, 2'b00};
+addr6 = base + {25'b0, pop6, 2'b00};
+addr7 = base + {25'b0, pop7, 2'b00};
+addr8 = base + {25'b0, pop8, 2'b00};
+addr9 = base + {25'b0, pop9, 2'b00};
+addr10 = base + {25'b0, pop10, 2'b00};
+addr11 = base + {25'b0, pop11, 2'b00};
+addr12 = base + {25'b0, pop12, 2'b00};
+addr13 = base + {25'b0, pop13, 2'b00};
+addr14 = base + {25'b0, pop14, 2'b00};
+addr15 = base + {25'b0, pop15, 2'b00};
+
+// Load data from memory
+data0 = umem[addr0];
+data1 = umem[addr1];
+data2 = umem[addr2];
+data3 = umem[addr3];
+data4 = umem[addr4];
+data5 = umem[addr5];
+data6 = umem[addr6];
+data7 = umem[addr7];
+data8 = umem[addr8];
+data9 = umem[addr9];
+data10 = umem[addr10];
+data11 = umem[addr11];
+data12 = umem[addr12];
+data13 = umem[addr13];
+data14 = umem[addr14];
+data15 = umem[addr15];
+
+// Compute per-register enable signals
+en0 = cond_pass & register_list[0];
+en1 = cond_pass & register_list[1];
+en2 = cond_pass & register_list[2];
+en3 = cond_pass & register_list[3];
+en4 = cond_pass & register_list[4];
+en5 = cond_pass & register_list[5];
+en6 = cond_pass & register_list[6];
+en7 = cond_pass & register_list[7];
+en8 = cond_pass & register_list[8];
+en9 = cond_pass & register_list[9];
+en10 = cond_pass & register_list[10];
+en11 = cond_pass & register_list[11];
+en12 = cond_pass & register_list[12];
+en13 = cond_pass & register_list[13];
+en14 = cond_pass & register_list[14];
+en15 = cond_pass & register_list[15];
+en_wb = cond_pass & w_bit & (rn != 0b1111);
+
+load_cpsr = cond_pass & register_list[15] & is_priv;
+to_user_bank = ~register_list[15];  // User bank if R15 not in list
+
+// Write to USER mode registers (S=1 forces user bank access)
+rf[0] when (en0) = data0;
+rf[1] when (en1) = data1;
+rf[2] when (en2) = data2;
+rf[3] when (en3) = data3;
+rf[4] when (en4) = data4;
+rf[5] when (en5) = data5;
+rf[6] when (en6) = data6;
+rf[7] when (en7) = data7;
+rf[8] when (en8 & to_user_bank) = data8;
+rf[8] when (en8 & ~to_user_bank & ~is_fiq) = data8;
+rf_fiq[0] when (en8 & ~to_user_bank & is_fiq) = data8;
+rf[9] when (en9 & to_user_bank) = data9;
+rf[9] when (en9 & ~to_user_bank & ~is_fiq) = data9;
+rf_fiq[1] when (en9 & ~to_user_bank & is_fiq) = data9;
+rf[10] when (en10 & to_user_bank) = data10;
+rf[10] when (en10 & ~to_user_bank & ~is_fiq) = data10;
+rf_fiq[2] when (en10 & ~to_user_bank & is_fiq) = data10;
+rf[11] when (en11 & to_user_bank) = data11;
+rf[11] when (en11 & ~to_user_bank & ~is_fiq) = data11;
+rf_fiq[3] when (en11 & ~to_user_bank & is_fiq) = data11;
+rf[12] when (en12 & to_user_bank) = data12;
+rf[12] when (en12 & ~to_user_bank & ~is_fiq) = data12;
+rf_fiq[4] when (en12 & ~to_user_bank & is_fiq) = data12;
+rf[13] when (en13 & to_user_bank) = data13;
+rf[13] when (en13 & ~to_user_bank & ~is_fiq & ~is_irq & ~is_svc & ~is_abt & ~is_und) = data13;
+rf_fiq[5] when (en13 & ~to_user_bank & is_fiq) = data13;
+rf_irq_sp when (en13 & ~to_user_bank & is_irq) = data13;
+rf_svc_sp when (en13 & ~to_user_bank & is_svc) = data13;
+rf_abt_sp when (en13 & ~to_user_bank & is_abt) = data13;
+rf_und_sp when (en13 & ~to_user_bank & is_und) = data13;
+rf[14] when (en14 & to_user_bank) = data14;
+rf[14] when (en14 & ~to_user_bank & ~is_fiq & ~is_irq & ~is_svc & ~is_abt & ~is_und) = data14;
+rf_fiq[6] when (en14 & ~to_user_bank & is_fiq) = data14;
+rf_irq_lr when (en14 & ~to_user_bank & is_irq) = data14;
+rf_svc_lr when (en14 & ~to_user_bank & is_svc) = data14;
+rf_abt_lr when (en14 & ~to_user_bank & is_abt) = data14;
+rf_und_lr when (en14 & ~to_user_bank & is_und) = data14;
+
+// Writeback: Rn = Rn + 4*count (writes to current mode's Rn)
+new_rn = Rn_val + {25'b0, total_count, 2'b00};
+
+rf[rn] when (en_wb & ~register_list[rn] & (~is_fiq | ~rn[3]) & (rn != 4'b1101) & (rn != 4'b1110)) = new_rn;
+rf[rn] when (en_wb & ~register_list[rn] & ~is_fiq & ~is_irq & ~is_svc & ~is_abt & ~is_und & ((rn == 4'b1101) | (rn == 4'b1110))) = new_rn;
+// FIQ mode R8-R12 with explicit indices (workaround for graph merger)
+rf_fiq[0] when (en_wb & ~register_list[rn] & is_fiq & (rn == 4'b1000)) = new_rn;
+rf_fiq[1] when (en_wb & ~register_list[rn] & is_fiq & (rn == 4'b1001)) = new_rn;
+rf_fiq[2] when (en_wb & ~register_list[rn] & is_fiq & (rn == 4'b1010)) = new_rn;
+rf_fiq[3] when (en_wb & ~register_list[rn] & is_fiq & (rn == 4'b1011)) = new_rn;
+rf_fiq[4] when (en_wb & ~register_list[rn] & is_fiq & (rn == 4'b1100)) = new_rn;
+rf_fiq[5] when (en_wb & ~register_list[rn] & is_fiq & (rn == 4'b1101)) = new_rn;
+rf_fiq[6] when (en_wb & ~register_list[rn] & is_fiq & (rn == 4'b1110)) = new_rn;
+rf_irq_sp when (en_wb & ~register_list[rn] & is_irq & (rn == 4'b1101)) = new_rn;
+rf_irq_lr when (en_wb & ~register_list[rn] & is_irq & (rn == 4'b1110)) = new_rn;
+rf_svc_sp when (en_wb & ~register_list[rn] & is_svc & (rn == 4'b1101)) = new_rn;
+rf_svc_lr when (en_wb & ~register_list[rn] & is_svc & (rn == 4'b1110)) = new_rn;
+rf_abt_sp when (en_wb & ~register_list[rn] & is_abt & (rn == 4'b1101)) = new_rn;
+rf_abt_lr when (en_wb & ~register_list[rn] & is_abt & (rn == 4'b1110)) = new_rn;
+rf_und_sp when (en_wb & ~register_list[rn] & is_und & (rn == 4'b1101)) = new_rn;
+rf_und_lr when (en_wb & ~register_list[rn] & is_und & (rn == 4'b1110)) = new_rn;
+
+// Update CPSR from SPSR if R15 in list and in privileged mode
+cpsr when (load_cpsr) = current_spsr;
+
+// Update PC
+pc = en15 ? data15 : (pc + 4);

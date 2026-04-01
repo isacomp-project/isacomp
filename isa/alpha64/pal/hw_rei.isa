@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HW_REI - Hardware Return from Exception/Interrupt
+//
+// Format: opcode[31:26] = 0x1E, rest is implementation-defined
+//
+// Returns from PAL mode to the address in exc_addr.
+// Exits PAL mode and restores interrupt state from PS.
+//
+// This instruction is only valid in PAL mode.
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[63:0];
+
+// PAL state
+isa_state pal_mode[0:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state ipl[5:0];
+
+// ITB translation state (makes ITB signals global across all instructions)
+isa_state pal_base[63:0];
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+
+// Interrupt state
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+
+// Exception state
+isa_state va[63:0];
+isa_state lock_flag[0:0];
+
+// ITB translation for instruction fetch
+aspect ../vm/aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect ../vm/aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+instr = umem[pc_pa];
+assume instr[31:26] == 30;
+assume pal_mode == 1;
+
+// Interrupt handling (higher priority than ITB fault)
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+
+// ITB fault handling (when no interrupt)
+va when (take_interrupt == 0 && itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+
+// Normal execution (gated by no fault)
+// Exit PAL mode
+pal_mode when (take_interrupt == 0 && itb_fault == 0) = 0;
+
+// Jump to saved exception address.
+// Note: exc_addr bit 0 (retry flag) is cleared by PALcode before
+// hw_rei when returning from faults (bic exc_addr, 1, exc_addr).
+// Note: IPL is NOT modified here - PALcode explicitly manages IPL
+// via hw_mtpr before calling hw_rei. This ensures swpipl, interrupt
+// handlers, and other PAL routines can control the interrupt level.
+pc when (take_interrupt == 0 && itb_fault == 0) = exc_addr & 64'hFFFFFFFFFFFFFFFE;

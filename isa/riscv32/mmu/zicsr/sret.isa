@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[23:0];
+mem csr[11:0];
+
+// Dedicated CSR registers as isa_state (for MMU aspect)
+isa_state priv_mode[1:0];      // Privilege mode: 0=U-mode, 1=S-mode, 3=M-mode
+isa_state satp[31:0];          // Supervisor Address Translation and Protection (0x180)
+isa_state mtvec[31:0];         // Machine Trap-Vector Base-Address (0x305)
+isa_state mepc[31:0];          // Machine Exception Program Counter (0x341)
+isa_state mcause[31:0];        // Machine Cause (0x342)
+isa_state mtval[31:0];         // Machine Trap Value (0x343)
+isa_state medeleg[31:0];       // Machine Exception Delegation (0x302)
+isa_state sepc[31:0];          // Supervisor Exception Program Counter (0x141)
+isa_state stvec[31:0];         // Supervisor Trap-Vector Base-Address (0x105)
+isa_state scause[31:0];        // Supervisor Cause (0x142)
+isa_state stval[31:0];         // Supervisor Trap Value (0x143)
+isa_state sscratch[31:0];      // Supervisor Scratch (0x140)
+isa_state sstatus[31:0];       // Supervisor Status (0x100) - SPP is bit 8
+isa_state mie[31:0];           // Machine Interrupt Enable (0x304)
+isa_state mstatus[31:0];       // Machine Status (0x300)
+ext isa_state timer_irq_pending[0:0]; // Timer interrupt pending from CLINT
+
+var sepc_val[31:0];
+var spp_bit[0:0];              // Previous privilege level from SSTATUS.SPP
+var new_sstatus_sret[31:0];    // Updated sstatus after SRET
+
+// Virtual memory translation
+aspect ../mmu.isa gates pc, priv_mode, mepc, mcause, mtval, sepc, scause, stval, mstatus, sstatus;
+
+instr = umem[pc_pa];
+
+// SRET instruction encoding: 0x10200073
+// opcode: 0b1110011 (SYSTEM)
+// funct3: 0b000
+// rs1: 0b00000
+// rd: 0b00000
+// imm[11:0]: 0x102 (0001 0000 0010)
+assume instr[6:0] == 0b1110011;
+assume instr[14:12] == 0b000;
+assume instr[19:15] == 0b00000;
+assume instr[11:7] == 0b00000;
+assume instr[31:20] == 12'h102;
+
+// Read SEPC from dedicated register
+sepc_val = sepc;
+
+// Read SPP bit from SSTATUS (bit 8)
+// SPP=0 means return to U-mode (00), SPP=1 means return to S-mode (01)
+spp_bit = sstatus[8];
+
+// Restore privilege mode from SPP
+// priv_mode[1] is always 0 for S/U-mode, priv_mode[0] = SPP
+priv_mode = {1'b0, spp_bit};
+
+// Update sstatus per RISC-V spec:
+// - SIE (bit 1) = old SPIE (bit 5)
+// - SPIE (bit 5) = 1
+// - SPP (bit 8) = 0 (least-privileged mode)
+new_sstatus_sret = (sstatus & 32'hFFFFFEDD) |   // Clear SPP(8), SPIE(5), SIE(1)
+                   ({31'b0, sstatus[5]} << 1) |  // SIE = old SPIE
+                   32'h00000020;                  // SPIE = 1
+sstatus = new_sstatus_sret;
+
+// Set PC to SEPC value
+pc = sepc_val;

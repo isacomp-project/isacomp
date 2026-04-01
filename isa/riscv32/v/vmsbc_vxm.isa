@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmsbc.vxm - Borrow-out of Subtract with Borrow (vector-scalar, masked)
+// Encoding: vmsbc.vxm vd, vs2, rs1, v0
+// Operation: vd.mask[i] = borrow_out(vs2[i] - x[rs1] - v0.mask[i])
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var scalar[31:0];
+var v2[127:0];
+var v0[127:0];
+var res[127:0];
+var borrow0[0:0];
+var borrow1[0:0];
+var borrow2[0:0];
+var borrow3[0:0];
+var bout0[0:0];
+var bout1[0:0];
+var bout2[0:0];
+var bout3[0:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b100;
+assume instr[31:26] == 0b010011;
+assume instr[25:25] == 0b0;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+
+scalar = rf[rs1];
+v2 = vrf[vs2];
+v0 = vrf[0];
+
+borrow0 = v0[0];
+borrow1 = v0[1];
+borrow2 = v0[2];
+borrow3 = v0[3];
+
+bout0 = (v2[31:0] < scalar) || ((v2[31:0] == scalar) && borrow0);
+bout1 = (v2[63:32] < scalar) || ((v2[63:32] == scalar) && borrow1);
+bout2 = (v2[95:64] < scalar) || ((v2[95:64] == scalar) && borrow2);
+bout3 = (v2[127:96] < scalar) || ((v2[127:96] == scalar) && borrow3);
+
+res = 128'b0;
+res[0] = bout0;
+res[1] = bout1;
+res[2] = bout2;
+res[3] = bout3;
+
+vrf[vd] = res;

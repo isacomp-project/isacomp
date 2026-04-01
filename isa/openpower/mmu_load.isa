@@ -1,0 +1,239 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER Radix MMU Data Load Translation Aspect
+// Translates virtual EA to physical ea_pa for data loads
+// Uses MSR[DR] (bit 4 in LE numbering) to control data address translation
+// Raises DSI (Data Storage Interrupt, vector 0x300) on translation failure
+//
+// Radix tree walk (4K pages, PAGE_SHIFT=12):
+//   PGD index: EA[51:39] (13 bits)
+//   PUD index: EA[38:30] (9 bits)
+//   PMD index: EA[29:21] (9 bits)
+//   PTE index: EA[20:12] (9 bits)
+//   Page offset: EA[11:0] (12 bits)
+//
+// PDE/PTE format: Bit 63=V (valid), Bit 62=L (leaf), Bits[56:12]=RPN/NLB
+//
+// Requires: ea variable must be defined before including this aspect
+
+// Physical address for data access (output of this aspect)
+var ea_pa[63:0];
+
+// Exception signal for loads
+var load_exception_taken[0:0];
+
+// ISA state declarations
+isa_state msr[63:0];
+isa_state prtbl[63:0];
+isa_state pidr[63:0];
+isa_state srr0[63:0];
+isa_state srr1[63:0];
+isa_state dar[63:0];
+isa_state dsisr[31:0];
+isa_state pc[63:0];
+
+// Memory declaration
+mem umem[14:0];
+
+// ---------------------------------------------------------------------------
+// MSR[DR] - Data Relocate bit (bit 4 in LE numbering)
+// ---------------------------------------------------------------------------
+var ld_msr_dr[0:0];
+ld_msr_dr = msr[4];
+
+// ---------------------------------------------------------------------------
+// Extract EA components for Radix page table walk
+// ---------------------------------------------------------------------------
+var ld_pgd_idx[12:0];
+var ld_pud_idx[8:0];
+var ld_pmd_idx[8:0];
+var ld_pte_idx[8:0];
+var ld_page_offset[11:0];
+
+ld_pgd_idx = ea[51:39];
+ld_pud_idx = ea[38:30];
+ld_pmd_idx = ea[29:21];
+ld_pte_idx = ea[20:12];
+ld_page_offset = ea[11:0];
+
+// ---------------------------------------------------------------------------
+// Step 1: Partition table lookup
+// partition_table_base = prtbl[63:12] << 12
+// ---------------------------------------------------------------------------
+var ld_part_tbl_base[63:0];
+ld_part_tbl_base = {prtbl[63:12], 12'b0};
+
+// ---------------------------------------------------------------------------
+// Step 2: Read PATE[1] from partition table (LPID=0)
+// ---------------------------------------------------------------------------
+var ld_pate1_addr[63:0];
+var ld_pate1[63:0];
+
+ld_pate1_addr = ld_part_tbl_base + 8;
+ld_pate1 = ld_msr_dr ? umem[ld_pate1_addr] : 0;
+
+// ---------------------------------------------------------------------------
+// Step 3: Process table base from PATE[1][51:12]
+// ---------------------------------------------------------------------------
+var ld_proc_tbl_base[63:0];
+ld_proc_tbl_base = {12'b0, ld_pate1[51:12], 12'b0};
+
+// ---------------------------------------------------------------------------
+// Step 4: Read PRTE[0] from process table
+// PID selection depends on EA quadrant (Power ISA Book III, Sec 5.7.6):
+//   Quadrant 0 (EA[63:62] = 00): use PIDR
+//   Quadrant 3 (EA[63:62] = 11): use PID=0 (kernel mapping)
+// ---------------------------------------------------------------------------
+var ld_is_quadrant3[0:0];
+var ld_effective_pid[63:0];
+var ld_pid_offset[63:0];
+var ld_prte0_addr[63:0];
+var ld_prte0[63:0];
+
+ld_is_quadrant3 = ea[63] & ea[62];
+ld_effective_pid = ld_is_quadrant3 ? 0 : pidr;
+ld_pid_offset = ld_effective_pid << 4;
+ld_prte0_addr = ld_proc_tbl_base + ld_pid_offset;
+ld_prte0 = ld_msr_dr ? umem[ld_prte0_addr] : 0;
+
+// ---------------------------------------------------------------------------
+// Step 5: Radix Page Directory Base from PRTE[0][56:12]
+// ---------------------------------------------------------------------------
+var ld_rpdb[63:0];
+ld_rpdb = {7'b0, ld_prte0[56:12], 12'b0};
+
+// ===========================================================================
+// Step 6: 4-level Radix tree walk
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Level 1 (PGD): index with EA[51:39] (13 bits)
+// ---------------------------------------------------------------------------
+var ld_pgd_addr[63:0];
+var ld_pgd_entry[63:0];
+var ld_pgd_v[0:0];
+var ld_pgd_l[0:0];
+var ld_pgd_nlb[63:0];
+
+ld_pgd_addr = ld_rpdb + (ld_pgd_idx << 3);
+ld_pgd_entry = ld_msr_dr ? umem[ld_pgd_addr] : 0;
+ld_pgd_v = ld_pgd_entry[63];
+ld_pgd_l = ld_pgd_entry[62];
+ld_pgd_nlb = {7'b0, ld_pgd_entry[56:12], 12'b0};
+
+// ---------------------------------------------------------------------------
+// Level 2 (PUD): index with EA[38:30] (9 bits)
+// ---------------------------------------------------------------------------
+var ld_need_pud[0:0];
+var ld_pud_addr[63:0];
+var ld_pud_entry[63:0];
+var ld_pud_v[0:0];
+var ld_pud_l[0:0];
+var ld_pud_nlb[63:0];
+
+ld_need_pud = ld_pgd_v & ~ld_pgd_l;
+ld_pud_addr = ld_need_pud ? (ld_pgd_nlb + (ld_pud_idx << 3)) : 0;
+ld_pud_entry = (ld_msr_dr & ld_need_pud) ? umem[ld_pud_addr] : 0;
+ld_pud_v = ld_pud_entry[63];
+ld_pud_l = ld_pud_entry[62];
+ld_pud_nlb = {7'b0, ld_pud_entry[56:12], 12'b0};
+
+// ---------------------------------------------------------------------------
+// Level 3 (PMD): index with EA[29:21] (9 bits)
+// ---------------------------------------------------------------------------
+var ld_need_pmd[0:0];
+var ld_pmd_addr[63:0];
+var ld_pmd_entry[63:0];
+var ld_pmd_v[0:0];
+var ld_pmd_l[0:0];
+var ld_pmd_nlb[63:0];
+
+ld_need_pmd = ld_need_pud & ld_pud_v & ~ld_pud_l;
+ld_pmd_addr = ld_need_pmd ? (ld_pud_nlb + (ld_pmd_idx << 3)) : 0;
+ld_pmd_entry = (ld_msr_dr & ld_need_pmd) ? umem[ld_pmd_addr] : 0;
+ld_pmd_v = ld_pmd_entry[63];
+ld_pmd_l = ld_pmd_entry[62];
+ld_pmd_nlb = {7'b0, ld_pmd_entry[56:12], 12'b0};
+
+// ---------------------------------------------------------------------------
+// Level 4 (PTE): index with EA[20:12] (9 bits)
+// ---------------------------------------------------------------------------
+var ld_need_pte[0:0];
+var ld_pte_addr[63:0];
+var ld_pte_entry[63:0];
+var ld_pte_v[0:0];
+var ld_pte_l[0:0];
+
+ld_need_pte = ld_need_pmd & ld_pmd_v & ~ld_pmd_l;
+ld_pte_addr = ld_need_pte ? (ld_pmd_nlb + (ld_pte_idx << 3)) : 0;
+ld_pte_entry = (ld_msr_dr & ld_need_pte) ? umem[ld_pte_addr] : 0;
+ld_pte_v = ld_pte_entry[63];
+ld_pte_l = ld_pte_entry[62];
+
+// ===========================================================================
+// Determine translation validity
+// Translation is valid if we found a valid leaf at any level
+// ===========================================================================
+var ld_is_pgd_leaf[0:0];
+var ld_is_pud_leaf[0:0];
+var ld_is_pmd_leaf[0:0];
+var ld_is_pte_leaf[0:0];
+
+ld_is_pgd_leaf = ld_pgd_v & ld_pgd_l;
+ld_is_pud_leaf = ld_need_pud & ld_pud_v & ld_pud_l;
+ld_is_pmd_leaf = ld_need_pmd & ld_pmd_v & ld_pmd_l;
+ld_is_pte_leaf = ld_need_pte & ld_pte_v & ld_pte_l;
+
+var ld_translation_valid[0:0];
+ld_translation_valid = ld_is_pgd_leaf | ld_is_pud_leaf | ld_is_pmd_leaf | ld_is_pte_leaf;
+
+// ===========================================================================
+// Exception: DSI (Data Storage Interrupt, vector 0x300)
+// Taken when translation is enabled but no valid leaf is found
+// ===========================================================================
+load_exception_taken = ld_msr_dr & ~ld_translation_valid;
+
+// Use intermediate variable to prevent ISA compiler value-merge issues
+var ld_saved_pc[63:0];
+ld_saved_pc = pc;
+
+var ld_saved_msr[63:0];
+ld_saved_msr = msr;
+
+// SRR0 = PC of faulting instruction
+srr0 when (load_exception_taken) = ld_saved_pc;
+
+// SRR1 = current MSR value
+srr1 when (load_exception_taken) = ld_saved_msr;
+
+// DAR = faulting EA (virtual data address that failed translation)
+dar when (load_exception_taken) = ea;
+
+// DSISR = 0x40000000 (bit 1 in IBM numbering = no-translate-found)
+dsisr when (load_exception_taken) = 32'h40000000;
+
+// New MSR on exception: SF=1(bit63), HV=1(bit60), ME=old(bit12), rest 0
+var ld_new_msr[63:0];
+ld_new_msr = 64'h9000000000000000 | ({63'b0, msr[12]} << 12);
+msr when (load_exception_taken) = ld_new_msr;
+
+// Redirect PC to DSI vector (0x300)
+pc when (load_exception_taken) = 64'h0000000000000300;
+
+// ===========================================================================
+// Physical address computation
+// PTE leaf (4KB):  PA = {PTE[56:12], EA[11:0]}
+// PMD leaf (2MB):  PA = {PMD[56:21], EA[20:0]}
+// PUD leaf (1GB):  PA = {PUD[56:30], EA[29:0]}
+// PGD leaf (512GB): PA = {PGD[56:39], EA[38:0]}
+// ===========================================================================
+var ld_ea_translated[63:0];
+ld_ea_translated = ld_is_pte_leaf ?
+    {7'b0, ld_pte_entry[56:12], ld_page_offset} :
+    (ld_is_pmd_leaf ?
+        {7'b0, ld_pmd_entry[56:21], ea[20:0]} :
+        (ld_is_pud_leaf ?
+            {7'b0, ld_pud_entry[56:30], ea[29:0]} :
+            {7'b0, ld_pgd_entry[56:39], ea[38:0]}));
+
+// Final output: use translated address when MSR[DR]=1, otherwise pass through
+ea_pa = ld_msr_dr ? ld_ea_translated : ea;

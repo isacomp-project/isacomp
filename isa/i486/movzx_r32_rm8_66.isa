@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOVZX r32, r/m8 with 66 prefix (0x66 0x0F 0xB6)
+// Move byte to dword with zero extension
+// No flags affected
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var src_val[7:0];
+
+// Fetch and verify 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch first byte of instruction
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+// Fetch second byte
+instr2 = imem[eip + 2];
+assume instr2 == 0xB6;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 3];
+
+eip = eip + 4;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Register-direct mode (reading 8-bit register)
+assume mod_bits == 0b11;
+
+// Read low byte of source register
+src_val = xregs[rm_bits][7:0];
+
+// Zero-extend to 32 bits and write to destination
+xregs[reg_bits] = {24'h000000, src_val};
+
+// MOVZX does not affect any flags

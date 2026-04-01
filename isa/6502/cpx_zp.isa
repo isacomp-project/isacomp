@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 CPX Zero Page (0xE4) - Compare X Register Zero Page
+// Compares X register with zero page memory value
+// Sets N flag if bit 7 of result is set
+// Sets Z flag if X equals memory value
+// Sets C flag if X >= memory (no borrow)
+// Instruction format: CPX $nn (2 bytes)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state X[7:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_C[0:0];
+isa_state mainmem[7:0][15:0];
+
+var zp_direct_addr[7:0];
+var data[7:0];
+var result[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xE4;
+pc = pc + 1;
+
+zp_direct_addr = mainmem[pc];
+pc = pc + 1;
+
+data = mainmem[zp_direct_addr];
+result = X - data;
+
+// Update flags
+flag_N = result[7];
+flag_Z = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_C = result[8] ^ 1'b1;

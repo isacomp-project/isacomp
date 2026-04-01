@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64C C.SWSP - Store word to stack
+
+isa_state pc[63:0];
+var c_instr[15:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs2[4:0];
+var sp[63:0];
+var r2[63:0];
+var uimm[7:0];
+var zero_ext_imm[63:0];
+var addr[63:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.SWSP format: CSS-type
+// Encoding: 110 imm[5:2|7:6] rs2 10
+assume c_instr[1:0] == 0b10;
+assume c_instr[15:13] == 0b110;
+
+pc = pc + 2;
+
+rs2 = c_instr[6:2];
+
+// Unsigned immediate: uimm[7:2] = {c_instr[8:7], c_instr[12:9]}
+uimm = {c_instr[8:7], c_instr[12:9], 2'b00};
+zero_ext_imm = {56'b0, uimm};
+
+// SP is x2
+sp = rf[5'b00010];
+r2 = rf[rs2];
+
+addr = sp + zero_ext_imm;
+umem[addr] = r2[31:0];

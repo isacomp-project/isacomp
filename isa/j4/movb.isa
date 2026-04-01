@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+mem umem[23:0];
+
+isa_state sr[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rm[31:0];
+var data8[7:0];
+var sign_ext_data[31:0];
+
+var movb_rn_lo[2:0];
+var movb_rm_lo[2:0];
+var movb_rb[0:0];
+var movb_rn_bk[0:0];
+var movb_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x6;
+assume instr[3:0] == 0x0;
+rn = instr[11:8];
+rm = instr[7:4];
+
+movb_rn_lo = rn[2:0];
+movb_rm_lo = rm[2:0];
+movb_rb = sr[29];  // RB bit (bit 29 in SR)
+movb_rn_bk = (rn[3] == 1'b0) & movb_rb;
+movb_rm_bk = (rm[3] == 1'b0) & movb_rb;
+
+Rm = movb_rm_bk ? rf_bank[movb_rm_lo] : rf[rm];
+
+data8 = umem[Rm];
+sign_ext_data = {{24{data8[7]}}, data8};
+
+rf[rn] when (movb_rn_bk == 0) = sign_ext_data;
+rf_bank[movb_rn_lo] when (movb_rn_bk) = sign_ext_data;
+
+pc = pc + 2;

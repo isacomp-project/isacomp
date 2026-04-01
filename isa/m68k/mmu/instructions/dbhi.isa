@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 DBHI Dn,label - Decrement and branch if high
+// Opcode: 0101 0010 1100 1DDD followed by 16-bit signed displacement
+// If C=0 and Z=0 (condition true): skip displacement, don't decrement
+// If C=1 or Z=1 (condition false): decrement Dn, branch if Dn != -1
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var count_reg[2:0];
+var disp16[15:0];
+var sign_ext_disp[31:0];
+var branch_pc[31:0];
+var branch_dest[31:0];
+var count_val[15:0];
+var new_count[15:0];
+var take_branch[0:0];
+var condition[0:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:3] == 0b0101001011001;  // DBHI opcode (condition = 0010)
+branch_pc = pc + 2;
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode count register
+count_reg = instr[2:0];
+
+// Fetch 16-bit displacement
+disp16 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+sign_ext_disp = {{16{disp16[15]}}, disp16};
+
+// Calculate branch destination
+branch_dest = branch_pc + sign_ext_disp;
+
+// Check condition: HI (high) means C=0 and Z=0
+condition = (~flag_C) & (~flag_Z);
+
+// If condition is true, don't decrement or branch (just exit)
+// If condition is false, decrement and check counter
+count_val = dregs[count_reg][15:0];
+new_count = count_val - 1;
+
+// Store decremented value only if condition is false
+dregs[count_reg] when (~m68k_exc_taken) = condition ? dregs[count_reg] : {dregs[count_reg][31:16], new_count};
+
+// Branch if condition is false AND counter is not -1
+take_branch = (~condition) & (new_count != 16'hFFFF);
+
+// Execute
+pc when (~m68k_exc_taken) = take_branch ? branch_dest : pc;
+
+// DBHI does not affect flags

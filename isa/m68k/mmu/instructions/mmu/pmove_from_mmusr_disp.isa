@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030 PMOVE from MMUSR - Move MMU Status Register to memory (d16,An)
+// Opcode: 1111 000 000 101 RRR followed by extension word 0x6200 and displacement
+// Extension: 011 000 1 0 00000000 = 0x6200 (PMOVE MMUSR to EA)
+// MMUSR is 16-bit, single word write
+// Privileged instruction
+
+isa_state pc[31:0];
+var instr[15:0];
+var pfm_extw[15:0];
+var pfm_disp[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+
+isa_state sr[15:0];
+isa_state mmusr[15:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var pfm_ea_reg[2:0];
+var pfm_addr[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch first word
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b1111000000;
+assume instr[5:3] == 3'b101;            // EA mode: (d16,An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+pfm_ea_reg = instr[2:0];
+
+// Fetch extension word
+pfm_extw = dmem[pc + pc_pa_delta];
+assume pfm_extw == 16'h6200;            // PMOVE MMUSR to EA
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Fetch displacement
+pfm_disp = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+
+assume sr[13] == 1'b1;  // Supervisor mode required
+
+// Effective address = An + sign-extended displacement
+pfm_addr = aregs[pfm_ea_reg] + {{16{pfm_disp[15]}}, pfm_disp};
+
+// MMU translate for data write
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = pfm_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+// Store MMUSR (16-bit) to memory
+#ifdef MMU
+dmem[{ea_pa[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = mmusr;
+#else
+dmem[{pfm_addr[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = mmusr;
+#endif

@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>isacomp WASM - Standalone Edition</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #003660 0%, #047C91 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #003660 0%, #FEBC11 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            margin-top: 10px;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 0;
+            min-height: 600px;
+        }
+
+        .sidebar {
+            background: #f8f9fa;
+            padding: 25px;
+            border-right: 2px solid #e0e0e0;
+            overflow-y: auto;
+            max-height: calc(100vh - 250px);
+        }
+
+        .sidebar h2 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            color: #003660;
+            border-bottom: 2px solid #FEBC11;
+            padding-bottom: 8px;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #FEBC11;
+        }
+
+        button {
+            background: linear-gradient(135deg, #003660 0%, #047C91 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(254, 188, 17, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .button-group button {
+            margin-top: 0;
+        }
+
+        .canvas-container {
+            position: relative;
+            background: #fafafa;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            cursor: grab;
+            background: #ffffff;
+        }
+
+        canvas:active {
+            cursor: grabbing;
+        }
+
+        .stats {
+            background: #DAE6E6;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .stats-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .stats-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .stats-label {
+            font-weight: 600;
+            color: #003660;
+        }
+
+        .stats-value {
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .legend {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 2px solid #e0e0e0;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+
+        .legend h3 {
+            font-size: 1em;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .legend-symbol {
+            width: 30px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .controls {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 2px solid #e0e0e0;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .control-row button {
+            flex: 1;
+            margin-top: 0;
+            font-size: 12px;
+            padding: 8px 12px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+        }
+
+        .progress-container {
+            margin-top: 15px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 24px;
+            background: #e0e0e0;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #003660 0%, #FEBC11 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.3) 50%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .progress-text {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔬 isacomp WASM</h1>
+            <p>Processor Microarchitecture Optimization Framework</p>
+            <span class="badge">✨ Standalone Edition - No Server Required!</span>
+            <p style="font-size: 0.85em; margin-top: 8px; opacity: 0.95;">UC Santa Barbara Computer Architecture Lab</p>
+        </header>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <div id="status" class="status loading">
+                    <span class="spinner"></span> Loading Pyodide...
+                    <div id="progressContainer" class="progress-container" style="display: none;">
+                        <div class="progress-bar">
+                            <div id="progressFill" class="progress-fill">0%</div>
+                        </div>
+                        <div id="progressText" class="progress-text">Initializing...</div>
+                    </div>
+                </div>
+
+                <div class="stats" id="stats" style="display: none;">
+                    <div class="stats-item">
+                        <span class="stats-label">Nodes:</span>
+                        <span class="stats-value" id="nodeCount">0</span>
+                    </div>
+                    <div class="stats-item">
+                        <span class="stats-label">Edges:</span>
+                        <span class="stats-value" id="edgeCount">0</span>
+                    </div>
+                    <div class="stats-item">
+                        <span class="stats-label">Max Time:</span>
+                        <span class="stats-value" id="maxTime">0</span>
+                    </div>
+                </div>
+
+                <div class="legend">
+                    <h3>Node Types</h3>
+                    <div class="legend-item">
+                        <div class="legend-symbol" style="background: #003660;"></div>
+                        <span>ISA State (Architecture)</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-symbol" style="background: #047C91;"></div>
+                        <span>Operation</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-symbol" style="background: #6D7D33;"></div>
+                        <span>Variable</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-symbol" style="background: #FEBC11;"></div>
+                        <span>Microarch State</span>
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <h3 style="margin-bottom: 10px; font-size: 1em;">View Controls</h3>
+                    <div class="control-row">
+                        <button onclick="zoomIn()">Zoom In</button>
+                        <button onclick="zoomOut()">Zoom Out</button>
+                    </div>
+                    <div class="control-row">
+                        <button onclick="resetView()">Reset View</button>
+                        <button onclick="autoLayout()">Auto Layout</button>
+                    </div>
+                </div>
+
+                <h2>ISA Specification</h2>
+
+                <div class="button-group">
+                    <button onclick="loadExample('add')">Load ADD</button>
+                    <button onclick="loadExample('load')">Load LOAD</button>
+                </div>
+
+                <div class="control-group">
+                    <label for="isaInput">Edit ISA Code:</label>
+                    <textarea id="isaInput" placeholder="Enter ISA specification here..."></textarea>
+                </div>
+
+                <button onclick="parseISA()" id="parseBtn">Parse & Visualize</button>
+            </div>
+
+            <div class="canvas-container">
+                <canvas id="canvas" width="1050" height="600"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Embedded Python code -->
+    <script type="text/python-code" id="isacomp-core">
+"""
+isacomp-wasm: WebAssembly-compatible version of isacomp core
+Includes ResourceGraph, ISA parser, and optimization algorithms
+No tkinter, no subprocess, pure Python for Pyodide
+"""
+
+from typing import Any, Dict, List, Set, Callable, Optional, Tuple
+from uuid import uuid4
+import json
+import re
+
+
+class Node:
+    """A node in the ResourceGraph with bidirectional edge references."""
+
+    def __init__(self, node_id: Optional[str] = None, data: Any = None,
+                 is_arch_state: bool = False, used_as_index: bool = False,
+                 indexed_by: Optional['Node'] = None, is_uarch_state: bool = False,
+                 uarch_time: Optional[int] = None, from_isa_spec: bool = False,
+                 already_split: bool = False, latency: int = 0, variable_latency: bool = False):
+        self.id = node_id or str(uuid4())
+        self.data = data if data is not None else {}
+        self.is_arch_state = is_arch_state
+        self.is_uarch_state = is_uarch_state
+        self.used_as_index = used_as_index
+        self.indexed_by = indexed_by
+        self.uarch_time = uarch_time
+        self.from_isa_spec = from_isa_spec
+        self.already_split = already_split
+        self.latency = latency
+        self.variable_latency = variable_latency
+        self.incoming_edges: Set['Edge'] = set()
+        self.outgoing_edges: Set['Edge'] = set()
+
+    def add_incoming_edge(self, edge: 'Edge') -> None:
+        self.incoming_edges.add(edge)
+
+    def add_outgoing_edge(self, edge: 'Edge') -> None:
+        self.outgoing_edges.add(edge)
+
+    def remove_incoming_edge(self, edge: 'Edge') -> None:
+        self.incoming_edges.discard(edge)
+
+    def remove_outgoing_edge(self, edge: 'Edge') -> None:
+        self.outgoing_edges.discard(edge)
+
+    def to_dict(self) -> Dict:
+        """Convert node to JSON-serializable dict for JavaScript."""
+        return {
+            'id': self.id,
+            'data': self.data,
+            'is_arch_state': self.is_arch_state,
+            'is_uarch_state': self.is_uarch_state,
+            'uarch_time': self.uarch_time,
+            'latency': self.latency,
+            'display_name': self.data.get('display_name', self.id),
+            'type': self.data.get('type', 'unknown')
+        }
+
+
+class Edge:
+    """An edge in the ResourceGraph with bidirectional node references."""
+
+    def __init__(self, source: Node, target: Node, edge_id: Optional[str] = None, data: Any = None):
+        self.id = edge_id or str(uuid4())
+        self.source = source
+        self.target = target
+        self.data = data if data is not None else {}
+
+        # Establish bidirectional references
+        source.add_outgoing_edge(self)
+        target.add_incoming_edge(self)
+
+    def remove_from_nodes(self) -> None:
+        self.source.remove_outgoing_edge(self)
+        self.target.remove_incoming_edge(self)
+
+    def to_dict(self) -> Dict:
+        """Convert edge to JSON-serializable dict for JavaScript."""
+        return {
+            'id': self.id,
+            'source': self.source.id,
+            'target': self.target.id,
+            'data': self.data,
+            'type': self.data.get('type', 'unknown')
+        }
+
+
+class ResourceGraph:
+    """A graph data structure with nodes and edges."""
+
+    def __init__(self):
+        self.nodes: Dict[str, Node] = {}
+        self.edges: Dict[str, Edge] = {}
+
+    def add_node(self, node: Node) -> None:
+        self.nodes[node.id] = node
+
+    def add_edge(self, edge: Edge) -> None:
+        self.edges[edge.id] = edge
+        if edge.source.id not in self.nodes:
+            self.add_node(edge.source)
+        if edge.target.id not in self.nodes:
+            self.add_node(edge.target)
+
+    def remove_node(self, node_id: str) -> None:
+        if node_id not in self.nodes:
+            return
+        node = self.nodes[node_id]
+        edges_to_remove = list(node.incoming_edges | node.outgoing_edges)
+        for edge in edges_to_remove:
+            self.remove_edge(edge.id)
+        del self.nodes[node_id]
+
+    def remove_edge(self, edge_id: str) -> None:
+        if edge_id not in self.edges:
+            return
+        edge = self.edges[edge_id]
+        edge.remove_from_nodes()
+        del self.edges[edge_id]
+
+    def infer_uarch_time(self) -> None:
+        """Infer microarchitectural timing for nodes."""
+        # Initialize all nodes to None
+        for node in self.nodes.values():
+            node.uarch_time = None
+
+        # Set ISA state nodes to time 0
+        for node in self.nodes.values():
+            if node.is_arch_state:
+                node.uarch_time = 0
+
+        # Propagate timing through the graph
+        changed = True
+        max_iterations = 100
+        iteration = 0
+
+        while changed and iteration < max_iterations:
+            changed = False
+            iteration += 1
+
+            for node in self.nodes.values():
+                if node.uarch_time is not None:
+                    continue
+
+                # Check if all predecessors have timing
+                predecessors = [edge.source for edge in node.incoming_edges]
+                if not predecessors:
+                    node.uarch_time = 0
+                    changed = True
+                    continue
+
+                pred_times = [p.uarch_time for p in predecessors]
+                if all(t is not None for t in pred_times):
+                    max_pred_time = max(pred_times)
+                    node.uarch_time = max_pred_time + node.latency
+                    changed = True
+
+    def to_dict(self) -> Dict:
+        """Convert graph to JSON-serializable dict for JavaScript."""
+        return {
+            'nodes': [node.to_dict() for node in self.nodes.values()],
+            'edges': [edge.to_dict() for edge in self.edges.values()]
+        }
+
+    @staticmethod
+    def from_isa_text(isa_text: str) -> 'ResourceGraph':
+        """Parse ISA specification text and create ResourceGraph."""
+        graph = ResourceGraph()
+
+        lines = isa_text.strip().split('\n')
+        isa_states = {}
+        variables = {}
+        index_mappings = {}
+
+        for line in lines:
+            line = line.strip()
+            if not line or line.startswith('//'):
+                continue
+
+            # Parse isa_state declarations
+            if line.startswith('isa_state'):
+                match = re.match(r'isa_state\s+(\w+)\[(\d+):(\d+)\];', line)
+                if match:
+                    name, high, low = match.groups()
+                    node = Node(f'isa_{name}', {
+                        'type': 'isa_state',
+                        'name': name,
+                        'display_name': name.upper(),
+                        'bit_width': int(high) - int(low) + 1
+                    }, is_arch_state=True)
+                    graph.add_node(node)
+                    isa_states[name] = node
+                    continue
+
+                # Array isa_state
+                match = re.match(r'isa_state\s+(\w+)\[(\d+):(\d+)\]\[(\d+):(\d+)\];', line)
+                if match:
+                    name, data_high, data_low, idx_high, idx_low = match.groups()
+                    node = Node(f'isa_{name}', {
+                        'type': 'isa_state',
+                        'name': name,
+                        'display_name': name.upper(),
+                        'bit_width': int(data_high) - int(data_low) + 1,
+                        'array_depth': 2 ** (int(idx_high) - int(idx_low) + 1)
+                    }, is_arch_state=True)
+                    graph.add_node(node)
+                    isa_states[name] = node
+                    continue
+
+            # Parse var declarations
+            if line.startswith('var'):
+                var_name = line.replace('var', '').replace(';', '').strip()
+                node = Node(f'var_{var_name}', {
+                    'type': 'variable',
+                    'name': var_name,
+                    'display_name': var_name,
+                    'bit_width': 32  # default
+                })
+                graph.add_node(node)
+                variables[var_name] = node
+                continue
+
+            # Parse index declarations
+            if line.startswith('index'):
+                match = re.match(r'index\s+(\w+)\s+for\s+(\w+);', line)
+                if match:
+                    index_var, array_name = match.groups()
+                    index_mappings[index_var] = array_name
+                    continue
+
+            # Parse assignments (simplified)
+            if '=' in line and not line.startswith('index'):
+                parts = line.split('=', 1)
+                if len(parts) == 2:
+                    lhs = parts[0].strip()
+                    rhs = parts[1].replace(';', '').strip()
+
+                    # Create nodes for the assignment
+                    # This is simplified - full parser would handle expressions
+                    lhs_node = None
+                    if lhs in variables:
+                        lhs_node = variables[lhs]
+                    elif '[' in lhs:
+                        # Array access
+                        base = lhs.split('[')[0]
+                        if base in isa_states:
+                            lhs_node = isa_states[base]
+
+                    # Parse RHS - detect operations
+                    if '+' in rhs:
+                        # Addition operation
+                        op_node = Node(f'add_{uuid4().hex[:8]}', {
+                            'type': 'operation',
+                            'operator': '+',
+                            'display_name': 'ADD',
+                            'bit_width': 32
+                        })
+                        graph.add_node(op_node)
+
+                        if lhs_node:
+                            edge = Edge(op_node, lhs_node, data={'type': 'assignment'})
+                            graph.add_edge(edge)
+
+        # Infer timing
+        graph.infer_uarch_time()
+
+        return graph
+
+
+# Demo/example ISA specifications
+EXAMPLE_ADD = """isa_state rf[31:0][4:0];
+isa_state pc[31:0];
+
+var rs;
+var rt;
+var rd;
+var r1;
+var r2;
+var res;
+
+index rs for rf;
+index rt for rf;
+index rd for rf;
+
+rs = instr[25:21];
+rt = instr[20:16];
+rd = instr[15:11];
+
+r1 = rf[rs];
+r2 = rf[rt];
+
+res = r1 + r2;
+
+rf[rd] = res;
+pc = pc + 4;
+"""
+
+EXAMPLE_LOAD = """isa_state rf[31:0][4:0];
+isa_state dmem[31:0][9:0];
+isa_state pc[31:0];
+
+var rs;
+var rt;
+var offset;
+var addr;
+var data;
+
+index rs for rf;
+index rt for rf;
+index addr for dmem;
+
+rs = instr[25:21];
+rt = instr[20:16];
+offset = instr[15:0];
+
+addr = rf[rs] + offset;
+data = dmem[addr];
+rf[rt] = data;
+
+pc = pc + 4;
+"""
+
+
+# JavaScript API functions
+def create_graph_from_isa(isa_text: str) -> str:
+    """Create a ResourceGraph from ISA text and return JSON."""
+    try:
+        graph = ResourceGraph.from_isa_text(isa_text)
+        return json.dumps({
+            'success': True,
+            'graph': graph.to_dict(),
+            'stats': {
+                'nodes': len(graph.nodes),
+                'edges': len(graph.edges)
+            }
+        })
+    except Exception as e:
+        return json.dumps({
+            'success': False,
+            'error': str(e)
+        })
+
+
+def get_example_isa(name: str) -> str:
+    """Get an example ISA specification."""
+    examples = {
+        'add': EXAMPLE_ADD,
+        'load': EXAMPLE_LOAD
+    }
+    return examples.get(name, EXAMPLE_ADD)
+    </script>
+
+    <script>
+        // Global state
+        let pyodide;
+        let graphData = null;
+        let canvas, ctx;
+        let scale = 1.0;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let nodePositions = new Map();
+
+        // Initialize on load
+        window.addEventListener('load', init);
+
+        async function init() {
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+
+            // Set canvas size to match container
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            // Setup canvas interaction
+            setupCanvasInteraction();
+
+            // Load Pyodide
+            await loadPyodide();
+
+            // Load default example
+            loadExample('add');
+        }
+
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            if (graphData) {
+                renderGraph();
+            }
+        }
+
+        async function loadPyodide() {
+            let progressInterval = null;
+            try {
+                // Check if loadPyodide function exists
+                if (typeof window.loadPyodide === 'undefined') {
+                    throw new Error('loadPyodide function not found. Check internet connection and CDN access.');
+                }
+
+                // Show progress bar
+                const progressContainer = document.getElementById('progressContainer');
+                if (progressContainer) {
+                    progressContainer.style.display = 'block';
+                }
+                updateStatus('Loading Pyodide runtime...', 'loading');
+
+                // Simulate progress (since Pyodide doesn't expose detailed progress)
+                // Typical Pyodide load is 5-15 seconds depending on connection
+                progressInterval = startProgressSimulation();
+
+                pyodide = await window.loadPyodide({
+                    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/",
+                    fullStdLib: false,  // Faster loading - only core Python
+                });
+
+                // Stop the progress simulation
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+                }
+                updateProgress(100, 'Complete!');
+
+                // Small delay to show 100%
+                await new Promise(resolve => setTimeout(resolve, 300));
+
+                // Hide progress bar when done
+                if (progressContainer) {
+                    progressContainer.style.display = 'none';
+                }
+                updateStatus('Initializing isacomp core...', 'loading');
+
+                // Load the embedded Python code
+                const pythonCode = document.getElementById('isacomp-core').textContent;
+                if (!pythonCode || pythonCode.trim() === '') {
+                    throw new Error('Python code not found in page');
+                }
+
+                await pyodide.runPythonAsync(pythonCode);
+
+                updateStatus('✓ Ready! Load an example or write your own ISA spec.', 'success');
+                const parseBtn = document.getElementById('parseBtn');
+                if (parseBtn) {
+                    parseBtn.disabled = false;
+                }
+
+            } catch (error) {
+                // CRITICAL: Stop the progress interval to prevent spam
+                if (progressInterval) {
+                    clearInterval(progressInterval);
+                    progressInterval = null;
+                }
+
+                const progressContainer = document.getElementById('progressContainer');
+                if (progressContainer) {
+                    progressContainer.style.display = 'none';
+                }
+
+                // Detailed error message
+                let errorMsg = error.message || 'Unknown error';
+                if (error.message && error.message.includes('loadPyodide')) {
+                    errorMsg = 'Failed to load Pyodide from CDN. Check internet connection.';
+                }
+
+                updateStatus(`✗ Error: ${errorMsg}`, 'error');
+                console.error('Pyodide loading error:', error);
+                console.error('Stack:', error.stack);
+            }
+        }
+
+        function startProgressSimulation() {
+            let progress = 0;
+            const startTime = Date.now();
+
+            const interval = setInterval(() => {
+                const elapsed = (Date.now() - startTime) / 1000; // seconds
+
+                // Estimate progress based on typical load time (10 seconds average)
+                // Use logarithmic curve so it slows down near the end
+                if (progress < 90) {
+                    progress = Math.min(90, (elapsed / 10) * 90);
+                }
+
+                const messages = [
+                    'Downloading Python runtime...',
+                    'Loading WebAssembly modules...',
+                    'Initializing interpreter...',
+                    'Setting up standard library...',
+                    'Almost ready...'
+                ];
+
+                const messageIndex = Math.min(
+                    Math.floor(progress / 20),
+                    messages.length - 1
+                );
+
+                updateProgress(progress, messages[messageIndex]);
+            }, 100);
+
+            return interval;
+        }
+
+        function updateProgress(percentage, message) {
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+
+            if (progressFill) {
+                progressFill.style.width = percentage + '%';
+                progressFill.textContent = Math.round(percentage) + '%';
+            }
+
+            if (progressText && message) {
+                progressText.textContent = message;
+            }
+        }
+
+        async function loadExample(name) {
+            if (!pyodide) {
+                updateStatus('Pyodide not loaded yet', 'error');
+                return;
+            }
+
+            try {
+                const isa = await pyodide.runPythonAsync(`get_example_isa('${name}')`);
+                document.getElementById('isaInput').value = isa;
+                await parseISA();
+            } catch (error) {
+                updateStatus(`Error loading example: ${error.message}`, 'error');
+            }
+        }
+
+        async function parseISA() {
+            if (!pyodide) {
+                updateStatus('Pyodide not loaded yet', 'error');
+                return;
+            }
+
+            const isaText = document.getElementById('isaInput').value;
+            if (!isaText.trim()) {
+                updateStatus('Please enter an ISA specification', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('Parsing ISA specification...', 'loading');
+
+                const resultJson = await pyodide.runPythonAsync(`create_graph_from_isa('''${isaText}''')`);
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`Successfully created graph with ${result.stats.nodes} nodes`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                updateStatus(`Error parsing ISA: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function calculateLayout() {
+            if (!graphData) return;
+
+            const nodes = graphData.nodes;
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // Group nodes by type for better layout
+            const isaNodes = nodes.filter(n => n.is_arch_state);
+            const opNodes = nodes.filter(n => n.type === 'operation');
+            const varNodes = nodes.filter(n => n.type === 'variable');
+            const otherNodes = nodes.filter(n => !n.is_arch_state && n.type !== 'operation' && n.type !== 'variable');
+
+            const layers = [isaNodes, varNodes, opNodes, otherNodes].filter(l => l.length > 0);
+
+            nodePositions.clear();
+            const layerHeight = height / (layers.length + 1);
+
+            layers.forEach((layer, layerIdx) => {
+                const y = layerHeight * (layerIdx + 1);
+                const layerWidth = width * 0.8;
+                const startX = (width - layerWidth) / 2;
+                const spacing = layer.length > 1 ? layerWidth / (layer.length - 1) : 0;
+
+                layer.forEach((node, idx) => {
+                    const x = layer.length === 1 ? width / 2 : startX + spacing * idx;
+                    nodePositions.set(node.id, { x, y, node });
+                });
+            });
+        }
+
+        function renderGraph() {
+            if (!graphData) return;
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Save context state
+            ctx.save();
+
+            // Apply transformations
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(scale, scale);
+
+            // Draw edges first
+            ctx.strokeStyle = '#999';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([]);
+
+            graphData.edges.forEach(edge => {
+                const source = nodePositions.get(edge.source);
+                const target = nodePositions.get(edge.target);
+
+                if (source && target) {
+                    ctx.beginPath();
+                    ctx.moveTo(source.x, source.y);
+                    ctx.lineTo(target.x, target.y);
+                    ctx.stroke();
+
+                    // Draw arrowhead
+                    const angle = Math.atan2(target.y - source.y, target.x - source.x);
+                    const arrowSize = 10;
+                    ctx.beginPath();
+                    ctx.moveTo(target.x, target.y);
+                    ctx.lineTo(
+                        target.x - arrowSize * Math.cos(angle - Math.PI / 6),
+                        target.y - arrowSize * Math.sin(angle - Math.PI / 6)
+                    );
+                    ctx.moveTo(target.x, target.y);
+                    ctx.lineTo(
+                        target.x - arrowSize * Math.cos(angle + Math.PI / 6),
+                        target.y - arrowSize * Math.sin(angle + Math.PI / 6)
+                    );
+                    ctx.stroke();
+                }
+            });
+
+            // Draw nodes
+            nodePositions.forEach((pos) => {
+                const node = pos.node;
+
+                // Choose color based on node type (UCSB colors)
+                if (node.is_arch_state) {
+                    ctx.fillStyle = '#003660';  // Navy - ISA state
+                } else if (node.type === 'operation') {
+                    ctx.fillStyle = '#047C91';  // Aqua - operations
+                } else if (node.type === 'variable') {
+                    ctx.fillStyle = '#6D7D33';  // Moss - variables
+                } else if (node.is_uarch_state) {
+                    ctx.fillStyle = '#FEBC11';  // Gold - microarch state
+                } else {
+                    ctx.fillStyle = '#DAE6E6';  // Light Mist - other
+                }
+
+                // Draw node circle
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, 25, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#2d3436';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Draw label
+                ctx.fillStyle = '#2d3436';
+                ctx.font = 'bold 12px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const label = node.display_name || node.id;
+                ctx.fillText(label, pos.x, pos.y);
+
+                // Draw time label below
+                if (node.uarch_time !== null && node.uarch_time !== undefined) {
+                    ctx.font = '10px sans-serif';
+                    ctx.fillText(`T${node.uarch_time}`, pos.x, pos.y + 35);
+                }
+            });
+
+            // Restore context
+            ctx.restore();
+        }
+
+        function setupCanvasInteraction() {
+            canvas.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                dragStartX = e.clientX - offsetX;
+                dragStartY = e.clientY - offsetY;
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    offsetX = e.clientX - dragStartX;
+                    offsetY = e.clientY - dragStartY;
+                    renderGraph();
+                }
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDragging = false;
+            });
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                scale *= delta;
+                scale = Math.max(0.1, Math.min(5, scale));
+                renderGraph();
+            });
+        }
+
+        function zoomIn() {
+            scale *= 1.2;
+            scale = Math.min(5, scale);
+            renderGraph();
+        }
+
+        function zoomOut() {
+            scale *= 0.8;
+            scale = Math.max(0.1, scale);
+            renderGraph();
+        }
+
+        function resetView() {
+            scale = 1.0;
+            offsetX = 0;
+            offsetY = 0;
+            renderGraph();
+        }
+
+        function autoLayout() {
+            calculateLayout();
+            resetView();
+        }
+
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.innerHTML = type === 'loading' ? `<span class="spinner"></span> ${message}` : message;
+        }
+
+        function updateStats(stats) {
+            document.getElementById('stats').style.display = 'block';
+            document.getElementById('nodeCount').textContent = stats.nodes;
+            document.getElementById('edgeCount').textContent = stats.edges;
+
+            let maxTime = 0;
+            if (graphData && graphData.nodes) {
+                graphData.nodes.forEach(node => {
+                    if (node.uarch_time !== null && node.uarch_time > maxTime) {
+                        maxTime = node.uarch_time;
+                    }
+                });
+            }
+            document.getElementById('maxTime').textContent = maxTime;
+        }
+    </script>
+</body>
+</html>

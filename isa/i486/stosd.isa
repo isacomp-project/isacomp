@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 STOSD (0xAB)
+// Store EAX to [EDI], adjust EDI by 4 based on DF
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state EAX[31:0] of xregs[0];
+isa_state EDI[31:0] of xregs[7];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+
+var new_edi[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xAB;
+
+// Store EAX to [EDI] (little-endian)
+dmem[EDI] = EAX[7:0];
+dmem[EDI + 1] = EAX[15:8];
+dmem[EDI + 2] = EAX[23:16];
+dmem[EDI + 3] = EAX[31:24];
+
+// Adjust EDI based on direction flag
+new_edi = flag_DF == 1'b0 ? EDI + 4 : EDI - 4;
+EDI = new_edi;
+
+// STOSD does not affect flags
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

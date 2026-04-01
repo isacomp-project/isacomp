@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 IN AL, DX (0xEC)
+// Input byte from port in DX
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state AX[15:0];
+isa_state AL[7:0] of AX[7:0];
+isa_state DX[15:0];
+isa_state io_ports[7:0][7:0];
+
+var port_num[7:0];
+
+instr = imem[ip];
+assume instr == 0xEC;
+ip = ip + 1;
+
+// Use DX as port number (only lower 8 bits for simplified model)
+port_num = DX[7:0];
+
+// Read byte from I/O port
+AL = io_ports[port_num];

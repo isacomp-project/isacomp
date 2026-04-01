@@ -1,0 +1,84 @@
+#
+# ISAComp OR1K Linux Kernel Configuration
+# Minimal configuration for boot on ISAComp-generated OR1K processor
+# Based on or1ksim_defconfig, adapted for ISAComp platform
+#
+
+# General setup
+CONFIG_LOG_BUF_SHIFT=14
+CONFIG_BLK_DEV_INITRD=y
+# Build initramfs first: cd isa/or1k/platform/initramfs && make
+# Set CONFIG_INITRAMFS_SOURCE to absolute path of initramfs.cpio when building kernel
+CONFIG_INITRAMFS_SOURCE=""
+CONFIG_EXPERT=y
+# CONFIG_KALLSYMS is not set
+# CONFIG_EPOLL is not set
+# CONFIG_TIMERFD is not set
+# CONFIG_EVENTFD is not set
+# CONFIG_AIO is not set
+# CONFIG_VM_EVENT_COUNTERS is not set
+# CONFIG_COMPAT_BRK is not set
+CONFIG_SLOB=y
+# CONFIG_MODULES is not set
+# CONFIG_BLOCK is not set
+
+# Processor - enable all Class II instructions we implement
+CONFIG_OPENRISC_HAVE_INST_FF1=y
+CONFIG_OPENRISC_HAVE_INST_FL1=y
+CONFIG_OPENRISC_HAVE_INST_MUL=y
+CONFIG_OPENRISC_HAVE_INST_DIV=y
+CONFIG_OPENRISC_HAVE_INST_CMOV=y
+CONFIG_OPENRISC_HAVE_INST_ROR=y
+CONFIG_OPENRISC_HAVE_INST_RORI=y
+CONFIG_OPENRISC_HAVE_INST_SEXT=y
+
+# No SMP
+# CONFIG_SMP is not set
+
+# Timer at 100 Hz (reasonable for simulation)
+CONFIG_HZ_100=y
+
+# No built-in DTB (we pass via bootloader)
+CONFIG_OPENRISC_BUILTIN_DTB=""
+
+# No shadow GPRs (our implementation doesn't have them)
+# CONFIG_OPENRISC_HAVE_SHADOW_GPRS is not set
+
+# DSX emulation (our CPU doesn't implement SPR_SR_DSX)
+CONFIG_OPENRISC_NO_SPR_SR_DSX=y
+
+# Boot options
+CONFIG_CMDLINE="earlycon"
+
+# Device drivers
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+# CONFIG_PREVENT_FIRMWARE_BUILD is not set
+# CONFIG_FW_LOADER is not set
+
+# Serial console
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_OF_PLATFORM=y
+
+# Disable unnecessary features
+# CONFIG_NET is not set
+# CONFIG_INPUT is not set
+# CONFIG_SERIO is not set
+# CONFIG_VT is not set
+# CONFIG_LEGACY_PTYS is not set
+# CONFIG_HW_RANDOM is not set
+# CONFIG_HWMON is not set
+# CONFIG_USB_SUPPORT is not set
+
+# Minimal filesystem support
+# CONFIG_DNOTIFY is not set
+CONFIG_TMPFS=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+
+# Debugging (helpful for initial boot)
+CONFIG_PRINTK=y
+CONFIG_BUG=y
+CONFIG_EARLY_PRINTK=y
+CONFIG_PANIC_TIMEOUT=0

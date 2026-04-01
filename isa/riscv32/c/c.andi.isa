@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var c_instr[15:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+var rs1_prime[2:0];
+var rs1[4:0];
+var rd_prime[2:0];
+var rd[4:0];
+var r1[31:0];
+var imm[5:0];
+var sign_ext_imm[31:0];
+var res[31:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.ANDI format: CB-type
+// Encoding: 100 imm[5] 10 rs1'/rd' imm[4:0] 01
+assume c_instr[1:0] == 0b01;
+assume c_instr[15:13] == 0b100;
+assume c_instr[11:10] == 0b10;
+
+pc = pc + 2;
+
+// Compressed register encoding: x8-x15
+rd_prime = c_instr[9:7];
+rd = {2'b01, rd_prime};
+rs1 = {2'b01, rd_prime};  // same as rd
+
+// Immediate is imm[5:0] = {c_instr[12], c_instr[6:2]}
+imm = {c_instr[12], c_instr[6:2]};
+sign_ext_imm = {{26{imm[5]}}, imm};
+
+r1 = rf[rs1];
+
+res = r1 & sign_ext_imm;
+
+// No guard needed - rd is always 8-15, never 0
+rf[rd] = res;

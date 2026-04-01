@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED B8 - LDDR (Load, Decrement, Repeat)
+// Repeat: (DE) = (HL), DE--, HL--, BC-- until BC == 0
+// PC stays same while BC != 0, advances when BC == 0
+// Affects H=0, P/V=0 (always 0 when done), N=0
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+var lddr_pc_next[15:0];
+isa_state H[7:0];
+isa_state L[7:0];
+isa_state D[7:0];
+isa_state E[7:0];
+isa_state B[7:0];
+isa_state C[7:0];
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+lddr_pc_next = pc_plus_1 + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 0xB8ED;
+
+var lddr_hl_addr[15:0];
+lddr_hl_addr = {H, L};
+var lddr_de_addr[15:0];
+lddr_de_addr = {D, E};
+var lddr_bc_val[15:0];
+lddr_bc_val = {B, C};
+
+var lddr_value[7:0];
+lddr_value = mainmem[lddr_hl_addr];
+mainmem[lddr_de_addr] = lddr_value;
+
+var lddr_hl_new[15:0];
+lddr_hl_new = lddr_hl_addr - 1;
+var lddr_de_new[15:0];
+lddr_de_new = lddr_de_addr - 1;
+var lddr_bc_new[15:0];
+lddr_bc_new = lddr_bc_val - 1;
+
+H = lddr_hl_new[15:8];
+L = lddr_hl_new[7:0];
+D = lddr_de_new[15:8];
+E = lddr_de_new[7:0];
+B = lddr_bc_new[15:8];
+C = lddr_bc_new[7:0];
+
+flag_H = 1'b0;
+flag_N = 1'b0;
+
+// BC != 0: stay at same PC (repeat), P/V = 1
+// BC == 0: advance PC (done), P/V = 0
+var lddr_bc_zero[0:0];
+lddr_bc_zero = (lddr_bc_new == 16'h0000);
+var lddr_next_pc[15:0];
+lddr_next_pc = lddr_bc_zero ? lddr_pc_next : pc;
+pc = lddr_next_pc;
+flag_PV = (lddr_bc_new != 16'h0000) ? 1'b1 : 1'b0;

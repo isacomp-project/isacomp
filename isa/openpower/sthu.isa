@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER sthu - Store Halfword with Update (D-Form)
+// sthu RS,D(RA)
+// Primary opcode 45
+// EA <- (RA) + EXTS(D)
+// MEM(EA, 2) <- (RS)[48:63]
+// RA <- EA
+// Note: RA cannot be 0
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var d[15:0];
+var rs_val[63:0];
+var ra_val[63:0];
+var sign_ext_d[63:0];
+var ea[63:0];
+var hword_data[15:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 45
+assume instr[31:26] == 45;
+
+// Extract fields
+rs = instr[25:21];
+ra = instr[20:16];
+d = instr[15:0];
+
+// RA cannot be 0 for update forms
+assume ra != 0;
+
+// Sign-extend displacement
+sign_ext_d = {{48{d[15]}}, d};
+
+// Get RA value
+ra_val = rf[ra];
+
+// Calculate effective address
+ea = ra_val + sign_ext_d;
+
+// Get halfword to store (low 16 bits of RS)
+rs_val = rf[rs];
+hword_data = rs_val[15:0];
+
+// Store halfword to memory and update RA
+#ifdef VM
+aspect mmu_store.isa gates pc, msr, srr0, srr1, dar, dsisr;
+umem[ea_pa] when (~store_exception_taken & ~instr_trap_taken) = hword_data;
+#else
+umem[ea] = hword_data;
+#endif
+#ifdef VM
+rf[ra] when (~store_exception_taken & ~instr_trap_taken) = ea;
+#else
+rf[ra] = ea;
+#endif
+pc = pc + 4;

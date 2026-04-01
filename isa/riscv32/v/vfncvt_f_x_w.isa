@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vfncvt.f.x.w - Narrowing Convert Signed Integer to FP
+// Encoding: vfncvt.f.x.w vd, vs2, vm
+// Operation: vd[i] = convert_to_fp(vs2[i]) (2*SEW int to SEW FP)
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+isa_state fcsr[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v2[127:0];
+var res[127:0];
+var rm[2:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b001;
+assume instr[31:26] == 0b010010;
+assume instr[19:15] == 0b10011;
+
+pc = pc + 4;
+
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+rm = fcsr[7:5];
+
+v2 = vrf[vs2];
+
+// Convert 64-bit signed integer to 32-bit float
+res[31:0] = fp_cvt_s_l(v2[63:0], rm);
+res[63:32] = fp_cvt_s_l(v2[127:64], rm);
+res[95:64] = 32'b0;
+res[127:96] = 32'b0;
+
+vrf[vd] = res;

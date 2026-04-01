@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+var imm[7:0];
+var sign_ext_imm[31:0];
+var R0[31:0];
+var cmpimm_rb[0:0];
+var cmpimm_r0_lo[2:0];
+var cmpimm_r0_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:8] == 0x88;
+imm = instr[7:0];
+
+cmpimm_r0_lo = 3'b000;
+cmpimm_rb = sr[28];
+cmpimm_r0_bk = cmpimm_rb;
+
+R0 = cmpimm_r0_bk ? rf_bank[cmpimm_r0_lo] : rf[0];
+
+sign_ext_imm = {{24{imm[7]}}, imm};
+
+t when (exc_taken == 0) = (R0 == sign_ext_imm) ? 1'b1 : 1'b0;
+pc = pc + 2;

@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER fadds - Floating Add Single (A-Form)
+// fadds FRT,FRA,FRB (Rc=0)
+// Primary opcode 59, XO=21
+// FRT <- (FRA) + (FRB) as single precision
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit, stores doubles or singles)
+isa_state fpscr[31:0];         // FP status and control register
+mem umem[14:0];
+
+var frt[4:0];
+var fra[4:0];
+var frb[4:0];
+var f1[31:0];
+var f2[31:0];
+var add_result[31:0];
+var rm[2:0];  // Rounding mode in canonical IEEE 754 encoding
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 59;     // Primary opcode 59
+assume instr[5:1] == 21;       // XO = 21 (fadds)
+assume instr[0] == 0;          // Rc = 0
+
+pc = pc + 4;
+
+frt = instr[25:21];
+fra = instr[20:16];
+frb = instr[15:11];
+
+// Read FP operands (lower 32 bits for single precision)
+f1 = frf[fra][31:0];
+f2 = frf[frb][31:0];
+
+// Map OpenPOWER FPSCR[RN] to canonical IEEE 754 rounding mode
+rm = {1'b0, fpscr[1], fpscr[1] ^ fpscr[0]};
+
+// Perform single-precision addition with rounding mode
+add_result = fp_add(f1, f2, rm);
+
+// Write result (zero-extended to 64 bits, stored in lower 32)
+frf[frt] when (~instr_trap_taken) = {32'b0, add_result};

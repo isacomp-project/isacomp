@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 MTSM instruction (64-bit)
+// MTSM r - Move To System Mask
+// Opcode: 0x00 (bits 31:26), sub=0xC3 (bits 12:5)
+// psw = r
+// Privileged instruction - writes entire PSW from register.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var src[63:0];
+
+instr = umem[pc_pa];
+
+// MTSM encoding: opcode=0x00, sub=0xC3
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b11000011;
+
+// Extract register field
+r = instr[20:16];
+
+// Read source register (r0 always reads as 0)
+src = (r == 0) ? 64'h0 : rf[r];
+
+// Write register value to PSW
+psw when (~instr_trap_taken & ~in_nullified) = src;
+
+// Advance PC
+pc = pc + 4;

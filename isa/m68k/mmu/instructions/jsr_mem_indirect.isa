@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020+ JSR with memory indirect preindexed addressing (MMU version)
+// JSR ([bd32,An,Xn.sz*scale]) or JSR ([bd32,Xn.sz*scale]) when BS=1
+// First word: 0100 1110 10 110 RRR (JSR, EA mode=indexed)
+// Full extension word: D/A Reg W/L Scale 1 BS 0 11 0001
+// Followed by 32-bit base displacement
+// EA = mem[base + bd32 + Xn*scale] (preindexed memory indirect, null outer disp)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var jmi_ext[15:0];
+var jmi_bd_hi[15:0];
+var jmi_bd_lo[15:0];
+var jmi_bd32[31:0];
+var jmi_base_reg[2:0];
+var jmi_bs[0:0];
+var jmi_base[31:0];
+var jmi_idx_reg[2:0];
+var jmi_idx_is_addr[0:0];
+var jmi_idx_is_long[0:0];
+var jmi_scale[1:0];
+var jmi_raw_idx[31:0];
+var jmi_idx_val[31:0];
+var jmi_scaled_idx[31:0];
+var jmi_intermediate[31:0];
+var jmi_target_hi[15:0];
+var jmi_target_lo[15:0];
+var jmi_target[31:0];
+var jmi_return[31:0];
+var jmi_sp[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction word
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b0100111010;  // JSR opcode
+assume instr[5:3] == 3'b110;           // EA mode: indexed
+
+// Fetch full extension word
+jmi_ext = dmem[pc + 2 + pc_pa_delta];
+assume jmi_ext[8] == 1'b1;       // Full format
+assume jmi_ext[6] == 1'b0;       // IS=0 (index NOT suppressed)
+assume jmi_ext[5:4] == 2'b11;    // BD size = long word (32-bit)
+assume jmi_ext[3:0] == 4'b0001;  // Preindexed, null outer displacement
+
+// Fetch 32-bit base displacement (big-endian)
+jmi_bd_hi = dmem[pc + 4 + pc_pa_delta];
+jmi_bd_lo = dmem[pc + 6 + pc_pa_delta];
+jmi_bd32 = {jmi_bd_hi, jmi_bd_lo};
+
+// Decode base register and base suppress
+jmi_base_reg = instr[2:0];
+jmi_bs = jmi_ext[7];
+jmi_base = jmi_bs ? 32'd0 : aregs[jmi_base_reg];
+
+// Decode index register
+jmi_idx_reg = jmi_ext[14:12];
+jmi_idx_is_addr = jmi_ext[15];
+jmi_idx_is_long = jmi_ext[11];
+jmi_scale = jmi_ext[10:9];
+jmi_raw_idx = jmi_idx_is_addr ? aregs[jmi_idx_reg] : dregs[jmi_idx_reg];
+jmi_idx_val = jmi_idx_is_long ? jmi_raw_idx : {{16{jmi_raw_idx[15]}}, jmi_raw_idx[15:0]};
+
+// Apply scale
+jmi_scaled_idx = jmi_scale == 2'b00 ? jmi_idx_val :
+                 jmi_scale == 2'b01 ? (jmi_idx_val << 1) :
+                 jmi_scale == 2'b10 ? (jmi_idx_val << 2) :
+                                       (jmi_idx_val << 3);
+
+// Compute intermediate address (preindexed: base + bd + index*scale)
+jmi_intermediate = jmi_base + jmi_bd32 + jmi_scaled_idx;
+
+// MMU translate the indirect read address
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = jmi_intermediate;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+// Memory indirect: read 32-bit target address from intermediate
+#ifdef MMU
+jmi_target_hi = dmem[ea_pa];
+jmi_target_lo = dmem[ea_pa + 2];
+#else
+jmi_target_hi = dmem[jmi_intermediate];
+jmi_target_lo = dmem[jmi_intermediate + 2];
+#endif
+jmi_target = {jmi_target_hi, jmi_target_lo};
+
+// Return address is PC + 8 (2+2+4 = 8 bytes for this instruction)
+jmi_return = pc + 8;
+
+// Push return address onto stack (pre-decrement A7)
+jmi_sp = aregs[7] - 4;
+aregs[7] when (~m68k_exc_taken) = jmi_sp;
+#ifdef MMU
+dmem[jmi_sp] when (~m68k_exc_taken & ~data_exc_taken) = jmi_return[31:16];
+dmem[jmi_sp + 2] when (~m68k_exc_taken & ~data_exc_taken) = jmi_return[15:0];
+#else
+dmem[jmi_sp] when (~m68k_exc_taken) = jmi_return[31:16];
+dmem[jmi_sp + 2] when (~m68k_exc_taken) = jmi_return[15:0];
+#endif
+
+// Jump to target
+pc when (~m68k_exc_taken) = jmi_target;
+
+// JSR does not affect condition codes

@@ -1,0 +1,707 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Case Instruction
+//
+// Opcode: 0x3 (binary 011)
+// Format: [31:29]=opcode, [28:19]=n_skip, [18:16]=source, [15:0]=index
+//
+// Begins a case expression by:
+// 1. Pushing a case continuation (to return here after evaluation)
+// 2. Decoding the scrutinee from source/index
+// 3. If scrutinee needs evaluation (is a thunk), entering it
+// 4. If already evaluated, proceeding to pattern matching
+//
+// The n_skip field indicates words to skip if no patterns match (for exhaustive
+// checking or default case).
+//
+// HOF support:
+// - Static thunks (bit 29=0): check saturation. Undersaturated = PAP = WHNF.
+// - Dynamic thunks (bit 29=1): dereference func_ref, merge args, check saturation.
+
+// State declarations
+isa_state pc[31:0];
+isa_state fp[19:0];
+isa_state csp[19:0];
+isa_state lsp[19:0];
+isa_state lb[19:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_clo[31:0];
+isa_state env_args[31:0];
+isa_state ct[31:0];
+mem imem[14:0];
+mem cstack[19:0];
+mem heap[19:0];
+mem lstack[19:0];
+
+// Instruction decode
+var instr[31:0];
+var opcode[2:0];
+var n_skip[9:0];
+var source[2:0];
+var index[15:0];
+
+// Fetch instruction
+instr = imem[pc];
+opcode = instr[31:29];
+
+// Verify this is a case instruction
+assume opcode == 3'b011;
+
+// Extract fields
+n_skip = instr[28:19];
+source = instr[18:16];
+index = instr[15:0];
+
+// Compute addresses for continuations
+// case_pattern_pc: first pattern address (for update cont and direct advance)
+// case_body_return_pc: past all patterns (for case cont, when case body returns)
+var case_pattern_pc[31:0];
+var case_body_return_pc[31:0];
+case_pattern_pc = pc + 1;
+case_body_return_pc = pc + 1 + {{22{1'b0}}, n_skip};
+
+// Decode the scrutinee (must happen BEFORE lb update so local reads use old base)
+aspect ../aspects/source_decode.isa gates source, index, env_clo, env_args, lsp, lb, eval_reg, eval_tag, heap, lstack;
+
+// Check if scrutinee needs evaluation
+// - Primitives (tag=1) are already evaluated
+// - Constructors (header [31:30]=10) are in WHNF
+// - Memoized thunks (header [31:30]=11) have cached results
+// - Unevaluated thunks (header [31]=0) need evaluation
+var scrutinee_is_primitive[0:0];
+var scrutinee_header[31:0];
+var scrutinee_is_constructor[0:0];
+var scrutinee_is_memoized[0:0];
+var scrutinee_needs_eval[0:0];
+
+scrutinee_is_primitive = decoded_tag;
+scrutinee_header = heap[decoded_value];
+scrutinee_is_constructor = (~scrutinee_is_primitive) & scrutinee_header[31] & (~scrutinee_header[30]);
+scrutinee_is_memoized = (~scrutinee_is_primitive) & scrutinee_header[31] & scrutinee_header[30];
+scrutinee_needs_eval = (~scrutinee_is_primitive) & (~scrutinee_header[31]);
+
+// For memoized thunks, read the cached result and tag
+var memoized_result[31:0];
+var memoized_tag[0:0];
+memoized_result = heap[decoded_value + 1];
+memoized_tag = scrutinee_header[29];
+
+// Check for memoized-with-heap-ref redirect: if a thunk is memoized but its
+// result (eval_tag=0) is itself an unevaluated thunk, we must enter it.
+// This handles chains like: fun primes = let v = sieve l in v
+// where primes is memoized with result = sieve thunk (unevaluated).
+//
+// Double-redirect handling: when thunk A is memoized pointing to thunk B,
+// and B is later evaluated and memoized too, we get a chain A→B→value.
+// We follow one extra level of memo indirection to resolve this.
+var memo_result_header[31:0];
+memo_result_header = heap[memoized_result];
+
+// Check if the first-level target is itself a memoized thunk
+// Gate on (~memoized_tag) to avoid garbage reads when first level is a primitive
+var memo_result_is_memoized[0:0];
+memo_result_is_memoized = (~memoized_tag) & memo_result_header[31] & memo_result_header[30];
+
+// Second-level memo fields (only meaningful when memo_result_is_memoized=1)
+var memo2_tag[0:0];
+memo2_tag = memo_result_header[29];
+
+var memo2_result[31:0];
+memo2_result = heap[memoized_result + 1];
+
+var memo2_header[31:0];
+memo2_header = heap[memo2_result];
+
+// Effective memoized result: follow chain if target is also memoized
+var effective_memo_result[31:0];
+effective_memo_result = memo_result_is_memoized ? memo2_result : memoized_result;
+
+var effective_memo_tag[0:0];
+effective_memo_tag = memo_result_is_memoized ? memo2_tag : memoized_tag;
+
+var effective_memo_result_header[31:0];
+effective_memo_result_header = memo_result_is_memoized ? memo2_header : memo_result_header;
+
+var memo_needs_redirect[0:0];
+memo_needs_redirect = scrutinee_is_memoized & (~effective_memo_tag) & (~effective_memo_result_header[31]);
+
+// ========================================================================
+// Extract thunk metadata from new header format
+// Static thunk:  [31:30]=00, [29]=0, [28:19]=n_args, [18:4]=func_addr, [3:0]=0
+// Dynamic thunk: [31:30]=00, [29]=1, [28:19]=n_args, [18:0]=0
+// ========================================================================
+var enter_thunk_header[31:0];
+enter_thunk_header = memo_needs_redirect ? effective_memo_result_header : scrutinee_header;
+
+var thunk_is_dynamic[0:0];
+var thunk_n_args[9:0];
+var thunk_func_addr[14:0];
+thunk_is_dynamic = enter_thunk_header[29];
+thunk_n_args = enter_thunk_header[28:19];
+thunk_func_addr = enter_thunk_header[18:4];
+
+// Determine which thunk to enter:
+// - Direct eval: enter decoded_value (the scrutinee thunk)
+// - Redirect: enter memoized_result (the chain target thunk)
+var enter_thunk_addr[31:0];
+enter_thunk_addr = memo_needs_redirect ? effective_memo_result : decoded_value;
+
+// For static thunks: func addr comes from the header
+var enter_func_addr[31:0];
+enter_func_addr = {{17{1'b0}}, thunk_func_addr};
+
+// Read function info table for static thunks
+var thunk_info[31:0];
+thunk_info = imem[enter_func_addr];
+
+var thunk_nfree[7:0];
+var thunk_arity[10:0];
+thunk_nfree = thunk_info[19:12];
+thunk_arity = thunk_info[30:20];
+
+// ========================================================================
+// Saturation check for static thunks
+// n_actual_args = thunk_n_args - thunk_nfree (actual args, excluding freevars)
+// is_undersaturated = (n_actual_args < thunk_arity)
+// ========================================================================
+var thunk_n_args_ext[10:0];
+var thunk_nfree_ext[10:0];
+thunk_n_args_ext = {1'b0, thunk_n_args};
+thunk_nfree_ext = {3'b0, thunk_nfree};
+var n_actual_args[10:0];
+n_actual_args = thunk_n_args_ext - thunk_nfree_ext;
+
+var is_undersaturated[0:0];
+is_undersaturated = (n_actual_args < thunk_arity);
+
+var is_exactly_saturated[0:0];
+is_exactly_saturated = (n_actual_args == thunk_arity);
+
+var is_oversaturated[0:0];
+is_oversaturated = (~is_undersaturated) & (~is_exactly_saturated);
+
+// A PAP (partial application) is an undersaturated static thunk — it's in WHNF
+// Include memo_needs_redirect: a memoized thunk redirecting to a PAP is also WHNF
+var is_static_pap[0:0];
+is_static_pap = (scrutinee_needs_eval | memo_needs_redirect) & (~thunk_is_dynamic) & is_undersaturated;
+
+// Exactly saturated static thunk — enter with update cont
+var static_exactly_saturated[0:0];
+static_exactly_saturated = scrutinee_needs_eval & (~thunk_is_dynamic) & is_exactly_saturated;
+
+// Oversaturated static thunk — enter with argcont
+var static_oversaturated[0:0];
+static_oversaturated = scrutinee_needs_eval & (~thunk_is_dynamic) & is_oversaturated;
+
+// ========================================================================
+// Dynamic thunk evaluation
+// Read the func_ref from data[0] of the dynamic thunk, then read its header
+// to determine what kind of function it is and compute combined arg count
+// ========================================================================
+var dyn_func_ref[31:0];
+dyn_func_ref = heap[enter_thunk_addr + 1];
+
+var dyn_func_header[31:0];
+dyn_func_header = heap[dyn_func_ref];
+
+// Check if inner function has been memoized (can happen when thunks in the
+// dynamic chain get evaluated by other case instructions)
+var inner_is_memoized[0:0];
+inner_is_memoized = dyn_func_header[31] & dyn_func_header[30];
+var inner_memo_tag[0:0];
+inner_memo_tag = dyn_func_header[29];
+var inner_memo_needs_redirect[0:0];
+inner_memo_needs_redirect = inner_is_memoized & (~inner_memo_tag);
+
+// Follow memoized redirect: read result address, then read its header
+var inner_memo_result[31:0];
+inner_memo_result = heap[dyn_func_ref + 1];
+var inner_actual_header[31:0];
+inner_actual_header = heap[inner_memo_result];
+
+// Effective inner function: follow redirect if memoized, else use direct
+var effective_inner_ref[31:0];
+effective_inner_ref = inner_memo_needs_redirect ? inner_memo_result : dyn_func_ref;
+var effective_inner_header[31:0];
+effective_inner_header = inner_memo_needs_redirect ? inner_actual_header : dyn_func_header;
+
+// Inner function is a static thunk: [31:30]=00, [29]=0
+var inner_is_static[0:0];
+inner_is_static = (~effective_inner_header[31]) & (~effective_inner_header[29]);
+
+// Inner function is itself a dynamic thunk: [31:30]=00, [29]=1
+var inner_is_dynamic[0:0];
+inner_is_dynamic = (~effective_inner_header[31]) & effective_inner_header[29];
+
+// Extract inner static thunk fields
+var inner_n_args[9:0];
+var inner_func_addr[14:0];
+inner_n_args = effective_inner_header[28:19];
+inner_func_addr = effective_inner_header[18:4];
+
+// Read inner function's info table
+var inner_info[31:0];
+inner_info = imem[inner_func_addr];
+var inner_arity[10:0];
+var inner_nfree[7:0];
+inner_arity = inner_info[30:20];
+inner_nfree = inner_info[19:12];
+
+// Compute combined arg count for dynamic apply merge
+var inner_n_args_ext[10:0];
+var inner_nfree_ext[10:0];
+inner_n_args_ext = {1'b0, inner_n_args};
+inner_nfree_ext = {3'b0, inner_nfree};
+var inner_n_actual[10:0];
+inner_n_actual = inner_n_args_ext - inner_nfree_ext;
+
+var dyn_thunk_n_args_ext[10:0];
+dyn_thunk_n_args_ext = {1'b0, thunk_n_args};
+var combined_args[10:0];
+combined_args = inner_n_actual + dyn_thunk_n_args_ext;
+
+var dyn_is_saturated[0:0];
+var dyn_is_undersaturated[0:0];
+var dyn_is_oversaturated[0:0];
+dyn_is_saturated = (combined_args == inner_arity);
+dyn_is_undersaturated = (combined_args < inner_arity);
+dyn_is_oversaturated = (~dyn_is_undersaturated) & (~dyn_is_saturated);
+
+// Is this a dynamic thunk that needs merge-and-enter?
+// Include memo_needs_redirect: the redirect target is an unevaluated thunk,
+// and if it's dynamic, we need the full dynamic merge path.
+var is_dynamic_eval[0:0];
+is_dynamic_eval = (scrutinee_needs_eval | memo_needs_redirect) & thunk_is_dynamic & inner_is_static;
+
+// Dynamic thunk that is exactly saturated → merge and enter
+var dyn_saturated_enter[0:0];
+dyn_saturated_enter = is_dynamic_eval & dyn_is_saturated;
+
+// Dynamic thunk that is still undersaturated → merge into PAP (WHNF)
+var dyn_pap[0:0];
+dyn_pap = is_dynamic_eval & dyn_is_undersaturated;
+
+// Dynamic thunk that is oversaturated → merge and enter with argcont
+var dyn_oversat[0:0];
+dyn_oversat = is_dynamic_eval & dyn_is_oversaturated;
+
+// ========================================================================
+// Build merged heap object for dynamic thunks at fp
+// Layout: header, inner_data[0..inner_n_args-1], new_args[0..thunk_n_args-1]
+// Total data slots = inner_n_args + thunk_n_args
+// Header = {2'b00, 1'b0, total_n_args[9:0], inner_func_addr[14:0], 4'b0}
+// ========================================================================
+var merged_total[9:0];
+merged_total = inner_n_args + thunk_n_args;
+
+var merged_header[31:0];
+merged_header = {2'b00, 1'b0, merged_total, inner_func_addr, 4'b0};
+
+// Write merged header
+heap[fp] when (is_dynamic_eval) = merged_header;
+
+// Copy inner thunk's data (freevars + old args) to merged object
+// Inner data is at heap[dyn_func_ref + 1 + i] for i in 0..inner_n_args-1
+var inner_data_0[31:0];
+var inner_data_1[31:0];
+var inner_data_2[31:0];
+var inner_data_3[31:0];
+var inner_data_4[31:0];
+var inner_data_5[31:0];
+var inner_data_6[31:0];
+var inner_data_7[31:0];
+var inner_data_8[31:0];
+var inner_data_9[31:0];
+var inner_data_10[31:0];
+var inner_data_11[31:0];
+var inner_data_12[31:0];
+var inner_data_13[31:0];
+var inner_data_14[31:0];
+var inner_data_15[31:0];
+
+inner_data_0 = heap[effective_inner_ref + 1];
+inner_data_1 = heap[effective_inner_ref + 2];
+inner_data_2 = heap[effective_inner_ref + 3];
+inner_data_3 = heap[effective_inner_ref + 4];
+inner_data_4 = heap[effective_inner_ref + 5];
+inner_data_5 = heap[effective_inner_ref + 6];
+inner_data_6 = heap[effective_inner_ref + 7];
+inner_data_7 = heap[effective_inner_ref + 8];
+inner_data_8 = heap[effective_inner_ref + 9];
+inner_data_9 = heap[effective_inner_ref + 10];
+inner_data_10 = heap[effective_inner_ref + 11];
+inner_data_11 = heap[effective_inner_ref + 12];
+inner_data_12 = heap[effective_inner_ref + 13];
+inner_data_13 = heap[effective_inner_ref + 14];
+inner_data_14 = heap[effective_inner_ref + 15];
+inner_data_15 = heap[effective_inner_ref + 16];
+
+// Write inner data to merged object at fp+1..fp+inner_n_args
+heap[fp + 1] when (is_dynamic_eval & (inner_n_args > 0)) = inner_data_0;
+heap[fp + 2] when (is_dynamic_eval & (inner_n_args > 1)) = inner_data_1;
+heap[fp + 3] when (is_dynamic_eval & (inner_n_args > 2)) = inner_data_2;
+heap[fp + 4] when (is_dynamic_eval & (inner_n_args > 3)) = inner_data_3;
+heap[fp + 5] when (is_dynamic_eval & (inner_n_args > 4)) = inner_data_4;
+heap[fp + 6] when (is_dynamic_eval & (inner_n_args > 5)) = inner_data_5;
+heap[fp + 7] when (is_dynamic_eval & (inner_n_args > 6)) = inner_data_6;
+heap[fp + 8] when (is_dynamic_eval & (inner_n_args > 7)) = inner_data_7;
+heap[fp + 9] when (is_dynamic_eval & (inner_n_args > 8)) = inner_data_8;
+heap[fp + 10] when (is_dynamic_eval & (inner_n_args > 9)) = inner_data_9;
+heap[fp + 11] when (is_dynamic_eval & (inner_n_args > 10)) = inner_data_10;
+heap[fp + 12] when (is_dynamic_eval & (inner_n_args > 11)) = inner_data_11;
+heap[fp + 13] when (is_dynamic_eval & (inner_n_args > 12)) = inner_data_12;
+heap[fp + 14] when (is_dynamic_eval & (inner_n_args > 13)) = inner_data_13;
+heap[fp + 15] when (is_dynamic_eval & (inner_n_args > 14)) = inner_data_14;
+heap[fp + 16] when (is_dynamic_eval & (inner_n_args > 15)) = inner_data_15;
+
+// Copy new args from the dynamic thunk to merged object
+// New args are at heap[enter_thunk_addr + 2 + j] for j in 0..thunk_n_args-1
+// They go at fp + 1 + inner_n_args + j in the merged object
+var new_arg_base[19:0];
+new_arg_base = fp + 1 + {{10{1'b0}}, inner_n_args};
+
+var new_arg_0[31:0];
+var new_arg_1[31:0];
+var new_arg_2[31:0];
+var new_arg_3[31:0];
+var new_arg_4[31:0];
+var new_arg_5[31:0];
+var new_arg_6[31:0];
+var new_arg_7[31:0];
+var new_arg_8[31:0];
+var new_arg_9[31:0];
+var new_arg_10[31:0];
+var new_arg_11[31:0];
+var new_arg_12[31:0];
+var new_arg_13[31:0];
+var new_arg_14[31:0];
+var new_arg_15[31:0];
+
+new_arg_0 = heap[enter_thunk_addr + 2];
+new_arg_1 = heap[enter_thunk_addr + 3];
+new_arg_2 = heap[enter_thunk_addr + 4];
+new_arg_3 = heap[enter_thunk_addr + 5];
+new_arg_4 = heap[enter_thunk_addr + 6];
+new_arg_5 = heap[enter_thunk_addr + 7];
+new_arg_6 = heap[enter_thunk_addr + 8];
+new_arg_7 = heap[enter_thunk_addr + 9];
+new_arg_8 = heap[enter_thunk_addr + 10];
+new_arg_9 = heap[enter_thunk_addr + 11];
+new_arg_10 = heap[enter_thunk_addr + 12];
+new_arg_11 = heap[enter_thunk_addr + 13];
+new_arg_12 = heap[enter_thunk_addr + 14];
+new_arg_13 = heap[enter_thunk_addr + 15];
+new_arg_14 = heap[enter_thunk_addr + 16];
+new_arg_15 = heap[enter_thunk_addr + 17];
+
+heap[new_arg_base] when (is_dynamic_eval & (thunk_n_args > 0)) = new_arg_0;
+heap[new_arg_base + 1] when (is_dynamic_eval & (thunk_n_args > 1)) = new_arg_1;
+heap[new_arg_base + 2] when (is_dynamic_eval & (thunk_n_args > 2)) = new_arg_2;
+heap[new_arg_base + 3] when (is_dynamic_eval & (thunk_n_args > 3)) = new_arg_3;
+heap[new_arg_base + 4] when (is_dynamic_eval & (thunk_n_args > 4)) = new_arg_4;
+heap[new_arg_base + 5] when (is_dynamic_eval & (thunk_n_args > 5)) = new_arg_5;
+heap[new_arg_base + 6] when (is_dynamic_eval & (thunk_n_args > 6)) = new_arg_6;
+heap[new_arg_base + 7] when (is_dynamic_eval & (thunk_n_args > 7)) = new_arg_7;
+heap[new_arg_base + 8] when (is_dynamic_eval & (thunk_n_args > 8)) = new_arg_8;
+heap[new_arg_base + 9] when (is_dynamic_eval & (thunk_n_args > 9)) = new_arg_9;
+heap[new_arg_base + 10] when (is_dynamic_eval & (thunk_n_args > 10)) = new_arg_10;
+heap[new_arg_base + 11] when (is_dynamic_eval & (thunk_n_args > 11)) = new_arg_11;
+heap[new_arg_base + 12] when (is_dynamic_eval & (thunk_n_args > 12)) = new_arg_12;
+heap[new_arg_base + 13] when (is_dynamic_eval & (thunk_n_args > 13)) = new_arg_13;
+heap[new_arg_base + 14] when (is_dynamic_eval & (thunk_n_args > 14)) = new_arg_14;
+heap[new_arg_base + 15] when (is_dynamic_eval & (thunk_n_args > 15)) = new_arg_15;
+
+// Update fp for the merged object
+fp when (is_dynamic_eval) = fp + 1 + {{10{1'b0}}, merged_total};
+
+// ========================================================================
+// Flatten nested dynamic thunks
+// ========================================================================
+// When a dynamic thunk's inner function is itself a dynamic thunk, we can't
+// merge-and-enter directly. Instead, we flatten the two dynamic levels into
+// one: combine inner's func_ref with inner's new_args + outer's new_args.
+// Then memoize the original thunk with a redirect to the flattened thunk,
+// and re-execute the case instruction (which will follow the redirect).
+//
+// IMPORTANT: All flatten writes use dedicated "flat_wr_*" variables to avoid
+// sharing source nodes with the merge section's writes. The graph merger has
+// a bug where shared source nodes between writes to the same memory cause
+// conditions to be dropped or data to be misassigned.
+
+var needs_flatten[0:0];
+needs_flatten = (scrutinee_needs_eval | memo_needs_redirect) & thunk_is_dynamic & inner_is_dynamic;
+
+// Compute flattened n_args = inner's n_args + outer's n_args
+var flat_n_args[9:0];
+flat_n_args = inner_n_args + thunk_n_args;
+
+// Build flattened dynamic thunk header
+var flat_header[31:0];
+flat_header = {2'b00, 1'b1, flat_n_args, 19'b0};
+
+// Dedicated read variables for flatten inner data (avoids sharing with merge section)
+var flat_wr_funcref[31:0];
+flat_wr_funcref = heap[effective_inner_ref + 1];
+var flat_wr_id1[31:0];
+flat_wr_id1 = heap[effective_inner_ref + 2];
+var flat_wr_id2[31:0];
+flat_wr_id2 = heap[effective_inner_ref + 3];
+var flat_wr_id3[31:0];
+flat_wr_id3 = heap[effective_inner_ref + 4];
+var flat_wr_id4[31:0];
+flat_wr_id4 = heap[effective_inner_ref + 5];
+var flat_wr_id5[31:0];
+flat_wr_id5 = heap[effective_inner_ref + 6];
+var flat_wr_id6[31:0];
+flat_wr_id6 = heap[effective_inner_ref + 7];
+var flat_wr_id7[31:0];
+flat_wr_id7 = heap[effective_inner_ref + 8];
+
+// Dedicated read variables for flatten outer data (avoids sharing with merge section)
+var flat_wr_na0[31:0];
+flat_wr_na0 = heap[enter_thunk_addr + 2];
+var flat_wr_na1[31:0];
+flat_wr_na1 = heap[enter_thunk_addr + 3];
+var flat_wr_na2[31:0];
+flat_wr_na2 = heap[enter_thunk_addr + 4];
+var flat_wr_na3[31:0];
+flat_wr_na3 = heap[enter_thunk_addr + 5];
+var flat_wr_na4[31:0];
+flat_wr_na4 = heap[enter_thunk_addr + 6];
+var flat_wr_na5[31:0];
+flat_wr_na5 = heap[enter_thunk_addr + 7];
+var flat_wr_na6[31:0];
+flat_wr_na6 = heap[enter_thunk_addr + 8];
+var flat_wr_na7[31:0];
+flat_wr_na7 = heap[enter_thunk_addr + 9];
+
+// Write flattened thunk to heap at fp
+// Use dedicated flat_wr_addr for addresses and flat_guard_* for conditions to avoid
+// sharing ANY graph nodes with the merge section (graph merger bug workaround)
+var flat_wr_addr[19:0];
+flat_wr_addr = fp;
+
+// Dedicated condition variables — prevents graph merger from confusing these
+// with merge section conditions that share inner_n_args/thunk_n_args comparisons
+var flat_guard_id1[0:0]; flat_guard_id1 = needs_flatten & (inner_n_args > 10'd0);
+var flat_guard_id2[0:0]; flat_guard_id2 = needs_flatten & (inner_n_args > 10'd1);
+var flat_guard_id3[0:0]; flat_guard_id3 = needs_flatten & (inner_n_args > 10'd2);
+var flat_guard_id4[0:0]; flat_guard_id4 = needs_flatten & (inner_n_args > 10'd3);
+var flat_guard_id5[0:0]; flat_guard_id5 = needs_flatten & (inner_n_args > 10'd4);
+var flat_guard_id6[0:0]; flat_guard_id6 = needs_flatten & (inner_n_args > 10'd5);
+var flat_guard_id7[0:0]; flat_guard_id7 = needs_flatten & (inner_n_args > 10'd6);
+
+var flat_guard_na0[0:0]; flat_guard_na0 = needs_flatten & (thunk_n_args > 10'd0);
+var flat_guard_na1[0:0]; flat_guard_na1 = needs_flatten & (thunk_n_args > 10'd1);
+var flat_guard_na2[0:0]; flat_guard_na2 = needs_flatten & (thunk_n_args > 10'd2);
+var flat_guard_na3[0:0]; flat_guard_na3 = needs_flatten & (thunk_n_args > 10'd3);
+var flat_guard_na4[0:0]; flat_guard_na4 = needs_flatten & (thunk_n_args > 10'd4);
+var flat_guard_na5[0:0]; flat_guard_na5 = needs_flatten & (thunk_n_args > 10'd5);
+var flat_guard_na6[0:0]; flat_guard_na6 = needs_flatten & (thunk_n_args > 10'd6);
+var flat_guard_na7[0:0]; flat_guard_na7 = needs_flatten & (thunk_n_args > 10'd7);
+
+heap[flat_wr_addr] when (needs_flatten) = flat_header;
+heap[flat_wr_addr + 1] when (needs_flatten) = flat_wr_funcref;
+heap[flat_wr_addr + 2] when (flat_guard_id1) = flat_wr_id1;
+heap[flat_wr_addr + 3] when (flat_guard_id2) = flat_wr_id2;
+heap[flat_wr_addr + 4] when (flat_guard_id3) = flat_wr_id3;
+heap[flat_wr_addr + 5] when (flat_guard_id4) = flat_wr_id4;
+heap[flat_wr_addr + 6] when (flat_guard_id5) = flat_wr_id5;
+heap[flat_wr_addr + 7] when (flat_guard_id6) = flat_wr_id6;
+heap[flat_wr_addr + 8] when (flat_guard_id7) = flat_wr_id7;
+
+// Write outer's new_args after inner's data in the flattened thunk
+var flat_outer_base[19:0];
+flat_outer_base = fp + 2 + {{10{1'b0}}, inner_n_args};
+
+heap[flat_outer_base] when (flat_guard_na0) = flat_wr_na0;
+heap[flat_outer_base + 1] when (flat_guard_na1) = flat_wr_na1;
+heap[flat_outer_base + 2] when (flat_guard_na2) = flat_wr_na2;
+heap[flat_outer_base + 3] when (flat_guard_na3) = flat_wr_na3;
+heap[flat_outer_base + 4] when (flat_guard_na4) = flat_wr_na4;
+heap[flat_outer_base + 5] when (flat_guard_na5) = flat_wr_na5;
+heap[flat_outer_base + 6] when (flat_guard_na6) = flat_wr_na6;
+heap[flat_outer_base + 7] when (flat_guard_na7) = flat_wr_na7;
+
+// Memoize the original thunk with redirect to flattened thunk
+var flat_memo_hdr[31:0];
+flat_memo_hdr = {2'b11, 1'b0, 13'b0, fp[15:0]};
+var flat_memo_ref[31:0];
+flat_memo_ref = {{12{1'b0}}, fp};
+heap[enter_thunk_addr] when (needs_flatten) = flat_memo_hdr;
+heap[enter_thunk_addr + 1] when (needs_flatten) = flat_memo_ref;
+
+// Update fp past the flattened thunk
+fp when (needs_flatten) = fp + 2 + {{10{1'b0}}, flat_n_args};
+
+// ========================================================================
+// Determine overall control flow
+// ========================================================================
+
+// Split redirect: static redirect (target is not dynamic AND not a PAP) vs dynamic redirect
+var memo_static_redirect[0:0];
+memo_static_redirect = memo_needs_redirect & (~thunk_is_dynamic) & (~is_undersaturated);
+
+// push_update_cont: exactly saturated or static redirect (push type 2 update cont)
+// Dynamic redirects are handled by dyn_saturated_enter or dyn_oversat
+var push_update_cont[0:0];
+push_update_cont = static_exactly_saturated | dyn_saturated_enter | memo_static_redirect;
+
+// push_argcont: oversaturated (push type 1 argcont)
+var is_oversaturated_any[0:0];
+is_oversaturated_any = static_oversaturated | dyn_oversat;
+
+var push_argcont[0:0];
+push_argcont = is_oversaturated_any;
+
+// needs_thunk_entry: we ENTER a thunk (jump to code)
+var needs_thunk_entry[0:0];
+needs_thunk_entry = push_update_cont | push_argcont;
+
+// For PAPs (static or dynamic), treat as WHNF — push case cont, go to patterns
+var is_pap[0:0];
+is_pap = is_static_pap | dyn_pap;
+
+// Capture old fp before any updates
+var old_fp[31:0];
+old_fp = {{12{1'b0}}, fp};
+
+// Set eval_reg/eval_tag
+eval_reg = (scrutinee_is_memoized & (~memo_needs_redirect)) ? effective_memo_result :
+           dyn_pap ? old_fp :
+           is_static_pap ? enter_thunk_addr :
+           decoded_value;
+eval_tag = (scrutinee_is_memoized & (~memo_needs_redirect)) ? effective_memo_tag :
+           (dyn_pap | is_static_pap) ? 1'b0 :
+           decoded_tag;
+
+// ========================================================================
+// Oversaturated: compute excess args address and count
+// ========================================================================
+// Static oversaturated: excess args are in original thunk data after the expected args
+var static_excess_addr[31:0];
+static_excess_addr = enter_thunk_addr + 1 + {{24{1'b0}}, thunk_nfree} + {{21{1'b0}}, thunk_arity};
+var static_n_excess[10:0];
+static_n_excess = n_actual_args - thunk_arity;
+
+// Dynamic oversaturated: excess args are in merged object at old_fp after expected args
+var dyn_excess_addr[31:0];
+dyn_excess_addr = old_fp + 1 + {{24{1'b0}}, inner_nfree} + {{21{1'b0}}, inner_arity};
+var dyn_n_excess[10:0];
+dyn_n_excess = combined_args - inner_arity;
+
+var oversat_excess_addr[31:0];
+oversat_excess_addr = static_oversaturated ? static_excess_addr : dyn_excess_addr;
+
+var oversat_n_excess[3:0];
+oversat_n_excess = static_oversaturated ? static_n_excess[3:0] : dyn_n_excess[3:0];
+
+// ========================================================================
+// Build argcont frame words (type 1)
+// ========================================================================
+// Packs excess_args_addr, thunk_addr (decoded_value), n_excess into spare
+// upper bits of the 5-word continuation frame.
+// word0: {2'b01, saved_pc[29:0]}                             type=1, PC = case instruction
+// word1: {excess_args_addr[11:0], env_clo[19:0]}             packed env_clo + excess addr low
+// word2: {decoded_value[11:0], env_args[19:0]}               packed env_args + thunk addr low
+// word3: {excess_args_addr[19:12], n_excess[3:0], lsp[19:0]} excess addr high + count + lsp
+// word4: {decoded_value[19:12], 4'b0, lb[19:0]}              thunk addr high + lb
+
+var argcont_word0[31:0];
+argcont_word0 = {2'b01, pc[29:0]};
+
+var argcont_word1[31:0];
+argcont_word1 = {oversat_excess_addr[11:0], env_clo[19:0]};
+
+var argcont_word2[31:0];
+argcont_word2 = {decoded_value[11:0], env_args[19:0]};
+
+var argcont_word3[31:0];
+argcont_word3 = {oversat_excess_addr[19:12], oversat_n_excess, lsp};
+
+var argcont_word4[31:0];
+argcont_word4 = {decoded_value[19:12], 4'b0, lb};
+
+// ========================================================================
+// Push continuation frame
+// ========================================================================
+// - Oversaturated: push argcont (type 1)
+// - Exactly saturated / redirect: push update cont (type 2)
+// - WHNF / PAP: push case cont (type 0)
+
+var case_cont_word0[31:0];
+var update_cont_word0[31:0];
+case_cont_word0 = {2'b00, case_body_return_pc[29:0]};
+update_cont_word0 = {2'b10, pc[29:0]};
+
+var cont_word0[31:0];
+var cont_word1[31:0];
+var cont_word2[31:0];
+cont_word0 = push_argcont ? argcont_word0 :
+             push_update_cont ? update_cont_word0 :
+             case_cont_word0;
+cont_word1 = push_argcont ? argcont_word1 : env_clo;
+cont_word2 = push_argcont ? argcont_word2 : env_args;
+
+var cont_word3[31:0];
+var cont_word4[31:0];
+cont_word3 = push_argcont ? argcont_word3 :
+             push_update_cont ? {decoded_value[11:0], lsp} :
+             {{12{1'b0}}, lsp};
+cont_word4 = push_argcont ? argcont_word4 :
+             push_update_cont ? {4'b0, decoded_value[19:12], lb} :
+             {{12{1'b0}}, lb};
+
+cstack[csp] = cont_word0;
+cstack[csp + 1] = cont_word1;
+cstack[csp + 2] = cont_word2;
+cstack[csp + 3] = cont_word3;
+cstack[csp + 4] = cont_word4;
+csp = csp + 5;
+
+// For flatten: undo the csp increment (no cont pushed for re-execution)
+csp when (needs_flatten) = csp - 5;
+
+// ========================================================================
+// Set up environment for thunk entry
+// ========================================================================
+// For static (exactly saturated, oversaturated, redirect):
+//   env_clo = enter_thunk_addr + 1
+//   env_args = enter_thunk_addr + 1 + thunk_nfree
+// For dynamic (saturated or oversaturated) merge:
+//   env_clo = fp_merged + 1 (freevars from merged object)
+//   env_args = fp_merged + 1 + inner_nfree
+
+var dyn_merged_base[31:0];
+dyn_merged_base = old_fp + 1;
+
+// Combine static paths that write the same env values.
+var static_or_redirect_enter[0:0];
+static_or_redirect_enter = static_exactly_saturated | static_oversaturated | memo_static_redirect;
+
+var dyn_enter[0:0];
+dyn_enter = dyn_saturated_enter | dyn_oversat;
+
+env_clo when (static_or_redirect_enter) = enter_thunk_addr + 1;
+env_clo when (dyn_enter) = dyn_merged_base;
+
+env_args when (static_or_redirect_enter) = enter_thunk_addr + 1 + {{24{1'b0}}, thunk_nfree};
+env_args when (dyn_enter) = dyn_merged_base + {{24{1'b0}}, inner_nfree};
+
+// Change lb ONLY for thunk entry (isolates thunk's locals from caller's)
+lb when (needs_thunk_entry) = lsp;
+
+// ========================================================================
+// Set PC based on outcome
+// ========================================================================
+var pc_static_enter[31:0];
+var pc_dynamic_enter[31:0];
+pc_static_enter = enter_func_addr + 1;
+pc_dynamic_enter = {{17{1'b0}}, inner_func_addr} + 1;
+
+pc = static_or_redirect_enter ? pc_static_enter :
+     dyn_enter ? pc_dynamic_enter :
+     case_pattern_pc;
+
+// For flatten: re-execute the case instruction next cycle
+pc when (needs_flatten) = case_pattern_pc - 1;

@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SLEEP - Sleep (Power-Down Mode)
+// Halts the CPU until an interrupt occurs
+// This is a privileged instruction - causes illegal instruction exception in user mode
+//
+// Behavior:
+// - If in user mode: illegal instruction exception
+// - If in privileged mode: wait until irq_i is asserted, then continue
+// - When irq_i arrives, PC advances and interrupt handling can begin
+//
+// Opcode: 0000000000011011 (0x001B)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+
+// External interrupt request signal (input from outside)
+ext isa_state irq_i[0:0];
+
+var sleep_is_privileged[0:0];
+var sleep_wake[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect for privilege violation
+aspect exception.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+instr = umem[pc];
+assume instr[15:0] == 0x001B;
+
+// Check privilege mode (SR bit 30 = MD)
+sleep_is_privileged = sr[30];
+
+// If not privileged, trigger illegal instruction exception (vector 4)
+exc_taken = (sleep_is_privileged == 1'b0);
+exc_vector = 8'h04;
+
+// Wake condition: privileged mode and IRQ pending
+// Note: Interrupt masking (SR[4:7]) is checked by interrupt hardware
+sleep_wake = sleep_is_privileged & irq_i;
+
+// Only advance PC when waking up from sleep (privileged AND IRQ pending)
+// If no IRQ, PC stays at current value (re-execute SLEEP next cycle)
+pc when (sleep_wake) = pc + 2;

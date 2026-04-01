@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HW_LD - Hardware Load (Physical Address)
+//
+// Format: opcode[31:26] = 0x1B, ra[25:21], rb[20:16], disp[15:0]
+//
+// Ra = Mem[Rb + SEXT(disp)]  (physical address, bypasses TLB)
+//
+// This instruction is only valid in PAL mode. It performs a load
+// using physical addressing, bypassing virtual memory translation.
+// This is used by PALcode for page table walks and accessing
+// memory-mapped hardware registers.
+//
+// Bits [15:12] encode access modifiers:
+//   [15:14] = 00: quadword (8 bytes)
+//   [15:14] = 01: longword (4 bytes)
+//   [15:14] = 10: word (2 bytes)
+//   [15:14] = 11: byte (1 byte)
+//   [12] = physical mode (always 1 for HW_LD)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[63:0];
+
+// PAL mode check
+isa_state pal_mode[0:0];
+
+// ITB translation state (makes ITB signals global across all instructions)
+isa_state pal_base[63:0];
+isa_state ps[63:0];
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+
+// Interrupt state
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+
+// Exception state
+isa_state exc_addr[63:0];
+isa_state va[63:0];
+isa_state lock_flag[0:0];
+
+// ITB translation for instruction fetch
+aspect ../vm/aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect ../vm/aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+var ra[4:0];
+var rb[4:0];
+var Rb[63:0];
+var disp[63:0];
+var addr[63:0];
+var hw_ld_data[63:0];
+
+instr = umem[pc_pa];
+assume instr[31:26] == 27;
+assume pal_mode == 1;
+
+ra = instr[25:21];
+rb = instr[20:16];
+Rb = rf[rb];
+
+// Displacement is in bits [11:0], with modifiers in [15:12]
+disp = {{52{instr[11]}}, instr[11:0]};
+addr = Rb + disp;
+
+// Physical memory load (bypasses TLB)
+hw_ld_data = umem[addr];
+
+// Interrupt handling (higher priority than ITB fault)
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+
+// ITB fault handling (when no interrupt)
+va when (take_interrupt == 0 && itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+
+// Normal execution (gated by no fault)
+rf[ra] when (ra != 31 && take_interrupt == 0 && itb_fault == 0) = hw_ld_data;
+pc when (take_interrupt == 0 && itb_fault == 0) = pc + 4;

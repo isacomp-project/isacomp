@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC VBR, Rn - Store Control Register (Vector Base Register)
+// Copies VBR to Rn
+// This instruction is NOT privileged - can be read from user mode
+//
+// Opcode: 0000nnnn00100010 (0x0n22)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var rn[3:0];
+var stc_vbr_rn_lo[2:0];
+
+// Register banking flags (unique to stc_vbr instruction)
+var stc_vbr_rb[0:0];
+var stc_vbr_rn_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:12] == 0x0;
+assume instr[7:0] == 0x22;
+rn = instr[11:8];
+stc_vbr_rn_lo = rn[2:0];
+
+// Banking: R0-R7 use rf_bank when SR.RB=1
+stc_vbr_rb = sr[28];
+stc_vbr_rn_bk = (rn[3] == 1'b0) & stc_vbr_rb;
+
+// Store VBR to register (not privileged)
+rf[rn] when (stc_vbr_rn_bk == 0) = vbr;
+rf_bank[stc_vbr_rn_lo] when (stc_vbr_rn_bk) = vbr;
+
+pc = pc + 2;

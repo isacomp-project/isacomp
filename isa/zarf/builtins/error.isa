@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Error Builtin (0x00)
+//
+// Signals a runtime error and halts the machine.
+// This is called when an undefined or error condition occurs.
+// Takes one argument (error code), halts machine with that code.
+
+// State declarations
+isa_state pc[31:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_args[31:0];
+isa_state halted[0:0];
+isa_state error_code[7:0];
+mem heap[19:0];
+
+// Read error code from argument
+var err_val[31:0];
+err_val = heap[env_args];
+
+// Set error state
+error_code = err_val[7:0];
+halted = 1'b1;
+
+// Set return value (though machine is halted)
+eval_reg = err_val;
+eval_tag = 1'b1;
+
+// Don't pop continuation - machine is halted
+// PC stays where it is for debugging

@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 PEA (bd16,An,Xn) - Push Effective Address full indexed (BD=word)
+// Full ext: BS=0 (base used), IS=0 (index used), BD=word (16-bit), I/IS=000
+// EA = An + Xn * scale + sign_ext(bd16)
+// Opcode: 0100 1000 01 110 AAA
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var base_reg[2:0];
+var pefw_ext[15:0];
+var idx_reg[2:0];
+var idx_is_addr[0:0];
+var idx_is_long[0:0];
+var scale[1:0];
+var raw_idx[31:0];
+var idx_val[31:0];
+var scaled_idx[31:0];
+var bd16[15:0];
+var bd16_ext[31:0];
+var eff_addr[31:0];
+var sp[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b0100100001;  // PEA
+assume instr[5:3] == 0b110;             // EA mode: indexed
+pc when (~m68k_exc_taken) = pc + 2;
+
+base_reg = instr[2:0];
+
+// Fetch full extension word
+pefw_ext = dmem[pc + pc_pa_delta];
+assume pefw_ext[8] == 0b1;       // Full format
+assume pefw_ext[7] == 0b0;       // Base NOT suppressed (BS=0)
+assume pefw_ext[6] == 0b0;       // Index NOT suppressed (IS=0)
+assume pefw_ext[5:4] == 0b10;    // BD size = word (16-bit)
+assume pefw_ext[3:0] == 0b0000;  // No memory indirect
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode index register and scale
+idx_reg = pefw_ext[14:12];
+idx_is_addr = pefw_ext[15];
+idx_is_long = pefw_ext[11];
+scale = pefw_ext[10:9];
+
+// Get index value
+raw_idx = idx_is_addr ? aregs[idx_reg] : dregs[idx_reg];
+idx_val = idx_is_long ? raw_idx : {{16{raw_idx[15]}}, raw_idx[15:0]};
+
+// Scale index
+scaled_idx = scale == 2'b00 ? idx_val :
+             scale == 2'b01 ? (idx_val << 1) :
+             scale == 2'b10 ? (idx_val << 2) :
+                              (idx_val << 3);
+
+// Fetch 16-bit base displacement
+bd16 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+bd16_ext = {{16{bd16[15]}}, bd16};
+
+// Calculate effective address
+eff_addr = aregs[base_reg] + scaled_idx + bd16_ext;
+
+// Push effective address onto stack
+sp = aregs[7] - 4;
+aregs[7] when (~m68k_exc_taken) = sp;
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = sp;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = eff_addr[31:16];
+#else
+dmem[sp] when (~m68k_exc_taken & ~data_exc_taken) = eff_addr[31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa + 2] when (~m68k_exc_taken & ~data_exc_taken) = eff_addr[15:0];
+#else
+dmem[sp + 2] when (~m68k_exc_taken & ~data_exc_taken) = eff_addr[15:0];
+#endif

@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MNEGF - Move Negated F_floating
+// Opcode: 0x52
+// Format: [opcode:8][src:4][dst:4][unused:16]
+// dst = -src (F_floating)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+mem umem[12:0];
+
+var src_reg[3:0];
+var dst_reg[3:0];
+var src_val[31:0];
+var res[31:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x52;
+pc = pc + 4;
+
+src_reg = instr[23:20];
+dst_reg = instr[19:16];
+
+src_val = rf[src_reg];
+
+// Negate by flipping sign bit
+res = {~src_val[31], src_val[30:0]};
+
+rf[dst_reg] = res;
+
+// Update condition codes based on result
+flag_N = res[31];
+flag_Z = (res[30:0] == 0);
+flag_V = 0;
+flag_C = 0;

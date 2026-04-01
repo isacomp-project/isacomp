@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD 31 - FD prefix passthrough
+// FD prefix consumed, base opcode 31 executes unchanged
+
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state sp[15:0];
+mem mainmem[15:0];
+
+var imm_lo[7:0];
+var imm_hi[7:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'h31FD;
+pc = pc + 2;
+
+imm_lo = mainmem[pc];
+pc = pc + 1;
+imm_hi = mainmem[pc];
+pc = pc + 1;
+
+sp = {imm_hi, imm_lo};

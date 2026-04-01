@@ -1,0 +1,11 @@
+# Generated per-configuration pipeline output directories
+# These are created by create_rv32i_pipeline.py --backend rtlil
+riscv32i_pipelined_*/
+
+# Generated artifacts in the canonical riscv32i_complete directory
+riscv32i_complete/*.il
+riscv32i_complete/*.cc
+riscv32i_complete/*_from_rtlil.v
+riscv32i_complete/*_sim
+riscv32i_complete/*.rgraph
+riscv32i_complete/umem*.hex

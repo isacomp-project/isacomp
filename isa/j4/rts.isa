@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RTS - Return from Subroutine (with delay slot)
+isa_state pc[31:0];
+var instr[15:0];
+isa_state pr[31:0];
+mem umem[23:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:0] == 0x000B;
+
+// Set up delay slot with return address from PR
+delay_slot when (in_delay_slot == 0) = 1;
+branch_target when (in_delay_slot == 0) = pr;
+
+pc = pc + 2;

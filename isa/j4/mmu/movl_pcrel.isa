@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MOV.L @(disp,PC),Rn - PC-relative long word load
+// PC-relative loads access code addresses in P1/P2 regions which are untranslated.
+// We do inline address translation (strip top 3 bits) instead of using the full MMU aspect.
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var disp[7:0];
+var Rn[31:0];
+var pc_val[31:0];
+var movl_pcrel_addr[31:0];
+var movl_pcrel_pa[31:0];
+var data32[31:0];
+
+// Register banking variables (unique to movl_pcrel)
+var movl_pcrel_rn_lo[2:0];
+var movl_pcrel_rb[0:0];
+var movl_pcrel_rn_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0xD;
+rn = instr[11:8];
+disp = instr[7:0];
+
+// Register banking setup
+movl_pcrel_rn_lo = rn[2:0];
+movl_pcrel_rb = sr[29];  // RB bit (bit 29 in SR)
+movl_pcrel_rn_bk = (rn[3] == 1'b0) & movl_pcrel_rb;
+
+// Compute PC-relative address (virtual)
+pc_val = (pc + 4) & 32'hFFFFFFFC;
+movl_pcrel_addr = pc_val + {22'b0, disp, 2'b0};
+
+// Inline P1/P2 address translation - strip top 3 bits for physical address
+// P1 (0x80000000-0x9FFFFFFF) and P2 (0xA0000000-0xBFFFFFFF) map to physical 0x00000000-0x1FFFFFFF
+// P4 (0xE0000000-0xFFFFFFFF) maps to 0x03FF0000 region for control registers
+#ifdef MMU
+var movl_pcrel_is_p4[0:0];
+movl_pcrel_is_p4 = (movl_pcrel_addr[31:29] == 3'b111);
+movl_pcrel_pa = movl_pcrel_is_p4 ? {16'h03FF, movl_pcrel_addr[23:16], movl_pcrel_addr[7:0]} : {3'b000, movl_pcrel_addr[28:0]};
+#else
+movl_pcrel_pa = movl_pcrel_addr;
+#endif
+
+// Load from physical address
+data32 = umem[movl_pcrel_pa];
+
+// Update register with banking
+rf[rn] when (~int_should_take & ~itlb_exc_actually_taken & (movl_pcrel_rn_bk == 0)) = data32;
+rf_bank[movl_pcrel_rn_lo] when (~int_should_take & ~itlb_exc_actually_taken & (movl_pcrel_rn_bk)) = data32;
+
+pc = pc + 2;

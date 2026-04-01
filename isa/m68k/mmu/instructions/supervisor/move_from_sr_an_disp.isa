@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 MOVE from SR to (d16,An) - Move Status Register to displacement indirect
+// Opcode: 0100 0000 11 101 rrr (40e8-40ef) followed by 16-bit displacement
+// On 68010+: privileged instruction
+// Stores entire SR to memory at (An + d16)
+// Used in Linux: resume() saves SR to thread struct during context switch
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[23:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+// Full Status Register
+isa_state sr[15:0];
+isa_state usp[31:0];
+isa_state ssp[31:0];
+
+// CCR flags (not modified by this instruction)
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var mfsr_disp_areg[2:0];
+var mfsr_disp_d16[15:0];
+var mfsr_disp_d16_ext[31:0];
+var mfsr_disp_current_sr[15:0];
+var mfsr_disp_addr[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b0100000011;  // MOVE from SR opcode
+assume instr[5:3] == 3'b101;            // EA mode: Address Register Indirect with Displacement
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode address register
+mfsr_disp_areg = instr[2:0];
+
+// Fetch 16-bit signed displacement
+mfsr_disp_d16 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+mfsr_disp_d16_ext = {{16{mfsr_disp_d16[15]}}, mfsr_disp_d16};
+
+// Calculate effective address
+mfsr_disp_addr = aregs[mfsr_disp_areg] + mfsr_disp_d16_ext;
+
+// Reconstruct current SR from live flag values
+mfsr_disp_current_sr = {sr[15:5], flag_X, flag_N, flag_Z, flag_V, flag_C};
+
+// Write SR word to memory
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = mfsr_disp_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = mfsr_disp_current_sr;
+#else
+dmem[mfsr_disp_addr] when (~m68k_exc_taken & ~data_exc_taken) = mfsr_disp_current_sr;
+#endif
+
+// MOVE from SR does not affect CCR flags

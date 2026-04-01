@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 RESET - Privilege Violation (vector 8)
+// Opcode: 0100 1110 0111 0000 (4E70)
+// Fires when executed in user mode (sr[13]==0)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[23:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+isa_state sr[15:0];
+isa_state usp[31:0];
+isa_state ssp[31:0];
+isa_state vbr[31:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var priv_rst_fault_pc[31:0];
+var priv_rst_saved_sr[15:0];
+var priv_rst_base_sp[31:0];
+var priv_rst_sp_fmt[31:0];
+var priv_rst_sp_pc[31:0];
+var priv_rst_sp_sr[31:0];
+var priv_rst_vec_addr[31:0];
+var priv_rst_handler_hi[15:0];
+var priv_rst_handler_lo[15:0];
+var priv_rst_handler[31:0];
+var priv_rst_new_sr[15:0];
+var priv_rst_frame_lo[31:0];
+var priv_rst_frame_hi[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Save fault PC (address of faulting instruction)
+priv_rst_fault_pc = pc;
+
+// Fetch and match opcode
+instr = dmem[pc_pa];
+assume instr == 16'h4E70;   // RESET opcode
+assume sr[13] == 1'b0;       // User mode - privilege violation
+pc = pc + 2;
+
+// Reconstruct current SR from live flags
+priv_rst_saved_sr = {sr[15:5], flag_X, flag_N, flag_Z, flag_V, flag_C};
+
+// Save user SP and switch to supervisor stack
+usp = aregs[7];
+priv_rst_base_sp = ssp;
+
+// Push Format 0 exception frame (8 bytes)
+priv_rst_sp_fmt = priv_rst_base_sp - 2;
+priv_rst_sp_pc = priv_rst_sp_fmt - 4;
+priv_rst_sp_sr = priv_rst_sp_pc - 2;
+
+// Push exception frame as two 32-bit writes to avoid dual-half collision
+priv_rst_frame_lo = {priv_rst_saved_sr, priv_rst_fault_pc[31:16]};
+priv_rst_frame_hi = {priv_rst_fault_pc[15:0], {4'b0000, 2'b00, 8'h08, 2'b00}};
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = priv_rst_sp_sr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+dmem[ea_pa] = priv_rst_frame_lo;
+#else
+dmem[priv_rst_sp_sr] = priv_rst_frame_lo;
+#endif
+#ifdef MMU
+dmem[ea_pa + 4] = priv_rst_frame_hi;
+#else
+dmem[priv_rst_sp_sr + 4] = priv_rst_frame_hi;
+#endif
+
+// Update stack pointers
+ssp = priv_rst_sp_sr;
+aregs[7] when (~m68k_exc_taken & ~data_exc_taken) = priv_rst_sp_sr;
+
+// Enter supervisor mode, clear trace bits
+priv_rst_new_sr = {2'b00, 1'b1, priv_rst_saved_sr[12:0]};
+sr = priv_rst_new_sr;
+
+flag_C = priv_rst_new_sr[0];
+flag_V = priv_rst_new_sr[1];
+flag_Z = priv_rst_new_sr[2];
+flag_N = priv_rst_new_sr[3];
+flag_X = priv_rst_new_sr[4];
+
+// Read handler from vector table (vector 8, offset 0x20)
+priv_rst_vec_addr = vbr + {22'b0, 8'h08, 2'b00};
+priv_rst_handler_hi = dmem[priv_rst_vec_addr];
+priv_rst_handler_lo = dmem[priv_rst_vec_addr + 2];
+priv_rst_handler = {priv_rst_handler_hi, priv_rst_handler_lo};
+pc = priv_rst_handler;

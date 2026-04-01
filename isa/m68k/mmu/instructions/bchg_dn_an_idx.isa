@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 BCHG Dn,(d8,An,Xn) - BCHG bit in byte, brief indexed
+// Opcode: 0000 SSS 101 110 AAA + brief extension word
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var base_reg[2:0];
+var bhix_ext[15:0];
+var idx_reg[2:0];
+var bhix_idx_is_addr[0:0];
+var bhix_idx_is_long[0:0];
+var bhix_idx_scale[1:0];
+var bhix_disp8[7:0];
+var bhix_disp_ext[31:0];
+var bhix_raw_idx[31:0];
+var bhix_idx_val[31:0];
+var bhix_scaled_idx[31:0];
+var bhix_bit_num[31:0];
+var bhix_byte_addr[31:0];
+var bhix_bit_pos[2:0];
+var bhix_dst_word[15:0];
+var bhix_dst_byte[7:0];
+var bhix_bit_val[0:0];
+var bhix_mask[7:0];
+var bhix_new_byte[7:0];
+var bhix_new_word[15:0];
+
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0000;
+assume instr[8:6] == 0b101;
+assume instr[5:3] == 0b110;     // EA: (d8,An,Xn)
+pc when (~m68k_exc_taken) = pc + 2;
+
+src_reg = instr[11:9];
+base_reg = instr[2:0];
+
+bhix_ext = dmem[pc + pc_pa_delta];
+assume bhix_ext[8] == 0b0;  // Brief format
+pc when (~m68k_exc_taken) = pc + 2;
+
+idx_reg = bhix_ext[14:12];
+bhix_idx_is_addr = bhix_ext[15];
+bhix_idx_is_long = bhix_ext[11];
+bhix_idx_scale = bhix_ext[10:9];
+bhix_disp8 = bhix_ext[7:0];
+bhix_disp_ext = {{24{bhix_disp8[7]}}, bhix_disp8};
+
+bhix_raw_idx = bhix_idx_is_addr ? aregs[idx_reg] : dregs[idx_reg];
+bhix_idx_val = bhix_idx_is_long ? bhix_raw_idx : {{16{bhix_raw_idx[15]}}, bhix_raw_idx[15:0]};
+bhix_scaled_idx = bhix_idx_scale == 2'b00 ? bhix_idx_val :
+                     bhix_idx_scale == 2'b01 ? (bhix_idx_val << 1) :
+                     bhix_idx_scale == 2'b10 ? (bhix_idx_val << 2) :
+                                                    (bhix_idx_val << 3);
+
+bhix_bit_num = dregs[src_reg];
+bhix_byte_addr = aregs[base_reg] + bhix_disp_ext + bhix_scaled_idx;
+bhix_bit_pos = bhix_bit_num[2:0];
+
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = bhix_byte_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+bhix_dst_word = dmem[ea_pa];
+#else
+bhix_dst_word = dmem[bhix_byte_addr];
+#endif
+bhix_dst_byte = bhix_byte_addr[0] ? bhix_dst_word[7:0] : bhix_dst_word[15:8];
+
+bhix_bit_val = (bhix_dst_byte >> bhix_bit_pos) & 1;
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = ~bhix_bit_val;
+bhix_mask = 1 << bhix_bit_pos;
+bhix_new_byte = bhix_dst_byte ^ bhix_mask;
+bhix_new_word = bhix_byte_addr[0] ? {bhix_dst_word[15:8], bhix_new_byte} : {bhix_new_byte, bhix_dst_word[7:0]};
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = bhix_new_word;
+#else
+dmem[bhix_byte_addr] when (~m68k_exc_taken & ~data_exc_taken) = bhix_new_word;
+#endif
+

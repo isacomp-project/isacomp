@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rm[31:0];
+var movl_postinc_addr[31:0];
+var data32[31:0];
+
+// Address error checking variables
+var load_addr[31:0];
+var load_size[1:0];
+var movl_postinc_no_error[0:0];
+var movl_postinc_ok[0:0];  // Combined no_error and no exception
+
+// Register banking variables (unique to movl_postinc)
+var movl_postinc_rn_lo[2:0];
+var movl_postinc_rm_lo[2:0];
+var movl_postinc_rb[0:0];
+var movl_postinc_rn_bk[0:0];
+var movl_postinc_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include address error detection for loads
+aspect addr_error_load.isa gates pc, sr, vbr, rf, umem, exc_taken:2, exc_vector:2;
+
+instr = umem[pc];
+assume instr[15:12] == 0x6;
+assume instr[3:0] == 0x6;
+rn = instr[11:8];
+rm = instr[7:4];
+
+// Register banking setup
+movl_postinc_rn_lo = rn[2:0];
+movl_postinc_rm_lo = rm[2:0];
+movl_postinc_rb = sr[28];
+movl_postinc_rn_bk = (rn[3] == 1'b0) & movl_postinc_rb;
+movl_postinc_rm_bk = (rm[3] == 1'b0) & movl_postinc_rb;
+
+Rm = movl_postinc_rm_bk ? rf_bank[movl_postinc_rm_lo] : rf[rm];
+movl_postinc_addr = Rm;
+
+// Set up address error checking
+load_addr = movl_postinc_addr;
+load_size = 2'b11;  // Long access (32-bit)
+
+// Compute the no-error condition (bits 1:0 must be 00)
+movl_postinc_no_error = (movl_postinc_addr[1:0] == 2'b00);
+
+// Combine no_error with no exception for rf writes
+movl_postinc_ok = movl_postinc_no_error & (exc_taken == 0);
+
+data32 = umem[movl_postinc_addr];
+
+// Only update registers if no address error and no exception (combined with banking)
+rf[rn] when ((movl_postinc_rn_bk == 0) & movl_postinc_ok) = data32;
+rf_bank[movl_postinc_rn_lo] when (movl_postinc_rn_bk & movl_postinc_ok) = data32;
+
+rf[rm] when ((movl_postinc_rm_bk == 0) & movl_postinc_ok) = Rm + 4;
+rf_bank[movl_postinc_rm_lo] when (movl_postinc_rm_bk & movl_postinc_ok) = Rm + 4;
+
+// Only advance PC if no address error (exception.isa overrides PC when exc_taken)
+pc when (movl_postinc_no_error) = pc + 2;

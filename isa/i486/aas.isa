@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 AAS (0x3F)
+// ASCII Adjust AL After Subtraction
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state AH[7:0] of xregs[0][15:8];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+isa_state flag_CF[0:0];
+isa_state flag_AF[0:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x3F;
+eip = eip + 1;
+
+// If low nibble > 9 or AF=1, adjust
+// Subtract 6 from AL, subtract 1 from AH, set AF and CF
+AL = ((AL[3:0] > 4'h9) | (flag_AF == 1'b1)) ? ((AL - 8'h06) & 8'h0F) : (AL & 8'h0F);
+AH = ((AL[3:0] > 4'h9) | (flag_AF == 1'b1)) ? (AH - 8'h01) : AH;
+flag_AF = ((AL[3:0] > 4'h9) | (flag_AF == 1'b1)) ? 1'b1 : 1'b0;
+flag_CF = flag_AF;

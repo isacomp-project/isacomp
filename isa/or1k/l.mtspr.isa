@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.mtspr - Move To Special Purpose Register
+// Format: l.mtspr rA, rB, K
+// SPR[spr_addr] <- rB, where spr_addr = rA | K
+// SPR address space: bits[15:11] = group, bits[10:0] = index
+//
+// Key SPR groups for Linux:
+//   Group 0: System (SR, EPCR, EEAR, ESR, etc.)
+//   Group 1: DMMU
+//   Group 2: IMMU
+//   Group 9: Programmable Interrupt Controller
+//   Group 10: Tick Timer
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state spr[31:0][15:0];
+
+var rA[4:0];
+var rB[4:0];
+var imm_high[4:0];
+var imm_low[10:0];
+var imm[15:0];
+var spr_addr[15:0];
+var base[31:0];
+var data[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x30;
+pc = pc + 4;
+imm_high = instr[25:21];
+rA = instr[20:16];
+rB = instr[15:11];
+imm_low = instr[10:0];
+
+imm = {imm_high, imm_low};
+base = rf[rA];
+spr_addr = base[15:0] | imm;
+data = rf[rB];
+
+spr[spr_addr] = data;

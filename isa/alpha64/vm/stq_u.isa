@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STQ_U with Virtual Memory Support
+// Uses ITB/DTB aspects for address translation
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[13:0];
+
+// PAL/MMU state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+isa_state mm_stat[63:0];
+
+// ITB arrays (8 entries)
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+
+// DTB arrays (8 entries)
+isa_state dtb_pte[63:0][2:0];
+isa_state dtb_tag[63:0][2:0];
+isa_state dtb_valid[0:0][2:0];
+isa_state dtb_asn[63:0];
+isa_state dtb_asn_entry[7:0][2:0];
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+isa_state lock_flag[0:0];
+
+
+var ra[4:0];
+var rb[4:0];
+var Ra[63:0];
+var Rb[63:0];
+var disp[63:0];
+var addr[63:0];
+
+// ITB translation for instruction fetch
+aspect aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+instr = umem[pc_pa];
+assume instr[31:26] == 15;
+ra = instr[25:21];
+Ra = rf[ra];
+rb = instr[20:16];
+Rb = rf[rb];
+disp = {{48{instr[15]}}, instr[15:0]};
+var raw_addr[63:0];
+raw_addr = Rb + disp;
+addr = raw_addr & 64'hFFFFFFFFFFFFFFF8;
+
+// DTB translation for data store
+aspect aspects/dtb_store.isa gates addr, pal_mode, pal_base, dtb_pte, dtb_tag, dtb_valid, dtb_asn, dtb_asn_entry, ps;
+
+var no_store_fault[0:0];
+no_store_fault = (take_interrupt == 0) ? ((itb_fault == 0) ? ((dtb_store_fault == 0) ? 1'b1 : 1'b0) : 1'b0) : 1'b0;
+umem[store_pa] when (no_store_fault) = Ra;
+var pc_normal_st[0:0];
+pc_normal_st = no_store_fault;
+var store_any_fault[0:0];
+store_any_fault = itb_fault | dtb_store_fault;
+exc_addr when (take_interrupt || store_any_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+va when (itb_fault) = pc;
+va when (dtb_store_fault) = addr;
+mm_stat when (dtb_store_fault) = dtb_store_mm_stat;
+pal_mode when (take_interrupt == 0 && store_any_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+pc when (take_interrupt == 0 && dtb_store_fault) = dtb_store_miss_entry;
+pc when (take_interrupt == 0 && pc_normal_st) = pc + 4;

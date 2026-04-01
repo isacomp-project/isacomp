@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 PUSHAD with 66 prefix (0x66 0x60)
+// Push all general-purpose registers onto stack
+// Order: EAX, ECX, EDX, EBX, original ESP, EBP, ESI, EDI
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Stack pointer alias
+isa_state ESP[31:0] of xregs[4];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var orig_esp[31:0];
+var addr[31:0];
+
+// Fetch 0x66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0x60;
+eip = eip + 2;
+
+// Save original ESP value
+orig_esp = ESP;
+
+// Calculate starting address (ESP - 32)
+addr = orig_esp - 32;
+ESP = addr;
+
+// Push EDI (reg 7) at ESP (lowest address)
+dmem[addr] = xregs[7][7:0];
+dmem[addr + 1] = xregs[7][15:8];
+dmem[addr + 2] = xregs[7][23:16];
+dmem[addr + 3] = xregs[7][31:24];
+
+// Push ESI (reg 6) at ESP+4
+dmem[addr + 4] = xregs[6][7:0];
+dmem[addr + 5] = xregs[6][15:8];
+dmem[addr + 6] = xregs[6][23:16];
+dmem[addr + 7] = xregs[6][31:24];
+
+// Push EBP (reg 5) at ESP+8
+dmem[addr + 8] = xregs[5][7:0];
+dmem[addr + 9] = xregs[5][15:8];
+dmem[addr + 10] = xregs[5][23:16];
+dmem[addr + 11] = xregs[5][31:24];
+
+// Push original ESP at ESP+12
+dmem[addr + 12] = orig_esp[7:0];
+dmem[addr + 13] = orig_esp[15:8];
+dmem[addr + 14] = orig_esp[23:16];
+dmem[addr + 15] = orig_esp[31:24];
+
+// Push EBX (reg 3) at ESP+16
+dmem[addr + 16] = xregs[3][7:0];
+dmem[addr + 17] = xregs[3][15:8];
+dmem[addr + 18] = xregs[3][23:16];
+dmem[addr + 19] = xregs[3][31:24];
+
+// Push EDX (reg 2) at ESP+20
+dmem[addr + 20] = xregs[2][7:0];
+dmem[addr + 21] = xregs[2][15:8];
+dmem[addr + 22] = xregs[2][23:16];
+dmem[addr + 23] = xregs[2][31:24];
+
+// Push ECX (reg 1) at ESP+24
+dmem[addr + 24] = xregs[1][7:0];
+dmem[addr + 25] = xregs[1][15:8];
+dmem[addr + 26] = xregs[1][23:16];
+dmem[addr + 27] = xregs[1][31:24];
+
+// Push EAX (reg 0) at ESP+28
+dmem[addr + 28] = xregs[0][7:0];
+dmem[addr + 29] = xregs[0][15:8];
+dmem[addr + 30] = xregs[0][23:16];
+dmem[addr + 31] = xregs[0][31:24];
+
+// PUSHAD does not affect flags

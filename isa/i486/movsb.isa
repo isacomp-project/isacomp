@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOVSB (0xA4)
+// Move byte from [ESI] to [EDI], adjust both by 1 based on DF
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state ESI[31:0] of xregs[6];
+isa_state EDI[31:0] of xregs[7];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+
+var byte_val[7:0];
+var new_esi[31:0];
+var new_edi[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xA4;
+
+// Load byte from [ESI]
+byte_val = dmem[ESI];
+
+// Store byte to [EDI]
+dmem[EDI] = byte_val;
+
+// Adjust ESI and EDI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 1 : ESI - 1;
+new_edi = flag_DF == 1'b0 ? EDI + 1 : EDI - 1;
+
+ESI = new_esi;
+EDI = new_edi;
+
+// MOVSB does not affect flags
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

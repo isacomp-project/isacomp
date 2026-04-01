@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 REPNE SCASW (0xF2 0xAF) - WITH PROPER SEGMENTATION
+// Repeat while CX != 0 AND ZF == 0: Compare AX with ES:[DI]
+// Exit when CX == 0 OR ZF == 1 (equal)
+// IP stays constant until loop exits
+// Uses ES segment for destination
+
+isa_state ip[15:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state ES[15:0];            // Extra segment register
+isa_state AX[15:0];
+isa_state DI[15:0];
+isa_state CX[15:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_PF[0:0];
+
+var di_offset_lo[7:0];
+var di_offset_hi[7:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+var low_byte[7:0];
+var high_byte[7:0];
+var word_value[15:0];
+var result[16:0];
+var new_zf[15:0];
+var cx_is_zero[0:0];
+var cx_not_zero_and_not_equal[0:0];
+var cx_not_zero_and_equal[0:0];
+var new_di_inc[15:0];
+var new_di_dec[15:0];
+var new_ip[15:0];
+
+// Fetch REPNE prefix
+prefix = imem[ip];
+assume prefix == 0xF2;
+
+// Fetch SCASW instruction (at IP+1)
+instr = imem[ip + 1];
+assume instr == 0xAF;
+
+// Check counter
+cx_is_zero = CX == 16'h0000;
+
+// Calculate destination offsets with wraparound
+di_offset_lo = DI;
+di_offset_hi = DI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using ES segment
+physical_addr_lo = (ES << 4) + di_offset_lo;  // ES:DI
+physical_addr_hi = (ES << 4) + di_offset_hi;  // ES:(DI+1)
+
+// Compare AX with word at ES:[DI] (little-endian)
+low_byte = dmem[physical_addr_lo];
+high_byte = dmem[physical_addr_hi];
+word_value = {high_byte, low_byte};
+result = AX - word_value;
+
+// Calculate new flags based on result
+new_zf = result[15:0] == 16'h0000 ? 1'b1 : 1'b0;
+
+// Three mutually exclusive conditions
+cx_not_zero_and_not_equal = (CX != 16'h0000) & (new_zf == 1'b0);
+cx_not_zero_and_equal = (CX != 16'h0000) & (new_zf == 1'b1);
+
+// Calculate new DI (increment or decrement by 2)
+new_di_inc = DI + 16'h0002;
+new_di_dec = DI - 16'h0002;
+
+// Calculate new IP (advance past instruction)
+new_ip = ip + 16'h0002;
+
+// When CX == 0: Just advance IP (don't execute)
+ip when(cx_is_zero) = new_ip;
+
+// When CX != 0 AND not equal: Execute and continue (keep IP)
+flag_CF when(cx_not_zero_and_not_equal) = AX < word_value ? 1'b1 : 1'b0;
+flag_ZF when(cx_not_zero_and_not_equal) = new_zf;
+flag_SF when(cx_not_zero_and_not_equal) = result[15];
+flag_PF when(cx_not_zero_and_not_equal) = result[0];
+flag_OF when(cx_not_zero_and_not_equal) = ((AX[15] != word_value[15]) & (result[15] != AX[15])) ? 1'b1 : 1'b0;
+DI when(cx_not_zero_and_not_equal) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero_and_not_equal) = CX - 16'h0001;
+ip when(cx_not_zero_and_not_equal) = ip;  // Stay at same IP (loop continues)
+
+// When CX != 0 AND equal: Execute and exit (advance IP)
+flag_CF when(cx_not_zero_and_equal) = AX < word_value ? 1'b1 : 1'b0;
+flag_ZF when(cx_not_zero_and_equal) = new_zf;
+flag_SF when(cx_not_zero_and_equal) = result[15];
+flag_PF when(cx_not_zero_and_equal) = result[0];
+flag_OF when(cx_not_zero_and_equal) = ((AX[15] != word_value[15]) & (result[15] != AX[15])) ? 1'b1 : 1'b0;
+DI when(cx_not_zero_and_equal) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero_and_equal) = CX - 16'h0001;
+ip when(cx_not_zero_and_equal) = new_ip;

@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER sync - Synchronize (X-Form)
+// sync L
+// Primary opcode 31, XO=598
+// Memory barrier instruction for ordering memory operations
+// L field (bits 22:21) specifies type:
+//   L=0: heavyweight sync (full memory barrier)
+//   L=1: lwsync (lightweight sync, orders Load-Load, Load-Store, Store-Store)
+//   L=2: ptesync (page table entry sync)
+// In single-core, in-order implementation: modeled as no-op
+// The barrier semantics are critical for multi-core and out-of-order processors
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+var l_field[1:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 598 (bits 21:30 in Power = bits 10:1 in Verilog)
+assume instr[10:1] == 598;
+
+// Extract L field (bits 22:21 in Power = bits 9:10 in Verilog)
+// Note: Power ISA bit numbering is MSB=0, Verilog is LSB=0
+l_field = instr[10:9];
+
+// Sync execution: memory barrier
+// For single-core implementation, this is a no-op
+// All prior memory operations complete before subsequent operations
+pc = pc + 4;

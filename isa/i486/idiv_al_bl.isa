@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 IDIV BL (0xF6 with modrm 0xFB)
+// Signed divide: AL = AX / BL (quotient), AH = AX % BL (remainder), signed
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state AH[7:0] of xregs[0][15:8];
+isa_state BX[15:0] of xregs[3][15:0];
+isa_state BL[7:0] of xregs[3][7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var quotient[31:0];
+var remainder[31:0];
+var ax_signed[31:0];
+var bl_signed[31:0];
+
+instr = imem[eip];
+assume instr == 0xF6;
+eip = eip + 1;
+
+modrm = imem[eip];
+assume modrm == 0xFB;
+eip = eip + 1;
+
+// IDIV: signed divide AX by BL
+// Sign-extend to perform signed division
+ax_signed = {{16{AX[15]}}, AX};
+bl_signed = {{24{BL[7]}}, BL};
+
+quotient = ax_signed / bl_signed;
+remainder = ax_signed - (quotient * bl_signed);
+
+// Store quotient in AL, remainder in AH
+AL = quotient[7:0];
+AH = remainder[7:0];

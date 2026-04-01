@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmnor.mm - Vector Mask NOR
+// Encoding: vmnor.mm vd, vs2, vs1
+// Operation: vd.mask = ~(vs2.mask | vs1.mask)
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var v1[127:0];
+var v2[127:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b010;
+// funct6 = 011110 (vmnor)
+assume instr[31:26] == 0b011110;
+// vm = 1 (required)
+assume instr[25:25] == 0b1;
+
+pc = pc + 4;
+
+vs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+
+v1 = vrf[vs1];
+v2 = vrf[vs2];
+
+res = ~(v2 | v1);
+
+vrf[vd] = res;

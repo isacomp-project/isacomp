@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68040 MOVE16 (Ax)+,(Ay)+ - Move 16-byte aligned block between postincrement addresses
+// Word 1: 1111 0110 001 xxx 00 (xxx = source Ax)
+// Word 2: 1 yyy 0000 0000 0000 (yyy = dest Ay)
+// Transfers 16 bytes; addresses used are rounded to 16-byte boundary
+// Both registers are incremented by 16
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var m16_ext[15:0];
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_addr[31:0];
+var dst_addr[31:0];
+var w0[15:0];
+var w1[15:0];
+var w2[15:0];
+var w3[15:0];
+var w4[15:0];
+var w5[15:0];
+var w6[15:0];
+var w7[15:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:5] == 11'b11110110001;  // MOVE16 (Ax)+,(Ay)+ prefix
+assume instr[1:0] == 2'b00;
+pc when (~m68k_exc_taken) = pc + 2;
+
+src_reg = instr[4:2];
+
+// Fetch extension word
+m16_ext = dmem[pc + pc_pa_delta];
+assume m16_ext[15] == 1'b1;
+assume m16_ext[11:0] == 12'h000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+dst_reg = m16_ext[14:12];
+
+// Align source and destination to 16-byte boundary
+src_addr = {aregs[src_reg][31:4], 4'b0000};
+dst_addr = {aregs[dst_reg][31:4], 4'b0000};
+
+// Read 16 bytes (8 words) from source
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = src_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+w0 = dmem[ea_pa];
+#else
+w0 = dmem[src_addr];
+#endif
+#ifdef MMU
+w1 = dmem[ea_pa + 2];
+#else
+w1 = dmem[src_addr + 2];
+#endif
+#ifdef MMU
+w2 = dmem[ea_pa + 4];
+#else
+w2 = dmem[src_addr + 4];
+#endif
+#ifdef MMU
+w3 = dmem[ea_pa + 6];
+#else
+w3 = dmem[src_addr + 6];
+#endif
+#ifdef MMU
+w4 = dmem[ea_pa + 8];
+#else
+w4 = dmem[src_addr + 8];
+#endif
+#ifdef MMU
+w5 = dmem[ea_pa + 10];
+#else
+w5 = dmem[src_addr + 10];
+#endif
+#ifdef MMU
+w6 = dmem[ea_pa + 12];
+#else
+w6 = dmem[src_addr + 12];
+#endif
+#ifdef MMU
+w7 = dmem[ea_pa + 14];
+#else
+w7 = dmem[src_addr + 14];
+#endif
+
+// Write 16 bytes (8 words) to destination
+dmem[dst_addr] when (~m68k_exc_taken & ~data_exc_taken) = w0;
+dmem[dst_addr + 2] when (~m68k_exc_taken & ~data_exc_taken) = w1;
+dmem[dst_addr + 4] when (~m68k_exc_taken & ~data_exc_taken) = w2;
+dmem[dst_addr + 6] when (~m68k_exc_taken & ~data_exc_taken) = w3;
+dmem[dst_addr + 8] when (~m68k_exc_taken & ~data_exc_taken) = w4;
+dmem[dst_addr + 10] when (~m68k_exc_taken & ~data_exc_taken) = w5;
+dmem[dst_addr + 12] when (~m68k_exc_taken & ~data_exc_taken) = w6;
+dmem[dst_addr + 14] when (~m68k_exc_taken & ~data_exc_taken) = w7;
+
+// Increment both registers by 16
+aregs[src_reg] when (~m68k_exc_taken & ~data_exc_taken) = aregs[src_reg] + 16;
+aregs[dst_reg] when (~m68k_exc_taken & ~data_exc_taken) = aregs[dst_reg] + 16;

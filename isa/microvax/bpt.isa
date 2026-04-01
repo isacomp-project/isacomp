@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// BPT - Breakpoint Trap
+// Opcode: 0x03
+// Format: [opcode:8][unused:24]
+// Trigger breakpoint trap - jumps to trap handler at fixed address
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+isa_state psl[31:0];
+mem umem[12:0];
+
+var sp[31:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x03;
+
+// Push PSL and PC onto stack
+sp = rf[14] - 8;
+umem[sp + 4] = psl;
+umem[sp] = pc + 4;
+rf[14] = sp;
+
+// Jump to breakpoint trap handler (vector at 0x0C)
+pc = umem[12];

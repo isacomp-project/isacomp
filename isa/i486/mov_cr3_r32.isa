@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV CR3, r32 (0x0F 0x22 /3)
+// Move r32 to Control Register 3 (Page Directory Base Register)
+// Loads value from general-purpose register into CR3
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+isa_state CR3[31:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var value[31:0];
+
+// Fetch instruction bytes
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+instr2 = imem[eip];
+assume instr2 == 0x22;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Must be /3 (reg field = 3 for CR3)
+assume reg_bits == 3'b011;
+
+// Must be register mode
+assume mod_bits == 0b11;
+
+// Read value from general-purpose register
+value = xregs[rm_bits];
+
+// Load into CR3
+CR3 = value;

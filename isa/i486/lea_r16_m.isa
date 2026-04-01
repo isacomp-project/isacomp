@@ -1,0 +1,134 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LEA r16, m (0x8D) - Load Effective Address
+// Calculates the effective address of memory operand and stores OFFSET in register
+// Does NOT access memory - only computes the offset portion
+// Supports 16-bit addressing modes
+
+isa_state xregs[31:0][2:0];    // 32-bit registers array
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+
+var dst_idx[2:0];
+var base_val[15:0];
+var index_val[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var base_component[15:0];
+var index_component[15:0];
+var disp_component[15:0];
+var offset[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x8D;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// LEA only valid with memory operands (mod != 11)
+assume mod_bits != 2'b11;
+
+dst_idx = reg_idx;
+
+// Read potential displacement bytes
+disp8 = imem[eip];
+disp16_lo = imem[eip];
+disp16_hi = imem[eip + 1];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+// Get base register values for different r/m encodings
+// BX = xregs[3], BP = xregs[5], SI = xregs[6], DI = xregs[7]
+case (rm_bits) {
+  3'b000: base_val = xregs[3][15:0];   // BX for [BX+SI]
+  3'b001: base_val = xregs[3][15:0];   // BX for [BX+DI]
+  3'b010: base_val = xregs[5][15:0];   // BP for [BP+SI]
+  3'b011: base_val = xregs[5][15:0];   // BP for [BP+DI]
+  3'b100: base_val = 16'h0000;         // no base for [SI]
+  3'b101: base_val = 16'h0000;         // no base for [DI]
+  3'b110: base_val = xregs[5][15:0];   // BP for [BP] (or 0 for [disp16])
+  3'b111: base_val = xregs[3][15:0];   // BX for [BX]
+}
+
+// Get index register values
+case (rm_bits) {
+  3'b000: index_val = xregs[6][15:0];  // SI for [BX+SI]
+  3'b001: index_val = xregs[7][15:0];  // DI for [BX+DI]
+  3'b010: index_val = xregs[6][15:0];  // SI for [BP+SI]
+  3'b011: index_val = xregs[7][15:0];  // DI for [BP+DI]
+  3'b100: index_val = xregs[6][15:0];  // SI for [SI]
+  3'b101: index_val = xregs[7][15:0];  // DI for [DI]
+  3'b110: index_val = 16'h0000;        // no index for [BP] or [disp16]
+  3'b111: index_val = 16'h0000;        // no index for [BX]
+}
+
+// Calculate base component (handle [disp16] special case for mod=00, rm=110)
+case (mod_bits) {
+  2'b00: base_component = base_val;
+  2'b01: base_component = base_val;
+  2'b10: base_component = base_val;
+  2'b11: base_component = 16'h0000;
+}
+
+// For mod=00, rm=110 special case: base should be 0 (pure [disp16])
+case (rm_bits) {
+  3'b110: index_component = 16'h0000;  // Clear index for [BP]/[disp16] cases
+}
+case (rm_bits) {
+  3'b000: index_component = index_val;
+  3'b001: index_component = index_val;
+  3'b010: index_component = index_val;
+  3'b011: index_component = index_val;
+  3'b100: index_component = index_val;
+  3'b101: index_component = index_val;
+  3'b110: index_component = 16'h0000;
+  3'b111: index_component = 16'h0000;
+}
+
+// Calculate displacement component based on mod
+case (mod_bits) {
+  2'b00: disp_component = 16'h0000;
+  2'b01: disp_component = signed_disp8;
+  2'b10: disp_component = disp16;
+  2'b11: disp_component = 16'h0000;
+}
+
+// Special case: mod=00, rm=110 is [disp16] - use disp16 instead
+case (mod_bits) {
+  2'b00: offset = base_component + index_component + disp_component;
+  2'b01: offset = base_component + index_component + disp_component;
+  2'b10: offset = base_component + index_component + disp_component;
+  2'b11: offset = 16'h0000;
+}
+
+// Advance EIP based on displacement bytes consumed
+case (mod_bits) {
+  2'b00: eip = eip;
+  2'b01: eip = eip + 1;
+  2'b10: eip = eip + 2;
+  2'b11: eip = eip;
+}
+
+// Store the calculated offset in destination register (lower 16 bits only)
+// Only write if mod != 11 (register mode is invalid for LEA)
+case (mod_bits) {
+  2'b00: xregs[dst_idx] = {xregs[dst_idx][31:16], offset};
+  2'b01: xregs[dst_idx] = {xregs[dst_idx][31:16], offset};
+  2'b10: xregs[dst_idx] = {xregs[dst_idx][31:16], offset};
+  2'b11: xregs[dst_idx] = xregs[dst_idx];  // Invalid LEA - no change
+}

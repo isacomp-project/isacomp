@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX WDIF - Wyde Difference (saturating subtract per 16-bit)
+// WDIF $X,$Y,$Z: each wyde of $X = max(0, wyde($Y) - wyde($Z))
+// Opcode: 0xD2
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var w0[15:0];
+var w1[15:0];
+var w2[15:0];
+var w3[15:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xD2;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+
+// Saturating wyde subtraction for each 16-bit word
+w0 = (y_val[15:0] > z_val[15:0]) ? (y_val[15:0] - z_val[15:0]) : 16'h0;
+w1 = (y_val[31:16] > z_val[31:16]) ? (y_val[31:16] - z_val[31:16]) : 16'h0;
+w2 = (y_val[47:32] > z_val[47:32]) ? (y_val[47:32] - z_val[47:32]) : 16'h0;
+w3 = (y_val[63:48] > z_val[63:48]) ? (y_val[63:48] - z_val[63:48]) : 16'h0;
+
+result = {w3, w2, w1, w0};
+
+rf[x] = result;
+pc = pc + 4;

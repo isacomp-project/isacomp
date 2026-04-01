@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 INVLPG m (0x0F 0x01 /7)
+// Invalidate TLB Entry
+//
+// On a system with TLB (Translation Lookaside Buffer):
+//   - Invalidates the TLB entry for the page containing
+//     the memory operand address
+//   - Used after modifying page table entries to ensure
+//     the CPU uses the updated mappings
+//   - Only invalidates entries in the current PCID context
+//   - Does not affect global pages (unless CR4.PGE=0)
+//
+// On a single-core design without TLB: No-op
+// This instruction is privileged (CPL must be 0)
+// The memory operand is not actually accessed, only its
+// linear address is used to identify the page.
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+isa_state imem[7:0][31:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+
+// Fetch first byte of opcode
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+// Fetch second byte of opcode
+instr2 = imem[eip];
+assume instr2 == 0x01;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// reg field must be 7 for INVLPG
+assume reg_bits == 0b111;
+
+// mod != 11 (must be memory operand, not register)
+assume mod_bits != 0b11;
+
+// No-op: No TLB to invalidate in this implementation
+// In a full implementation, would compute effective address
+// from ModR/M and invalidate that page's TLB entry

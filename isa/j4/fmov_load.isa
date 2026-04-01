@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// FMOV.S @Rm,FRn - Load single-precision from memory
+// FRn = [Rm]
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+isa_state fr[31:0][3:0];
+isa_state fpscr[31:0];
+
+var frn[3:0];
+var rm[3:0];
+var fmov_load_rm_lo[2:0];
+var Rm[31:0];
+var data32[31:0];
+var load_addr[31:0];
+
+var fmov_load_rb[0:0];
+var fmov_load_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0xF;
+assume instr[3:0] == 0x8;
+frn = instr[11:8];
+rm = instr[7:4];
+fmov_load_rm_lo = rm[2:0];
+
+fmov_load_rb = sr[29];  // RB bit (bit 29 in SR)
+fmov_load_rm_bk = (rm[3] == 1'b0) & fmov_load_rb;
+
+Rm = fmov_load_rm_bk ? rf_bank[fmov_load_rm_lo] : rf[rm];
+
+// Create alias to enable proper signal generation for memory address mux
+load_addr = Rm;
+
+data32 = umem[Rm];
+
+fr[frn] = data32;
+pc = pc + 2;

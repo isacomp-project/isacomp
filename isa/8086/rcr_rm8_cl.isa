@@ -1,0 +1,152 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 RCR RM8, CL (0xD2) - CONSOLIDATED
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];
+isa_state xregs[15:0][7:0];
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var dst_reg_idx[1:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var physical_addr[19:0];
+var dst_mem_val[7:0];
+var dst_reg_val_low[7:0];
+var dst_reg_val_high[7:0];
+var dst_reg_val[7:0];
+var dst_val[7:0];
+var count[7:0];
+var result[8:0];
+var is_mem_dst[0:0];
+var write_to_mem[0:0];
+var write_to_hreg[0:0];
+var write_to_lreg[0:0];
+
+instr = imem[ip];
+assume instr == 0xD2;
+ip = ip + 1;
+
+modrm = imem[ip];
+ip = ip + 1;
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+dst_reg_idx = rm_bits[1:0];
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+base_offset = xregs[addr_reg_idx];
+
+disp8 = imem[ip];
+disp16_lo = imem[ip];
+disp16_hi = imem[ip + 1];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+case (mod_bits) {
+  0b00: is_mem_dst = 1'b1;
+  0b01: is_mem_dst = 1'b1;
+  0b10: is_mem_dst = 1'b1;
+  0b11: is_mem_dst = 1'b0;
+}
+
+case (mod_bits) {
+  0b00: ip = ip;
+  0b01: ip = ip + 1;
+  0b10: ip = ip + 2;
+  0b11: ip = ip;
+}
+
+physical_addr = (DS << 4) + offset;
+
+dst_mem_val = dmem[physical_addr];
+dst_reg_val_low = lregs[dst_reg_idx];
+dst_reg_val_high = hregs[dst_reg_idx];
+
+case (rm_bits[2]) {
+  1'b1: dst_reg_val = dst_reg_val_high;
+  1'b0: dst_reg_val = dst_reg_val_low;
+}
+
+case (is_mem_dst) {
+  1'b1: dst_val = dst_mem_val;
+  1'b0: dst_val = dst_reg_val;
+}
+
+assume reg_bits == 0b011;  // RCR
+
+count = lregs[1];  // CL is low byte of CX
+
+// RCR: Rotate through carry right
+var temp_bit[0:0];
+var old_cf[0:0];
+old_cf = flag_CF;
+temp_bit = dst_val[0];
+result = {old_cf, dst_val[7:1]};
+flag_CF = temp_bit;
+flag_OF = (count == 8'h01) ? (result[7] ^ result[6]) : flag_OF;
+flag_SF = result[7];
+flag_ZF = result[7:0] == 8'h00;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+case (is_mem_dst) {
+  1'b1: write_to_mem = 1'b1;
+  1'b0: write_to_mem = 1'b0;
+}
+
+case (is_mem_dst) {
+  1'b1: write_to_hreg = 1'b0;
+  1'b0: write_to_hreg = rm_bits[2];
+}
+
+case (is_mem_dst) {
+  1'b1: write_to_lreg = 1'b0;
+  1'b0: write_to_lreg = ~rm_bits[2];
+}
+
+case (write_to_mem) {
+  1'b1: dmem[physical_addr] = result[7:0];
+  1'b0: dmem[physical_addr] = dmem[physical_addr];
+}
+
+case (write_to_hreg) {
+  1'b1: hregs[dst_reg_idx] = result[7:0];
+  1'b0: hregs[dst_reg_idx] = hregs[dst_reg_idx];
+}
+
+case (write_to_lreg) {
+  1'b1: lregs[dst_reg_idx] = result[7:0];
+  1'b0: lregs[dst_reg_idx] = lregs[dst_reg_idx];
+}

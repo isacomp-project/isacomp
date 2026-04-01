@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Return Instruction
+//
+// Opcode: 0x2 (binary 010)
+// Format: [31:29]=opcode, [28:19]=unused, [18:16]=source, [15:0]=index
+//
+// Returns a value from the current function by:
+// 1. Decoding the return value from source/index
+// 2. Setting eval_reg to the return value
+// 3. Popping the continuation stack and transferring control
+//
+// The continuation stack determines what happens next:
+// - Case continuation: continue pattern matching
+// - Apply continuation: apply more arguments
+// - Update continuation: memoize thunk result
+// - Eval continuation: complete primitive operation
+
+// State declarations
+isa_state pc[31:0];
+isa_state fp[19:0];
+isa_state csp[19:0];
+isa_state lsp[19:0];
+isa_state lb[19:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_clo[31:0];
+isa_state env_args[31:0];
+mem imem[14:0];
+mem cstack[19:0];
+mem heap[19:0];
+mem lstack[19:0];
+
+// Instruction decode
+var instr[31:0];
+var opcode[2:0];
+var source[2:0];
+var index[15:0];
+
+// Fetch instruction
+instr = imem[pc];
+opcode = instr[31:29];
+
+// Verify this is a return instruction
+assume opcode == 3'b010;
+
+// Extract operand fields
+source = instr[18:16];
+index = instr[15:0];
+
+// Decode the return value
+aspect ../aspects/source_decode.isa gates source, index, env_clo, env_args, lsp, lb, eval_reg, eval_tag, heap, lstack;
+
+// Set the return register
+eval_reg = decoded_value;
+eval_tag = decoded_tag;
+
+// Pop continuation and dispatch
+aspect ../aspects/cont_pop.isa gates pc, csp, cstack, env_clo, env_args, lsp, lb, eval_reg, eval_tag, heap, fp;

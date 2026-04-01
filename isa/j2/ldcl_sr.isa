@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// LDC.L @Rm+, SR - Load Control Register (Status Register) from Memory with Post-increment
+// Loads SR from @Rm, then increments Rm by 4
+// This is a privileged instruction on SH-2A but executes normally on SH-2/J2
+// Opcode: 0100mmmm00000111 (0x4m07)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var rm[3:0];
+var ldcl_sr_Rm[31:0];
+var ldcl_sr_addr[31:0];
+var ldcl_sr_data32[31:0];
+var ldcl_sr_Rm_add_4[31:0];
+
+// Address error checking variables
+var load_addr[31:0];
+var load_size[1:0];
+var ldcl_sr_no_error[0:0];
+
+// Register banking variables
+var ldcl_sr_rm_lo[2:0];
+var ldcl_sr_rb[0:0];
+var ldcl_sr_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include address error detection for loads
+aspect addr_error_load.isa gates pc, sr, vbr, rf, umem, exc_taken:2, exc_vector:2;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x07;
+rm = instr[11:8];
+
+// Register banking setup - use current RB value before loading new SR
+ldcl_sr_rm_lo = rm[2:0];
+ldcl_sr_rb = sr[28];
+ldcl_sr_rm_bk = (rm[3] == 1'b0) & ldcl_sr_rb;
+
+ldcl_sr_Rm = ldcl_sr_rm_bk ? rf_bank[ldcl_sr_rm_lo] : rf[rm];
+ldcl_sr_addr = ldcl_sr_Rm;
+ldcl_sr_Rm_add_4 = ldcl_sr_Rm + 4;
+
+// Set up address error checking
+load_addr = ldcl_sr_addr;
+load_size = 2'b11;  // Long access (32-bit)
+
+// Compute the no-error condition (bits 1:0 must be 00)
+ldcl_sr_no_error = (ldcl_sr_addr[1:0] == 2'b00);
+
+ldcl_sr_data32 = umem[ldcl_sr_addr];
+
+// LDC.L @Rm+,SR: load SR from @Rm, then increment Rm by 4
+// Only update registers if no address error (combined with banking)
+sr when (ldcl_sr_no_error) = ldcl_sr_data32;
+
+// Also update T bit to match new SR[0]
+t when (ldcl_sr_no_error & (exc_taken == 0)) = ldcl_sr_data32[0];
+
+// Update Rm with post-increment
+rf[rm] when (ldcl_sr_no_error & (ldcl_sr_rm_bk == 0)) = ldcl_sr_Rm_add_4;
+rf_bank[ldcl_sr_rm_lo] when (ldcl_sr_no_error & ldcl_sr_rm_bk) = ldcl_sr_Rm_add_4;
+
+// Only advance PC if no address error
+pc when (ldcl_sr_no_error) = pc + 2;

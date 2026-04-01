@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 PUSH DE (0xD5) - Push DE register pair to stack
+// (SP-1) = D, (SP-2) = E, SP = SP - 2
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state sp[15:0];
+isa_state D[7:0];
+isa_state E[7:0];
+mem mainmem[15:0];
+
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xD5;
+pc = pc + 1;
+
+sp_minus_1 = sp - 1;
+mainmem[sp_minus_1] = D;
+
+sp_minus_2 = sp_minus_1 - 1;
+mainmem[sp_minus_2] = E;
+
+sp = sp_minus_2;

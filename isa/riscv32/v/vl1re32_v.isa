@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vl1re32.v - Whole Register Load (1 register, 32-bit elements)
+// Encoding: vl1re32.v vd, (rs1)
+// Operation: Load one whole vector register
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vd[4:0];
+var addr[31:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0000111;
+assume instr[14:12] == 0b110;
+assume instr[31:29] == 0b000;
+assume instr[28:28] == 0b0;
+assume instr[24:20] == 0b01000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vd = instr[11:7];
+
+addr = rf[rs1];
+
+// Load whole register (VLEN/8 bytes = 16 bytes for VLEN=128)
+res[31:0] = umem[addr];
+res[63:32] = umem[addr + 4];
+res[95:64] = umem[addr + 8];
+res[127:96] = umem[addr + 12];
+
+vrf[vd] = res;

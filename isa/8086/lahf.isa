@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 LAHF - Load AH from Flags
+// Opcode: 0x9F
+// Loads AH with SF ZF 0 AF 0 PF 1 CF (low byte of FLAGS)
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state xregs[15:0][2:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_CF[0:0];
+
+var flags_byte[7:0];
+
+// Fetch instruction
+instr = imem[ip];
+assume instr == 0x9F;
+ip = ip + 1;
+
+// Build flags byte: SF ZF 0 AF 0 PF 1 CF
+flags_byte = {flag_SF, flag_ZF, 1'b0, flag_AF, 1'b0, flag_PF, 1'b1, flag_CF};
+
+// Store in AH (high byte of AX, which is xregs[0])
+xregs[0][15:8] = flags_byte;

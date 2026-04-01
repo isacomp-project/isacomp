@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC OR1K Branch Delay Slot Aspect
+// This aspect handles branch delay slot semantics for all instructions.
+//
+// OR1K delay slot behavior:
+// 1. Branch/jump instruction sets delay_slot=1 and branch_target=target
+// 2. The next instruction (delay slot) executes at PC+4
+// 3. After the delay slot executes, PC becomes branch_target
+//
+// All branches (l.j, l.jal, l.jalr, l.jr, l.bf, l.bnf) have delay slots.
+// l.sys, l.trap, l.rfe do NOT have delay slots.
+
+// Capture delay slot state at instruction start
+var in_delay_slot[0:0];
+in_delay_slot = delay_slot;
+
+// Clear delay slot flag if it was set
+delay_slot when (in_delay_slot == 1) = 0;
+
+// NOTE: PC redirect to branch_target is handled by each instruction's
+// own pc assignment (pc = in_delay_slot ? branch_target : pc + 4).
+// This ensures exception PC writes (from mmu.isa, mmu_load.isa,
+// mmu_store.isa) correctly override the delay slot redirect,
+// since gated aspect writes take priority over instruction-level writes.

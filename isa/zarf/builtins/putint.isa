@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Put Integer Builtin (0x81)
+//
+// Writes an integer to the external output.
+// This is an I/O operation that interfaces with the external world.
+// Takes one argument (the value to output), returns unit (0).
+//
+// External signals:
+//   io_out[31:0]      - Output value to external sink
+//   io_out_valid[0:0] - Output has been written
+
+// State declarations
+isa_state pc[31:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_args[31:0];
+isa_state csp[19:0];
+isa_state lsp[19:0];
+isa_state env_clo[31:0];
+isa_state io_out_valid[0:0];
+mem imem[14:0];
+mem heap[19:0];
+mem cstack[19:0];
+
+// External output
+ext push isa_state io_out[31:0];
+
+// Read argument from environment
+var output_val[31:0];
+output_val = heap[env_args];
+
+// Write to external output
+io_out = output_val;
+io_out_valid = 1'b1;
+
+// Return unit (0) as primitive
+eval_reg = 32'b0;
+eval_tag = 1'b1;
+
+// Pop continuation and return
+aspect ../aspects/cont_pop.isa gates pc, csp, cstack, env_clo, env_args, lsp, eval_reg, eval_tag, heap;

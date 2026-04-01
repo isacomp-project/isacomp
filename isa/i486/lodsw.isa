@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LODSW (0xAD) - WITH PROPER SEGMENTATION
+// Load word string - load word from DS:[SI] into AX
+// Uses DS segment for source
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state SI[15:0] of xregs[6][15:0];
+isa_state flag_DF[0:0];
+
+var offset_lo[15:0];
+var offset_hi[15:0];
+var physical_addr_lo[31:0];
+var physical_addr_hi[31:0];
+var low_byte[7:0];
+var high_byte[7:0];
+
+instr = imem[eip];
+assume instr == 0xAD;
+
+// Calculate offsets with wraparound
+offset_lo = SI;
+offset_hi = SI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using DS segment
+physical_addr_lo = (DS << 4) + offset_lo;
+physical_addr_hi = (DS << 4) + offset_hi;
+
+// Load word from DS:[SI] into AX (little-endian)
+low_byte = dmem[physical_addr_lo];
+high_byte = dmem[physical_addr_hi];
+AX = {high_byte, low_byte};
+
+// Increment or decrement SI by 2 based on direction flag
+SI = flag_DF == 1'b0 ? (SI + 16'h0002) : (SI - 16'h0002);
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ADD r/m32, imm8 (0x66 0x83 /0) - sign-extended with 66 prefix
+// Add sign-extended 8-bit immediate to r/m32: r/m32 = r/m32 + imm8
+// Uses ModR/M with reg field = 000 as opcode extension
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var imm8[7:0];
+var imm32[31:0];
+var dst_val[31:0];
+var result[32:0];
+
+// Fetch 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0x83;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 2];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is ADD (reg_bits = 000)
+assume reg_bits == 0b000;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Fetch immediate value (8-bit)
+imm8 = imem[eip + 3];
+
+// Update instruction pointer (4-byte instruction)
+eip = eip + 4;
+
+// Sign-extend imm8 to 32 bits
+imm32 = {{24{imm8[7]}}, imm8};
+
+// Read operand
+dst_val = xregs[rm_bits];
+
+// Perform ADD operation
+result = dst_val + imm32;
+
+// Write result to destination
+xregs[rm_bits] = result[31:0];
+
+// Set flags
+flag_CF = result[32];
+flag_OF = (dst_val[31] == imm32[31]) & (dst_val[31] != result[31]);
+flag_SF = result[31];
+flag_ZF = result[31:0] == 32'h00000000;
+flag_AF = (dst_val[3:0] + imm32[3:0]) > 4'hF;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);

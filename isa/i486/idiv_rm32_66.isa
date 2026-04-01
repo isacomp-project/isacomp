@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 IDIV r/m32 with 66 prefix (0x66 0xF7 /7)
+// Signed divide EDX:EAX by r/m32, quotient in EAX, remainder in EDX
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var src_val[31:0];
+var dividend[63:0];
+var quotient[31:0];
+var remainder[31:0];
+
+prefix = imem[eip];
+assume prefix == 0x66;
+
+instr = imem[eip + 1];
+assume instr == 0xF7;
+
+modrm = imem[eip + 2];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b111;
+assume mod_bits == 0b11;
+
+src_val = xregs[rm_bits];
+dividend = {xregs[2], xregs[0]};  // EDX:EAX
+
+// Update EIP
+eip = eip + 3;
+
+// Signed divide (using modulo for synthesis compatibility)
+quotient = dividend / src_val;
+remainder = dividend % src_val;
+
+// Store results
+xregs[0] = quotient;
+xregs[2] = remainder;

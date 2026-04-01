@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RET imm16 (0xC2)
+// Near return and pop imm16 bytes from stack
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+isa_state SS[15:0];
+
+var imm_lo[7:0];
+var imm_hi[7:0];
+var imm16[15:0];
+var old_sp[15:0];
+var new_sp[15:0];
+var esp_upper[15:0];
+var ret_addr_lo[7:0];
+var ret_addr_hi[7:0];
+var ret_addr[15:0];
+var stack_addr[31:0];
+
+instr = imem[eip];
+assume instr == 0xC2;
+
+// Read immediate operand
+imm_lo = imem[eip + 1];
+imm_hi = imem[eip + 2];
+imm16 = {imm_hi, imm_lo};
+
+// Read current stack pointer and preserve upper bits
+old_sp = xregs[4][15:0];
+esp_upper = xregs[4][31:16];
+
+// Calculate stack physical address
+stack_addr = ({16'h0000, SS} << 4) + {16'h0000, old_sp};
+
+// Pop return address from stack
+ret_addr_lo = dmem[stack_addr];
+ret_addr_hi = dmem[stack_addr + 32'h00000001];
+ret_addr = {ret_addr_hi, ret_addr_lo};
+
+// Update stack pointer (pop return address + imm16 bytes)
+new_sp = old_sp + 16'h0002 + imm16;
+xregs[4] = {esp_upper, new_sp};
+
+// Jump to return address (only update lower 16 bits of EIP)
+eip = {eip[31:16], ret_addr};

@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// CMOVLE with Virtual Memory Support
+// Uses ITB/DTB aspects for address translation
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[13:0];
+
+// PAL/MMU state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+isa_state mm_stat[63:0];
+
+// ITB arrays (8 entries)
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+isa_state lock_flag[0:0];
+
+
+var ra[4:0];
+var rb[4:0];
+var rc[4:0];
+var Ra[63:0];
+var Rb[63:0];
+var Rc[63:0];
+var imm_flag[0:0];
+var imm_value[63:0];
+var Rb_or_imm[63:0];
+var res[63:0];
+
+// ITB translation for instruction fetch
+aspect aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+instr = umem[pc_pa];
+assume instr[31:26] == 17;
+assume instr[11:5] == 100;
+ra = instr[25:21];
+Ra = rf[ra];
+rb = instr[20:16];
+Rb = rf[rb];
+rc = instr[4:0];
+Rc = rf[rc];
+imm_flag = instr[12];
+imm_value = {{56{1'b0}}, instr[20:13]};
+Rb_or_imm = (imm_flag == 1) ? imm_value : Rb;
+
+rf[rc] when (rc != 31 && take_interrupt == 0 && itb_fault == 0) = (Ra <=s 0) ? Rb_or_imm : Rc;
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+va when (itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+pc when (take_interrupt == 0 && itb_fault == 0) = pc + 4;

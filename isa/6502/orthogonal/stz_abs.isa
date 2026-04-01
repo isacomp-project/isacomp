@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 65C02 STZ Absolute (0x9C) - Store Zero to Absolute Address
+// Stores the value $00 to a 16-bit absolute address
+// Does not affect any flags
+// Instruction format: STZ $hhll (3 bytes, little-endian address)
+// NOTE: This is a 65C02-only instruction
+
+#ifdef CPU_65C02
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state mainmem[7:0][15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+
+instr = mainmem[pc];
+assume instr == 0x9C;
+pc = pc + 1;
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+mainmem[{addr_hi, addr_lo}] = 8'h00;
+
+#endif

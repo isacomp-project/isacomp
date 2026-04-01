@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SUB r/m16, imm8 (0x83 /5) - sign-extended
+// Subtract sign-extended 8-bit immediate from r/m16: r/m16 = r/m16 - imm8
+// Uses ModR/M with reg field = 101 as opcode extension
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var imm8[7:0];
+var imm16[15:0];
+var dst_val[15:0];
+var result[16:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x83;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is SUB (reg_bits = 101)
+assume reg_bits == 0b101;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Fetch immediate value (8-bit)
+imm8 = imem[eip];
+eip = eip + 1;
+
+// Sign-extend imm8 to 16 bits
+imm16 = {{8{imm8[7]}}, imm8};
+
+// Read operand
+dst_val = xregs[rm_bits][15:0];
+
+// Perform SUB operation
+result = dst_val - imm16;
+
+// Write result to destination
+xregs[rm_bits][15:0] = result[15:0];
+
+// Set flags
+flag_CF = result[16];
+flag_OF = (dst_val[15] != imm16[15]) & (dst_val[15] != result[15]);
+flag_SF = result[15];
+flag_ZF = result[15:0] == 16'h0000;
+flag_AF = (dst_val[3:0] < imm16[3:0]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);

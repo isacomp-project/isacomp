@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// J4 (SuperH-4) Exception Handling Aspect
+// This aspect handles the mechanics of taking an exception:
+// 1. Save SSR = SR, SPC = PC (SH-4 specific saved registers)
+// 2. Push PC and SR to stack (R15) - optional for some exception types
+// 3. Set MD=1 (privileged mode), BL=1 (block exceptions), RB=1 (use bank1)
+// 4. Jump to handler at VBR + vector*4
+//
+// Instructions that use this aspect must set:
+// - exc_taken: 1 if exception should be taken
+// - exc_vector: 8-bit vector number
+//
+// SR Register layout (SH-4):
+//   Bit 0:     T  - Test/condition flag
+//   Bit 1:     S  - Saturation flag
+//   Bits 4-7:  I3-I0 - Interrupt mask (0-15)
+//   Bit 8:     Q  - DIV1 quotient bit
+//   Bit 9:     M  - DIV0S/DIV1 sign bit
+//   Bit 12:    FD - FPU disable (SH-4 specific)
+//   Bit 28:    RB - Register bank select (0=bank0, 1=bank1)
+//   Bit 29:    BL - Block exceptions (1=blocked)
+//   Bit 30:    MD - Processor mode (0=user, 1=privileged)
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state t[0:0];  // T flag (tracked separately from SR for instruction updates)
+
+// SH-4 specific saved registers
+isa_state ssr[31:0];  // Saved Status Register
+isa_state spc[31:0];  // Saved Program Counter
+
+// Variables for exception handling - set by instruction
+var exc_taken[0:0];
+var exc_vector[7:0];
+
+// Internal variables for stack operations
+var exc_stack_ptr[31:0];
+var exc_new_sp[31:0];
+var exc_handler_addr[31:0];
+var exc_saved_sr[31:0];
+var exc_saved_pc[31:0];
+var exc_new_sr[31:0];
+
+// Read current stack pointer (R15)
+exc_stack_ptr = rf[15];
+
+// Compute new stack pointer (push 8 bytes: PC + SR)
+exc_new_sp = exc_stack_ptr - 8;
+
+// Save current PC and SR for pushing
+// Include T flag in bit 0 of saved SR (T is tracked separately from SR)
+exc_saved_pc = pc;
+exc_saved_sr = {sr[31:1], t};
+
+// Read handler address from vector table (SH-4 indirect vectoring)
+// Vector table entry is at VBR + vector * 4
+exc_handler_addr = umem[vbr + {22'b0, exc_vector, 2'b0}];
+
+// Compute new SR: set MD=1 (privileged), BL=1 (block exceptions), RB=1 (bank1)
+// Keep FD and interrupt mask unchanged
+exc_new_sr = {sr[31], 3'b111, sr[27:0]};
+
+// SH-4 specific: Save SR and PC to SSR and SPC
+ssr when (exc_taken) = exc_saved_sr;
+spc when (exc_taken) = exc_saved_pc;
+
+// Push SR to stack (at higher address: sp+4)
+umem[exc_new_sp + 4] when (exc_taken) = exc_saved_sr;
+
+// Push PC to stack (at lower address: sp)
+umem[exc_new_sp] when (exc_taken) = exc_saved_pc;
+
+// Update stack pointer (R15)
+rf[15] when (exc_taken) = exc_new_sp;
+
+// Update SR (enter privileged mode, block exceptions, select bank1)
+sr when (exc_taken) = exc_new_sr;
+
+// Jump to exception handler
+pc when (exc_taken) = exc_handler_addr;

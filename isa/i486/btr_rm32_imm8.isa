@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BTR r/m32, imm8 (0x0F BA /6)
+// Bit Test and Reset - tests bit, sets CF, then resets bit to 0
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var base_val[31:0];
+var imm8[7:0];
+var bit_pos[4:0];
+var bit_val[0:0];
+var result[31:0];
+
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+instr2 = imem[eip];
+assume instr2 == 0xBA;
+eip = eip + 1;
+
+modrm = imem[eip];
+eip = eip + 1;
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_idx == 0b110;  // /6
+assume mod_bits == 0b11;  // register direct mode
+
+// Read immediate
+imm8 = imem[eip];
+eip = eip + 1;
+
+base_val = xregs[rm_bits];
+bit_pos = imm8[4:0];
+bit_val = base_val[bit_pos];
+flag_CF = bit_val;
+
+// Reset bit to 0
+result = base_val & ~(32'h00000001 << bit_pos);
+xregs[rm_bits] = result;

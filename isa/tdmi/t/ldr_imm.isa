@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Thumb LDR (immediate offset) - Load word with immediate offset
+// Encoding: 011|0|1|imm5|Rn|Rd (Format 9)
+// LDR Rd, [Rn, #imm5*4]
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+mem umem[13:0];
+
+var rd[2:0];
+var rn[2:0];
+var imm5[4:0];
+var Rn_val[31:0];
+var offset[31:0];
+var addr[31:0];
+var data[31:0];
+
+instr = umem[pc];
+
+assume instr[15:11] == 0b01101;
+
+rd = instr[2:0];
+rn = instr[5:3];
+imm5 = instr[10:6];
+
+Rn_val = rf[{1'b0, rn}];
+
+// Offset is imm5 * 4 (word-aligned)
+offset = {25'b0, imm5, 2'b00};
+addr = Rn_val + offset;
+
+data = umem[addr];
+
+rf[{1'b0, rd}] = data;
+pc = pc + 2;

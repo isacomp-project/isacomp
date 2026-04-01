@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TDMI MSR (Move to PSR) - Write to CPSR from register
+// Encoding: cond|00010|0|10|mask|1111|00000000|Rm
+// MSR{cond} CPSR_<fields>, Rm
+//
+// Field mask bits (19:16):
+//   bit 19 (f): flags field (bits 31:24)
+//   bit 18 (s): status field (bits 23:16)
+//   bit 17 (x): extension field (bits 15:8)
+//   bit 16 (c): control field (bits 7:0)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];           // R0-R14 User/System mode
+isa_state cpsr[31:0];
+
+// Banked registers (declared for state consistency)
+isa_state rf_fiq[31:0][2:0];
+isa_state rf_irq_sp[31:0];
+isa_state rf_irq_lr[31:0];
+isa_state rf_svc_sp[31:0];
+isa_state rf_svc_lr[31:0];
+isa_state rf_abt_sp[31:0];
+isa_state rf_abt_lr[31:0];
+isa_state rf_und_sp[31:0];
+isa_state rf_und_lr[31:0];
+
+isa_state spsr_fiq[31:0];
+isa_state spsr_irq[31:0];
+isa_state spsr_svc[31:0];
+isa_state spsr_abt[31:0];
+isa_state spsr_und[31:0];
+
+mem umem[21:0];
+
+var cond[3:0];
+var field_mask[3:0];
+var rm[3:0];
+var Rm_val[31:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+
+// Mode detection for privileged check
+var mode[4:0];
+var is_priv[0:0];
+
+// Byte masks
+var byte3_mask[7:0];
+var byte2_mask[7:0];
+var byte1_mask[7:0];
+var byte0_mask[7:0];
+
+var new_cpsr[31:0];
+
+instr = umem[pc];
+
+// MSR CPSR register encoding
+assume instr[27:23] == 0b00010;
+assume instr[22] == 0b0;           // R=0 for CPSR
+assume instr[21:20] == 0b10;
+assume instr[15:12] == 0b1111;
+assume instr[11:4] == 0b00000000;
+
+cond = instr[31:28];
+field_mask = instr[19:16];
+rm = instr[3:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |
+            ((cond == 0b0000) & z_flag) |
+            ((cond == 0b0001) & ~z_flag) |
+            ((cond == 0b0010) & c_flag) |
+            ((cond == 0b0011) & ~c_flag) |
+            ((cond == 0b0100) & n_flag) |
+            ((cond == 0b0101) & ~n_flag) |
+            ((cond == 0b0110) & v_flag) |
+            ((cond == 0b0111) & ~v_flag) |
+            ((cond == 0b1000) & c_flag & ~z_flag) |
+            ((cond == 0b1001) & (~c_flag | z_flag)) |
+            ((cond == 0b1010) & (n_flag == v_flag)) |
+            ((cond == 0b1011) & (n_flag != v_flag)) |
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) |
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag)));
+
+// Check if in privileged mode (needed for control field writes)
+mode = cpsr[4:0];
+is_priv = (mode != 5'b10000);  // Not User mode
+
+// Read source register
+Rm_val = (rm == 0b1111) ? (pc + 8) : rf[rm];
+
+// Compute byte masks based on field_mask
+// In User mode, only flags field (f) can be modified
+byte3_mask = field_mask[3] ? 8'hFF : 8'h00;           // flags (f)
+byte2_mask = (field_mask[2] & is_priv) ? 8'hFF : 8'h00;  // status (s) - priv only
+byte1_mask = (field_mask[1] & is_priv) ? 8'hFF : 8'h00;  // extension (x) - priv only
+byte0_mask = (field_mask[0] & is_priv) ? 8'hFF : 8'h00;  // control (c) - priv only
+
+// Compute new CPSR by merging fields
+new_cpsr = {(Rm_val[31:24] & byte3_mask) | (cpsr[31:24] & ~byte3_mask),
+            (Rm_val[23:16] & byte2_mask) | (cpsr[23:16] & ~byte2_mask),
+            (Rm_val[15:8] & byte1_mask) | (cpsr[15:8] & ~byte1_mask),
+            (Rm_val[7:0] & byte0_mask) | (cpsr[7:0] & ~byte0_mask)};
+
+// Update CPSR
+cpsr when (cond_pass) = new_cpsr;
+
+pc = pc + 4;

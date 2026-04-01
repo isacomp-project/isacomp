@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REPE CMPSB (0xF3 0xA6)
+// Repeat while equal: compare bytes, decrement ECX (simplified - execute once)
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state ESI[31:0] of xregs[6];
+isa_state EDI[31:0] of xregs[7];
+isa_state ECX[31:0] of xregs[1];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var src_byte[7:0];
+var dst_byte[7:0];
+var result[8:0];
+var new_esi[31:0];
+var new_edi[31:0];
+
+// Fetch REP prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+eip = eip + 1;
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xA6;
+eip = eip + 1;
+
+// Simplified: assume ECX > 0, execute once
+assume xregs[1] != 32'h00000000;
+
+// Load bytes
+src_byte = dmem[ESI];
+dst_byte = dmem[EDI];
+
+// Compare: src - dst
+result = src_byte - dst_byte;
+
+// Set flags
+flag_CF = result[8];
+flag_ZF = result[7:0] == 8'h00;
+flag_SF = result[7];
+flag_OF = (src_byte[7] != dst_byte[7]) & (src_byte[7] != result[7]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_AF = src_byte[3:0] < dst_byte[3:0];
+
+// Adjust ESI and EDI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 1 : ESI - 1;
+new_edi = flag_DF == 1'b0 ? EDI + 1 : EDI - 1;
+
+ESI = new_esi;
+EDI = new_edi;
+
+// Decrement ECX
+ECX = ECX - 1;

@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SHR AL, CL (0xD2 with modrm 0xE8)
+// Shift logical right by CL count
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state AH[7:0] of xregs[0][15:8];
+isa_state CX[15:0];
+isa_state CL[7:0] of CX[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var count[7:0];
+var result[8:0];
+
+instr = imem[eip];
+assume instr == 0xD2;
+eip = eip + 1;
+
+modrm = imem[eip];
+assume modrm == 0xE8;
+eip = eip + 1;
+
+// Mask count to 0-31
+count = CL & 8'h1F;
+
+// Logical shift right
+result = AL >> count;
+
+AL = result[7:0];
+flag_SF = AL[7];
+flag_ZF = AL == 8'h00 ? 1'b1 : 1'b0;
+flag_PF = AL[0];
+// CF would need to track last bit shifted out
+flag_CF = count > 0 ? 1'b0 : flag_CF;

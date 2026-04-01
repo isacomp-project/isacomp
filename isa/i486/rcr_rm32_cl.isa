@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RCR r/m32, CL (0xD3 /3 with mod=11)
+// Rotate through Carry Right by CL bits
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state ECX[31:0] of xregs[1];
+isa_state CL[7:0] of xregs[1][7:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var count[4:0];
+var result[31:0];
+var new_cf[0:0];
+
+// Fetch instruction and ModR/M using offset-based addressing
+instr = imem[eip];
+assume instr == 0xD3;
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is RCR (reg_bits = 011)
+assume reg_bits == 0b011;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read destination value
+dst_val = xregs[rm_bits];
+
+// Get count from CL, masked to 5 bits for 32-bit operands
+count = CL[4:0];
+
+// RCR through 33 bits: {CF, dst[31:0]}
+// Rotate right by count positions
+// Enumerate all 32 cases explicitly
+case (count) {
+  5'd0: result = dst_val;
+  5'd1: result = {flag_CF, dst_val[31:1]};
+  5'd2: result = {dst_val[0:0], flag_CF, dst_val[31:2]};
+  5'd3: result = {dst_val[1:0], flag_CF, dst_val[31:3]};
+  5'd4: result = {dst_val[2:0], flag_CF, dst_val[31:4]};
+  5'd5: result = {dst_val[3:0], flag_CF, dst_val[31:5]};
+  5'd6: result = {dst_val[4:0], flag_CF, dst_val[31:6]};
+  5'd7: result = {dst_val[5:0], flag_CF, dst_val[31:7]};
+  5'd8: result = {dst_val[6:0], flag_CF, dst_val[31:8]};
+  5'd9: result = {dst_val[7:0], flag_CF, dst_val[31:9]};
+  5'd10: result = {dst_val[8:0], flag_CF, dst_val[31:10]};
+  5'd11: result = {dst_val[9:0], flag_CF, dst_val[31:11]};
+  5'd12: result = {dst_val[10:0], flag_CF, dst_val[31:12]};
+  5'd13: result = {dst_val[11:0], flag_CF, dst_val[31:13]};
+  5'd14: result = {dst_val[12:0], flag_CF, dst_val[31:14]};
+  5'd15: result = {dst_val[13:0], flag_CF, dst_val[31:15]};
+  5'd16: result = {dst_val[14:0], flag_CF, dst_val[31:16]};
+  5'd17: result = {dst_val[15:0], flag_CF, dst_val[31:17]};
+  5'd18: result = {dst_val[16:0], flag_CF, dst_val[31:18]};
+  5'd19: result = {dst_val[17:0], flag_CF, dst_val[31:19]};
+  5'd20: result = {dst_val[18:0], flag_CF, dst_val[31:20]};
+  5'd21: result = {dst_val[19:0], flag_CF, dst_val[31:21]};
+  5'd22: result = {dst_val[20:0], flag_CF, dst_val[31:22]};
+  5'd23: result = {dst_val[21:0], flag_CF, dst_val[31:23]};
+  5'd24: result = {dst_val[22:0], flag_CF, dst_val[31:24]};
+  5'd25: result = {dst_val[23:0], flag_CF, dst_val[31:25]};
+  5'd26: result = {dst_val[24:0], flag_CF, dst_val[31:26]};
+  5'd27: result = {dst_val[25:0], flag_CF, dst_val[31:27]};
+  5'd28: result = {dst_val[26:0], flag_CF, dst_val[31:28]};
+  5'd29: result = {dst_val[27:0], flag_CF, dst_val[31:29]};
+  5'd30: result = {dst_val[28:0], flag_CF, dst_val[31:30]};
+  5'd31: result = {dst_val[29:0], flag_CF, dst_val[31:31]};
+}
+
+// New CF is the bit that rotated out (was at position count-1 in original)
+case (count) {
+  5'd0: new_cf = flag_CF;
+  5'd1: new_cf = dst_val[0];
+  5'd2: new_cf = dst_val[1];
+  5'd3: new_cf = dst_val[2];
+  5'd4: new_cf = dst_val[3];
+  5'd5: new_cf = dst_val[4];
+  5'd6: new_cf = dst_val[5];
+  5'd7: new_cf = dst_val[6];
+  5'd8: new_cf = dst_val[7];
+  5'd9: new_cf = dst_val[8];
+  5'd10: new_cf = dst_val[9];
+  5'd11: new_cf = dst_val[10];
+  5'd12: new_cf = dst_val[11];
+  5'd13: new_cf = dst_val[12];
+  5'd14: new_cf = dst_val[13];
+  5'd15: new_cf = dst_val[14];
+  5'd16: new_cf = dst_val[15];
+  5'd17: new_cf = dst_val[16];
+  5'd18: new_cf = dst_val[17];
+  5'd19: new_cf = dst_val[18];
+  5'd20: new_cf = dst_val[19];
+  5'd21: new_cf = dst_val[20];
+  5'd22: new_cf = dst_val[21];
+  5'd23: new_cf = dst_val[22];
+  5'd24: new_cf = dst_val[23];
+  5'd25: new_cf = dst_val[24];
+  5'd26: new_cf = dst_val[25];
+  5'd27: new_cf = dst_val[26];
+  5'd28: new_cf = dst_val[27];
+  5'd29: new_cf = dst_val[28];
+  5'd30: new_cf = dst_val[29];
+  5'd31: new_cf = dst_val[30];
+}
+
+// Write result
+xregs[rm_bits] = result;
+
+// Update flags
+flag_CF = new_cf;
+
+// OF is defined only for count=1: XOR of two most significant bits
+flag_OF = count == 5'd1 ? (result[31] ^ result[30]) : flag_OF;
+
+// Update EIP after all processing
+eip = eip + 2;

@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX CSWAPI - Compare and Swap Immediate
+// CSWAPI $X,$Y,Z: if M8[$Y+Z] == rP, M8[$Y+Z] = $X, $X = 1, else $X = 0, rP = M8[$Y+Z]
+// Opcode: 0x95
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+isa_state rP[63:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var x_val[63:0];
+var y_val[63:0];
+var z_ext[63:0];
+var addr[63:0];
+var mem_val[63:0];
+var cond[0:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x95;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+x_val = rf[x];
+y_val = rf[y];
+z_ext = {56'b0, z};
+addr = y_val + z_ext;
+mem_val = umem[addr];
+
+cond = mem_val == rP;
+
+umem[addr] = cond ? x_val : mem_val;
+rf[x] = cond ? 64'b1 : 64'b0;
+rP = cond ? rP : mem_val;
+pc = pc + 4;

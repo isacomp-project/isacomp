@@ -1,0 +1,228 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC OR1K MMU Aspect: Instruction Fetch Translation + Interrupts
+//
+// This aspect handles three critical functions (following the riscv32 pattern
+// of integrating all trap logic into the main MMU aspect):
+//
+//   1. ITLB-based instruction fetch translation (CAM-based)
+//   2. External interrupt detection (vector 0x800)
+//   3. Tick timer interrupt detection (vector 0x500)
+//
+// OpenRISC MMU uses software-managed TLBs with CAM (Content-Addressable Memory):
+//   - ITLB: 128-entry fully associative CAM, tag = {Valid, VPN[31:13]}
+//   - On TLB miss -> hardware exception -> OS handler fills TLB via l.mtspr
+//
+// SR bits controlling MMU and interrupts:
+//   SR[0]  = SM  (Supervisor Mode)
+//   SR[1]  = TEE (Tick Timer Exception Enable)
+//   SR[2]  = IEE (Interrupt Exception Enable)
+//   SR[5]  = DME (Data MMU Enable)
+//   SR[6]  = IME (Instruction MMU Enable)
+//   SR[14] = EPH (Exception Prefix High - vectors at 0xF0000000)
+
+// =========================================================================
+// Physical address output (used by all instructions for fetch)
+// =========================================================================
+var pc_pa[31:0];
+
+// Capture original PC before any modification
+var original_pc[31:0];
+original_pc = pc;
+
+// Memory declarations
+mem umem[23:0];
+
+// ITLB CAM arrays (128 entries, fully associative)
+// tag = {Valid, VPN[31:13]} (20 bits), data = full translate register (32 bits)
+isa_state cam itlb_tag[19:0]@[6:0][];
+isa_state itlb_tr_cam[31:0][6:0];
+
+// =========================================================================
+// PIC (Programmable Interrupt Controller) - SPR Group 9
+// =========================================================================
+// The OR1K PIC is accessed via l.mtspr/l.mfspr (SPR group 9).
+// PICMR (SPR 0x4800) = mask register, PICSR (SPR 0x4802) = status register.
+// irq_sources is raw interrupt input from peripherals (active-high, level).
+ext isa_state irq_pending[31:0];        // Raw external interrupt sources (active-high)
+isa_state picmr[31:0];                  // PIC Mask Register
+isa_state picsr[31:0];                  // PIC Status Register
+
+// PIC logic: live status = stored PICSR OR'd with raw interrupt sources, masked by PICMR
+var live_picsr[31:0];
+live_picsr = (picsr | irq_pending) & picmr;
+var pic_active[0:0];
+pic_active = live_picsr != 32'h0;
+
+// Tick timer state (written by instruction-level inline logic)
+isa_state ttmr[31:0];       // Tick Timer Mode Register
+isa_state ttcr[31:0];       // Tick Timer Count Register
+
+// Tick timer interrupt pending: IP (bit 28) AND IE (bit 29)
+var tick_irq_pending[0:0];
+tick_irq_pending = ttmr[28] & ttmr[29];
+
+// =========================================================================
+// Section 1: ITLB CAM Lookup (128 entries, fully associative)
+// =========================================================================
+
+var ime_enabled[0:0];
+var fetch_vpn[18:0];        // Virtual Page Number [31:13]
+var fetch_offset[12:0];     // Page offset [12:0] (8KB pages)
+var is_supervisor[0:0];
+
+// ITLB CAM lookup results
+var itlb_search_key[19:0];
+var itlb_cam_matches[127:0];
+var itlb_hit_idx[7:0];
+var itlb_idx[6:0];
+
+// Matched entry fields
+var matched_itlb_tr[31:0];
+var itlb_tr_ppn[18:0];
+var itlb_tr_sxe[0:0];       // Supervisor execute enable
+var itlb_tr_uxe[0:0];       // User execute enable
+
+var tlb_hit[0:0];
+var tlb_perm_ok[0:0];
+
+// Read SR control bits
+ime_enabled = sr[6];
+is_supervisor = sr[0];
+
+// Extract VPN and page offset from PC
+fetch_vpn = original_pc[31:13];
+fetch_offset = original_pc[12:0];
+
+// ITLB CAM lookup: search for {valid=1, VPN}
+// CAM stores {V, VPN[31:13]} per entry - searching for {1, VPN}
+// only matches valid entries with the correct VPN
+itlb_search_key = {1'b1, fetch_vpn};
+itlb_cam_matches = itlb_tag@[itlb_search_key];
+
+// Check for any hit (gated by IME enabled)
+tlb_hit = ime_enabled & (|itlb_cam_matches);
+
+// Get index of matching entry using count-trailing-zeros
+itlb_hit_idx = ctz(itlb_cam_matches);
+itlb_idx = itlb_hit_idx[6:0];
+
+// Read translate register data from matched entry
+matched_itlb_tr = itlb_tr_cam[itlb_idx];
+
+// Extract PPN and permissions from translate register
+// ITLB TR format: PPN[31:13] | UXE(bit 7, 0x80) | SXE(bit 6, 0x40) | ...
+itlb_tr_ppn = matched_itlb_tr[31:13];
+itlb_tr_sxe = matched_itlb_tr[6];
+itlb_tr_uxe = matched_itlb_tr[7];
+
+// Check execute permission based on mode
+tlb_perm_ok = is_supervisor ? itlb_tr_sxe : itlb_tr_uxe;
+
+// MMU exception detection:
+//   ITLB miss: IME enabled but no TLB hit -> vector 0xA00
+//   Instruction page fault: TLB hit but no execute permission -> vector 0x400
+var itlb_miss[0:0];
+var ipf[0:0];
+var mmu_exception[0:0];
+
+itlb_miss = ime_enabled & ~tlb_hit;
+ipf = ime_enabled & tlb_hit & ~tlb_perm_ok;
+mmu_exception = itlb_miss | ipf;
+
+// =========================================================================
+// Section 2: External Interrupt Detection
+// =========================================================================
+
+var iee_enabled[0:0];
+var take_ext_interrupt[0:0];
+
+iee_enabled = sr[2];
+
+// Take external interrupt if:
+//   1. No MMU exception (MMU faults have higher priority)
+//   2. IEE enabled in SR
+//   3. External interrupt signal asserted
+take_ext_interrupt = (~mmu_exception) & iee_enabled & pic_active;
+
+// =========================================================================
+// Section 3: Tick Timer Interrupt Detection
+// =========================================================================
+
+var tee_enabled[0:0];
+var take_tick_interrupt[0:0];
+
+tee_enabled = sr[1];
+
+// Take tick timer interrupt if:
+//   1. No MMU exception (higher priority)
+//   2. No external interrupt (higher priority)
+//   3. TEE enabled in SR
+//   4. Tick timer interrupt pending
+take_tick_interrupt = (~mmu_exception) & (~take_ext_interrupt) & tee_enabled & tick_irq_pending;
+
+// =========================================================================
+// Section 4: Combined Exception/Interrupt Signal
+// =========================================================================
+// This is the master signal that gates ALL instruction side effects.
+// When asserted, the instruction does NOT complete - it will be re-executed
+// after the exception/interrupt handler returns via l.rfe.
+
+var exception_taken[0:0];
+var exception_vector[31:0];
+
+exception_taken = mmu_exception | take_ext_interrupt | take_tick_interrupt;
+
+// Exception Prefix High: if EPH=1, vectors start at 0xF0000000
+var eph_bit[0:0];
+var exc_base[31:0];
+eph_bit = sr[14];
+exc_base = eph_bit ? 32'hF0000000 : 32'h00000000;
+
+// Select exception vector based on priority
+exception_vector = mmu_exception ? (exc_base | (itlb_miss ? 32'h00000A00 : 32'h00000400)) :
+                   take_ext_interrupt ? (exc_base | 32'h00000800) :
+                   (exc_base | 32'h00000500);
+
+// =========================================================================
+// Section 5: Exception State Save
+// =========================================================================
+// On any exception/interrupt:
+//   EPCR0 = PC of the instruction (for re-execution on return)
+//   ESR0  = current SR (saved for restoration)
+//   EEAR0 = effective address (only meaningful for MMU faults)
+//   SR    = enter supervisor mode, disable MMU and interrupts
+//   PC    = exception vector
+
+// Compose new SR for exception: SM=1, clear TEE, IEE, DME, IME
+// Bits to clear: 1(TEE), 2(IEE), 5(DME), 6(IME) => mask ~0x67 = 0xFFFFFF98
+// Then set bit 0 (SM=1)
+var exc_new_sr[31:0];
+exc_new_sr = (sr & 32'hFFFFFF98) | 32'h00000001;
+
+// Compose SR with current flag value for save (flag is tracked separately from sr[9])
+var sr_with_flag_for_save[31:0];
+sr_with_flag_for_save = (sr & 32'hFFFFFDFF) | {22'b0, flag, 9'b0};
+
+// When exception occurs during delay slot, save PC of the branch instruction
+// (PC-4) so the branch re-executes on return from exception via l.rfe.
+// This is necessary because the delay_slot flag is cleared during the exception,
+// and without re-executing the branch, the branch target would be lost.
+var epcr_save_pc[31:0];
+epcr_save_pc = in_delay_slot ? (original_pc - 4) : original_pc;
+epcr0 when (exception_taken) = epcr_save_pc;
+esr0 when (exception_taken) = sr_with_flag_for_save;
+eear0 when (mmu_exception) = original_pc;
+sr when (exception_taken) = exc_new_sr;
+pc when (exception_taken) = exception_vector;
+
+// =========================================================================
+// Section 6: Physical Address Computation
+// =========================================================================
+// If IME disabled: identity mapping (physical = virtual)
+// If IME enabled and TLB hit: use translated PPN with page offset
+// If IME enabled and TLB miss: use original_pc (exception will redirect)
+
+var pc_translated[31:0];
+pc_translated = {itlb_tr_ppn, fetch_offset};
+
+pc_pa = ime_enabled ? (tlb_hit ? pc_translated : original_pc) : original_pc;

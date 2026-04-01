@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rm[31:0];
+var r0[31:0];
+var movb_indexed_load_addr[31:0];
+var data8[7:0];
+var sign_ext_data[31:0];
+
+// Register banking variables (unique to movb_indexed instruction)
+var movb_indexed_r0_lo[2:0];
+var movb_indexed_rn_lo[2:0];
+var movb_indexed_rm_lo[2:0];
+var movb_indexed_rb[0:0];
+var movb_indexed_rn_bk[0:0];
+var movb_indexed_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x0;
+assume instr[3:0] == 0xC;
+rn = instr[11:8];
+rm = instr[7:4];
+
+// Register banking setup
+movb_indexed_r0_lo = 3'b000;
+movb_indexed_rn_lo = rn[2:0];
+movb_indexed_rm_lo = rm[2:0];
+movb_indexed_rb = sr[29];  // RB bit (bit 29 in SR)
+movb_indexed_rn_bk = (rn[3] == 1'b0) & movb_indexed_rb;
+movb_indexed_rm_bk = (rm[3] == 1'b0) & movb_indexed_rb;
+
+// MOV.B @(R0, Rm), Rn: load byte from address (R0 + Rm) to Rn
+Rm = movb_indexed_rm_bk ? rf_bank[movb_indexed_rm_lo] : rf[rm];
+r0 = movb_indexed_rb ? rf_bank[movb_indexed_r0_lo] : rf[0];
+movb_indexed_load_addr = Rm + r0;
+
+data8 = umem[movb_indexed_load_addr];
+sign_ext_data = {{24{data8[7]}}, data8};
+
+rf[rn] when (movb_indexed_rn_bk == 0) = sign_ext_data;
+rf_bank[movb_indexed_rn_lo] when (movb_indexed_rn_bk) = sign_ext_data;
+pc = pc + 2;

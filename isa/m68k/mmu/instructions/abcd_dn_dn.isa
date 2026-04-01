@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 ABCD Dx,Dy - Add BCD with Extend
+// Opcode: 1100 yyy 1 00 00 0 xxx where yyy=Dy (dest), xxx=Dx (src)
+// Operation: Dx + Dy + X -> Dy (BCD addition on low byte)
+// Each register holds packed BCD in low byte (2 digits)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_byte[7:0];
+var dst_byte[7:0];
+var x_val[0:0];
+
+// BCD addition intermediate values
+var src_low[3:0];
+var src_high[3:0];
+var dst_low[3:0];
+var dst_high[3:0];
+
+var low_sum[4:0];
+var low_sum_adjusted[4:0];
+var low_carry[0:0];
+var low_result[3:0];
+
+var high_sum[4:0];
+var high_sum_adjusted[4:0];
+var high_carry[0:0];
+var high_result[3:0];
+
+var result_byte[7:0];
+var final_result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b1100;  // ABCD opcode
+assume instr[8] == 0b1;          // Fixed bit
+assume instr[7:6] == 0b00;       // Size: byte
+assume instr[5:4] == 0b00;       // Fixed bits
+assume instr[3] == 0b0;          // Register to register mode
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+dst_reg = instr[11:9];
+src_reg = instr[2:0];
+
+// Get source and destination bytes (low byte only for BCD)
+src_byte = dregs[src_reg][7:0];
+dst_byte = dregs[dst_reg][7:0];
+x_val = flag_X;
+
+// Extract nibbles
+src_low = src_byte[3:0];
+src_high = src_byte[7:4];
+dst_low = dst_byte[3:0];
+dst_high = dst_byte[7:4];
+
+// BCD addition - low nibble
+low_sum = src_low + dst_low + x_val;
+low_sum_adjusted = low_sum + 6;
+low_carry = low_sum > 9;
+low_result = low_carry ? low_sum_adjusted[3:0] : low_sum[3:0];
+
+// BCD addition - high nibble (with carry from low)
+high_sum = src_high + dst_high + low_carry;
+high_sum_adjusted = high_sum + 6;
+high_carry = high_sum > 9;
+high_result = high_carry ? high_sum_adjusted[3:0] : high_sum[3:0];
+
+// Combine nibbles into result byte
+result_byte = {high_result, low_result};
+
+// Preserve upper 24 bits of destination register
+final_result = {dregs[dst_reg][31:8], result_byte};
+
+// Write result
+dregs[dst_reg] when (~m68k_exc_taken) = final_result;
+
+// Update CCR
+// X and C are set to decimal carry out
+flag_X when (~m68k_exc_taken) = high_carry;
+flag_C when (~m68k_exc_taken) = high_carry;
+
+// Z flag special: only cleared if result is non-zero, unchanged otherwise
+flag_Z when (~m68k_exc_taken) = flag_Z & (result_byte == 0);
+
+// N and V are undefined (set to 0)
+flag_N when (~m68k_exc_taken) = 0;
+flag_V when (~m68k_exc_taken) = 0;

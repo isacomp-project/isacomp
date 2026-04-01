@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rd[4:0];
+var imm[20:0];
+var sign_ext_imm[63:0];
+var jump_offset[63:0];
+var jump_dest[63:0];
+var ret_addr[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1101111;
+rd = instr[11:7];
+
+// J-type immediate: imm[20|10:1|11|19:12]
+imm = {instr[31], instr[19:12], instr[20], instr[30:21], 1'b0};
+sign_ext_imm = {{43{imm[20]}}, imm};
+jump_offset = sign_ext_imm;
+
+ret_addr = pc + 4;
+jump_dest = pc + jump_offset;
+
+rf[rd] when (rd != 0) = ret_addr;
+pc = jump_dest;

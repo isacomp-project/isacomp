@@ -1,0 +1,132 @@
+OpenSBI Boot Testbench
+Firmware: fw_jump.bin
+OpenSBI v1.8.1
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+Platform Name               : ISAComp RISC-V 32 MMU Platform
+Platform Features           : medeleg
+Platform HART Count         : 1
+Platform HART Protection    : pmp
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : ---
+Platform Shutdown Device    : ---
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 317 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 61 KB
+Firmware Heap Offset        : 0x46000
+Firmware Heap Size          : 37 KB (total), 0 KB (reserved), 11 KB (used), 25 KB (free)
+Firmware Scratch Size       : 4096 B (total), 244 B (used), 3852 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : ipi,pmu,sse,hsm,rfnc,fwft,time,base,legacy,dbcn,dbtr
+Experimental SBI Extensions : none
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0*
+Domain0 Region00            : 0x80040000-0x8004ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x80000000-0x8003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x83f00000-0x83f00fff M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x83f10000-0x83f1ffff M: (I,R,W) S/U: ()
+Domain0 Region04            : 0x00000000-0xffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x80400000
+Domain0 Next Arg1           : 0x82200000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv32ima
+Boot HART ISA Extensions    : smaia,smstateen,sscofpmf,sstc,zicntr,zihpm,smcntrpmf,sdtrig,ssstateen
+Boot HART PMP Count         : 64
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 32
+Boot HART MHPM Info         : 29 (0xfffffff8)
+Boot HART Debug Triggers    : 32 triggers
+Boot HART MIDELEG           : 0x00002222
+Boot HART MEDELEG           : 0x0004b109
+[    0.000000] Linux version 6.19.0-rc8-gb7ff7151e653-dirty (root@runsc) (riscv64-linux-gnu-gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #12 Sun Feb  8 02:36:16 UTC 2026
+[    0.000000] OF: fdt: Ignoring memory range 0x80000000 - 0x80400000
+[    0.000000] Machine model: ISAComp RISC-V 32 MMU Platform
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10008
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] SBI FWFT extension detected
+[    0.000000] earlycon: uart8250 at MMIO 0x83f00000 (options '115200n8')
+[    0.000000] printk: legacy bootconsole [uart8250] enabled
+[    0.000000] OF: reserved mem: 0x80000000..0x8003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x80040000..0x8004ffff (64 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] Zone ranges:
+[    0.000000]   Normal   [mem 0x0000000080400000-0x0000000083efffff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080400000-0x0000000083efffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080400000-0x0000000083efffff]
+[    0.000000] On node 0, zone Normal: 1024 pages in unavailable ranges
+[    0.000000] On node 0, zone Normal: 16640 pages in unavailable ranges
+[    0.000000] Falling back to deprecated "riscv,isa"
+[    0.000000] riscv: base ISA extensions aim
+[    0.000000] riscv: ELF capabilities aim
+[    0.000000] Ticket spinlock: enabled
+[    0.000000] Kernel command line: earlycon=uart8250,mmio,0x83f00000,115200n8 console=ttyS0
+[    0.000000] printk: log buffer data + meta data: 131072 + 409600 = 540672 bytes
+[    0.000000] Dentry cache hash table entries: 8192 (order: 3, 32768 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 4096 (order: 2, 16384 bytes, linear)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 15104
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] RCU Tasks Trace: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 32 local interrupts mapped
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000008] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.001836] Console: colour dummy device 80x25
+[    0.002231] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.002646] pid_max: default: 32768 minimum: 301
+[    0.003948] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.004307] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.019280] ASID allocator using 9 bits (512 entries)
+[    0.021917] Memory: 33140K/60416K available (4858K kernel code, 8801K rwdata, 4096K rodata, 4144K init, 210K bss, 26884K reserved, 0K cma-reserved)
+[    0.025113] devtmpfs: initialized
+[    0.036260] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.036749] posixtimers hash table entries: 512 (order: 0, 2048 bytes, linear)
+[    0.037209] futex hash table entries: 256 (4096 bytes on 1 NUMA nodes, total 4 KiB, linear).
+[    0.042267] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.044604] cpuidle: using governor menu
+[    0.046019] SBI misaligned access exception delegation ok
+[    0.069593] cpu0: Ratio of byte access time to unaligned word access is 3.99, unaligned accesses are fast
+[    0.088944] clocksource: Switched to clocksource riscv_clocksource
+[    0.197382] workingset: timestamp_bits=14 max_order=14 bucket_order=0
+[    0.203428] io scheduler mq-deadline registered
+[    0.203642] io scheduler kyber registered
+[    0.204095] io scheduler bfq registered
+[    0.823976] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[    0.839973] of_serial 83f00000.uart: error -ENXIO: IRQ index 0 not found
+[    0.842836] printk: legacy console [ttyS0] disabled
+[    0.847180] 83f00000.uart: ttyS0 at MMIO 0x83f00000 (irq = 0, base_baud = 3125000) is a 16550A
+[    0.847716] printk: legacy console [ttyS0] enabled
+[    0.847716] printk: legacy console [ttyS0] enabled
+[    0.848129] printk: legacy bootconsole [uart8250] disabled
+[    0.848129] printk: legacy bootconsole [uart8250] disabled
+[    0.906889] loop: module loaded
+[    0.909309] mousedev: PS/2 mouse device common for all mice
+[    1.024314] clk: Disabling unused clocks
+[    1.024539] PM: genpd: Disabling unused power domains
+[    1.059747] Freeing unused kernel image (initmem) memory: 4144K
+[    1.061361] Run /init as init process
+[    1.064876] Hello from RISC-V userspace!

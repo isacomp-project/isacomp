@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 LDA Absolute (0xAD) - Load Accumulator Absolute
+// Loads an 8-bit value from a 16-bit absolute address into the accumulator
+// Sets N flag to bit 7 of loaded value, Z flag if value is zero
+// Instruction format: LDA $hhll (3 bytes, little-endian address)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state mainmem[7:0][15:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+
+var data[7:0];
+
+instr = mainmem[pc];
+assume instr == 0xAD;
+pc = pc + 1;
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+
+data = mainmem[{addr_hi, addr_lo}];
+
+A = data;
+
+flag_N = data[7];
+flag_Z = data == 0 ? 1'b1 : 1'b0;

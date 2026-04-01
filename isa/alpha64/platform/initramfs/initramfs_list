@@ -1,0 +1,10 @@
+# Minimal initramfs for Alpha64
+# Used by CONFIG_INITRAMFS_SOURCE in kernel .config
+
+dir /dev 0755 0 0
+nod /dev/console 0600 0 0 c 5 1
+nod /dev/kmsg 0644 0 0 c 1 11
+dir /proc 0755 0 0
+dir /sys 0755 0 0
+# Path relative to kernel source directory
+file /init ../isa/alpha64/platform/initramfs/init 0755 0 0

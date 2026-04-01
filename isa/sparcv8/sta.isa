@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 STA instruction (Store Word to Alternate Space)
+// Format 3: op=11, op3=010100, i=0
+// STA rd, [rs1 + rs2] asi
+// Privileged instruction - stores to alternate address space
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];   // Integer register file (physical windowed)
+isa_state cwp[2:0];        // Current Window Pointer
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect delay_slot.isa gates pc, delay_slot;
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var asi[7:0];
+
+var r1[31:0];
+var r2[31:0];
+var addr[31:0];
+var data[31:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+var phys_rd[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b11;       // op = 11 (Load/Store)
+assume instr[24:19] == 0b010100;   // op3 = STA
+assume instr[13] == 0b0;           // i = 0 (register addressing with ASI)
+// Exclude MMU-reserved ASI values (handled by MMU-specific instructions)
+assume instr[12:5] != 8'h03;       // ASI 0x03 = MMU flush
+assume instr[12:5] != 8'h04;       // ASI 0x04 = MMU control registers
+assume instr[12:5] != 8'h05;       // ASI 0x05 = MMU TLB write
+
+rs1 = instr[18:14];
+rs2 = instr[4:0];
+rd = instr[29:25];
+asi = instr[12:5];
+
+// Compute physical register indices
+cwp_m1 = cwp + 3'b111;
+phys_rs1 = (rs1[4:3] == 2'b00) ? {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs1[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs1[2:0]};
+phys_rs2 = (rs2[4:3] == 2'b00) ? {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs2[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs2[2:0]};
+phys_rd = (rd[4:3] == 2'b00) ? {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rd[2:0]} :
+          ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rd[2:0]};
+
+r1 = (rs1 == 0) ? 32'b0 : rf[phys_rs1];
+r2 = (rs2 == 0) ? 32'b0 : rf[phys_rs2];
+data = (rd == 0) ? 32'b0 : rf[phys_rd];
+
+addr = r1 + r2;
+
+// Store to memory (ASI selects address space)
+umem[addr] = data;
+pc = pc + 4;

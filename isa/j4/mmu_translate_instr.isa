@@ -1,0 +1,181 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SH-4 MMU Instruction Fetch Translation Aspect
+// This aspect provides address translation for instruction fetch (PC -> pc_pa)
+// Uses ITLB (4 entries), falls back to UTLB on ITLB miss
+//
+// ITLB is automatically refilled from UTLB - no software intervention needed
+// for ITLB miss if entry exists in UTLB. Only raises exception if UTLB miss.
+
+// Physical address for PC (output of this aspect)
+var pc_pa[31:0];
+
+// Exception signaling
+var itlb_miss[0:0];
+var itlb_prot_viol[0:0];
+
+// Address region detection
+var pc_region[2:0];
+var pc_is_p0_u0[0:0];
+var pc_is_p1[0:0];
+var pc_is_p2[0:0];
+var pc_is_p3[0:0];
+var pc_is_p4[0:0];
+var pc_needs_translation[0:0];
+
+// MMU control
+var pc_mmu_enabled[0:0];
+var pc_current_asid[7:0];
+
+// ITLB lookup
+var pc_vpn[21:0];
+var itlb_hit[0:0];
+var itlb_hit_idx[1:0];
+var itlb_match[3:0];
+
+// ITLB entry fields
+var itlb_matched_ppn[18:0];
+var itlb_matched_pr[1:0];
+
+// UTLB fallback lookup (if ITLB miss)
+var utlb_pc_hit[0:0];
+var utlb_pc_hit_idx[5:0];
+var utlb_pc_match[15:0];  // Check first 16 entries
+var utlb_matched_ppn[18:0];
+var utlb_matched_pr[1:0];
+
+// Permission checking
+var pc_is_privileged[0:0];
+var exec_perm_ok[0:0];
+
+// Capture original PC for translation
+var original_pc[31:0];
+original_pc = pc;
+
+// Extract address region
+pc_region = pc[31:29];
+pc_is_p0_u0 = (pc[31] == 1'b0);
+pc_is_p1 = (pc_region == 3'b100);
+pc_is_p2 = (pc_region == 3'b101);
+pc_is_p3 = (pc_region == 3'b110);
+pc_is_p4 = (pc_region == 3'b111);
+pc_needs_translation = pc_is_p0_u0 | pc_is_p3;
+
+// Read MMU control
+pc_mmu_enabled = mmucr[0];
+pc_current_asid = pteh[7:0];
+pc_is_privileged = sr[30];
+
+// VPN for lookup
+pc_vpn = pc[31:10];
+
+// ============================================================================
+// ITLB Associative Search (4 entries)
+// ============================================================================
+itlb_match[0] = itlb_v[0] & (itlb_vpn[0] == pc_vpn) & ((itlb_asid[0] == pc_current_asid) | itlb_sh[0]);
+itlb_match[1] = itlb_v[1] & (itlb_vpn[1] == pc_vpn) & ((itlb_asid[1] == pc_current_asid) | itlb_sh[1]);
+itlb_match[2] = itlb_v[2] & (itlb_vpn[2] == pc_vpn) & ((itlb_asid[2] == pc_current_asid) | itlb_sh[2]);
+itlb_match[3] = itlb_v[3] & (itlb_vpn[3] == pc_vpn) & ((itlb_asid[3] == pc_current_asid) | itlb_sh[3]);
+
+itlb_hit = itlb_match[0] | itlb_match[1] | itlb_match[2] | itlb_match[3];
+itlb_hit_idx = itlb_match[0] ? 2'd0 :
+               itlb_match[1] ? 2'd1 :
+               itlb_match[2] ? 2'd2 : 2'd3;
+
+itlb_matched_ppn = itlb_ppn[itlb_hit_idx];
+itlb_matched_pr = itlb_pr[itlb_hit_idx];
+
+// ============================================================================
+// UTLB Fallback Search (if ITLB miss)
+// ============================================================================
+utlb_pc_match[0] = utlb_v[0] & (utlb_vpn[0] == pc_vpn) & ((utlb_asid[0] == pc_current_asid) | utlb_sh[0]);
+utlb_pc_match[1] = utlb_v[1] & (utlb_vpn[1] == pc_vpn) & ((utlb_asid[1] == pc_current_asid) | utlb_sh[1]);
+utlb_pc_match[2] = utlb_v[2] & (utlb_vpn[2] == pc_vpn) & ((utlb_asid[2] == pc_current_asid) | utlb_sh[2]);
+utlb_pc_match[3] = utlb_v[3] & (utlb_vpn[3] == pc_vpn) & ((utlb_asid[3] == pc_current_asid) | utlb_sh[3]);
+utlb_pc_match[4] = utlb_v[4] & (utlb_vpn[4] == pc_vpn) & ((utlb_asid[4] == pc_current_asid) | utlb_sh[4]);
+utlb_pc_match[5] = utlb_v[5] & (utlb_vpn[5] == pc_vpn) & ((utlb_asid[5] == pc_current_asid) | utlb_sh[5]);
+utlb_pc_match[6] = utlb_v[6] & (utlb_vpn[6] == pc_vpn) & ((utlb_asid[6] == pc_current_asid) | utlb_sh[6]);
+utlb_pc_match[7] = utlb_v[7] & (utlb_vpn[7] == pc_vpn) & ((utlb_asid[7] == pc_current_asid) | utlb_sh[7]);
+utlb_pc_match[8] = utlb_v[8] & (utlb_vpn[8] == pc_vpn) & ((utlb_asid[8] == pc_current_asid) | utlb_sh[8]);
+utlb_pc_match[9] = utlb_v[9] & (utlb_vpn[9] == pc_vpn) & ((utlb_asid[9] == pc_current_asid) | utlb_sh[9]);
+utlb_pc_match[10] = utlb_v[10] & (utlb_vpn[10] == pc_vpn) & ((utlb_asid[10] == pc_current_asid) | utlb_sh[10]);
+utlb_pc_match[11] = utlb_v[11] & (utlb_vpn[11] == pc_vpn) & ((utlb_asid[11] == pc_current_asid) | utlb_sh[11]);
+utlb_pc_match[12] = utlb_v[12] & (utlb_vpn[12] == pc_vpn) & ((utlb_asid[12] == pc_current_asid) | utlb_sh[12]);
+utlb_pc_match[13] = utlb_v[13] & (utlb_vpn[13] == pc_vpn) & ((utlb_asid[13] == pc_current_asid) | utlb_sh[13]);
+utlb_pc_match[14] = utlb_v[14] & (utlb_vpn[14] == pc_vpn) & ((utlb_asid[14] == pc_current_asid) | utlb_sh[14]);
+utlb_pc_match[15] = utlb_v[15] & (utlb_vpn[15] == pc_vpn) & ((utlb_asid[15] == pc_current_asid) | utlb_sh[15]);
+
+utlb_pc_hit = utlb_pc_match[0] | utlb_pc_match[1] | utlb_pc_match[2] | utlb_pc_match[3] |
+              utlb_pc_match[4] | utlb_pc_match[5] | utlb_pc_match[6] | utlb_pc_match[7] |
+              utlb_pc_match[8] | utlb_pc_match[9] | utlb_pc_match[10] | utlb_pc_match[11] |
+              utlb_pc_match[12] | utlb_pc_match[13] | utlb_pc_match[14] | utlb_pc_match[15];
+
+utlb_pc_hit_idx = utlb_pc_match[0] ? 6'd0 :
+                  utlb_pc_match[1] ? 6'd1 :
+                  utlb_pc_match[2] ? 6'd2 :
+                  utlb_pc_match[3] ? 6'd3 :
+                  utlb_pc_match[4] ? 6'd4 :
+                  utlb_pc_match[5] ? 6'd5 :
+                  utlb_pc_match[6] ? 6'd6 :
+                  utlb_pc_match[7] ? 6'd7 :
+                  utlb_pc_match[8] ? 6'd8 :
+                  utlb_pc_match[9] ? 6'd9 :
+                  utlb_pc_match[10] ? 6'd10 :
+                  utlb_pc_match[11] ? 6'd11 :
+                  utlb_pc_match[12] ? 6'd12 :
+                  utlb_pc_match[13] ? 6'd13 :
+                  utlb_pc_match[14] ? 6'd14 : 6'd15;
+
+utlb_matched_ppn = utlb_ppn[utlb_pc_hit_idx];
+utlb_matched_pr = utlb_pr[utlb_pc_hit_idx];
+
+// ============================================================================
+// Result Selection and Exception Detection
+// ============================================================================
+var any_tlb_hit[0:0];
+var final_ppn[18:0];
+var final_pr[1:0];
+
+any_tlb_hit = itlb_hit | utlb_pc_hit;
+final_ppn = itlb_hit ? itlb_matched_ppn : utlb_matched_ppn;
+final_pr = itlb_hit ? itlb_matched_pr : utlb_matched_pr;
+
+// Execute permission: PR[1]=1 allows user execute, kernel can always execute
+exec_perm_ok = pc_is_privileged | final_pr[1];
+
+// Exception detection
+itlb_miss = pc_mmu_enabled & pc_needs_translation & ~any_tlb_hit;
+itlb_prot_viol = pc_mmu_enabled & pc_needs_translation & any_tlb_hit & ~exec_perm_ok;
+
+// ============================================================================
+// Physical Address Computation
+// ============================================================================
+var pc_translated[31:0];
+pc_translated = {final_ppn[18:0], original_pc[11:0], 1'b0};
+
+var pc_p1_addr[31:0];
+pc_p1_addr = {3'b000, original_pc[28:0]};
+
+var pc_p2_addr[31:0];
+pc_p2_addr = {3'b000, original_pc[28:0]};
+
+pc_pa = pc_is_p1 ? pc_p1_addr :
+        pc_is_p2 ? pc_p2_addr :
+        pc_is_p4 ? original_pc :
+        (pc_mmu_enabled & pc_needs_translation & any_tlb_hit) ? pc_translated :
+        original_pc;
+
+// ============================================================================
+// Exception Handling
+// ============================================================================
+tea when (itlb_miss | itlb_prot_viol) = original_pc;
+
+var itlb_exception[0:0];
+var itlb_exc_vector[31:0];
+
+itlb_exception = itlb_miss | itlb_prot_viol;
+itlb_exc_vector = itlb_miss ? (vbr + 32'h400) : (vbr + 32'h100);
+
+ssr when (itlb_exception) = {sr[31:1], t};
+spc when (itlb_exception) = original_pc;
+sr when (itlb_exception) = {sr[31], 3'b111, sr[27:0]};
+pc when (itlb_exception) = itlb_exc_vector;

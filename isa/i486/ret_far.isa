@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RET far (0xCB) - WITH PROPER SEGMENTATION
+// Return from far procedure
+// Pops IP, then CS from SS:[SP] and jumps to CS:IP
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];            // Stack segment register
+isa_state CS[15:0];            // Code segment register
+isa_state xregs[31:0][2:0];    // General purpose registers (xregs[4] is ESP)
+
+var return_ip_lo[7:0];
+var return_ip_hi[7:0];
+var return_cs_lo[7:0];
+var return_cs_hi[7:0];
+var return_ip[15:0];
+var return_cs[15:0];
+var stack_offset_lo[31:0];
+var stack_offset_hi[31:0];
+var physical_addr_lo[31:0];
+var physical_addr_hi[31:0];
+
+instr = imem[eip];
+assume instr == 0xCB;
+
+// Pop IP from stack
+// Calculate stack offsets for IP
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 32'h00000001;
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = {SS, 4'b0} + {4'b0, stack_offset_lo[15:0]};
+physical_addr_hi = {SS, 4'b0} + {4'b0, stack_offset_hi[15:0]};
+
+// Pop IP from stack (little-endian)
+return_ip_lo = dmem[physical_addr_lo];
+return_ip_hi = dmem[physical_addr_hi];
+return_ip = {return_ip_hi, return_ip_lo};
+
+// Increment ESP by 2
+xregs[4] = xregs[4] + 32'h00000002;
+
+// Pop CS from stack
+// Calculate stack offsets for CS
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 32'h00000001;
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = {SS, 4'b0} + {4'b0, stack_offset_lo[15:0]};
+physical_addr_hi = {SS, 4'b0} + {4'b0, stack_offset_hi[15:0]};
+
+// Pop CS from stack (little-endian)
+return_cs_lo = dmem[physical_addr_lo];
+return_cs_hi = dmem[physical_addr_hi];
+return_cs = {return_cs_hi, return_cs_lo};
+
+// Increment ESP by 2
+xregs[4] = xregs[4] + 32'h00000002;
+
+// Restore CS:IP
+eip = {16'h0000, return_ip};
+CS = return_cs;

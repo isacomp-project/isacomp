@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DAA (0x27) - Decimal Adjust Accumulator
+// Adjusts A for BCD arithmetic
+// Affects S, Z, H, P/V, C flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state flag_S;
+isa_state flag_Z;
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+isa_state flag_C;
+mem mainmem[15:0];
+var correction[7:0];
+var new_c[0:0];
+var result[7:0];
+var lo_nibble_gt9[0:0];
+var a_gt99[0:0];
+var add_lo[0:0];
+var add_hi[0:0];
+
+instr = mainmem[pc];
+assume instr == 0x27;
+pc = pc + 1;
+
+// Check conditions
+lo_nibble_gt9 = (A[3:0] > 4'h9);
+a_gt99 = (A > 8'h99);
+
+// Low nibble correction needed?
+add_lo = flag_H | lo_nibble_gt9;
+
+// High nibble correction needed?
+add_hi = flag_C | a_gt99;
+
+// Calculate correction value (0x00, 0x06, 0x60, or 0x66)
+correction = {add_hi ? 4'h6 : 4'h0, add_lo ? 4'h6 : 4'h0};
+
+// New carry is set if high correction was applied or carry was already set
+new_c = flag_C | a_gt99;
+
+// Apply correction based on N flag (add or subtract)
+result = flag_N ? (A - correction) : (A + correction);
+
+A = result;
+flag_S = result[7];
+flag_Z = (result == 8'b0);
+flag_H = flag_N ? ((A[4] ^ result[4]) & flag_H) : (A[3:0] > 4'h9);
+flag_PV = (result[7] ^ result[6] ^ result[5] ^ result[4] ^ result[3] ^ result[2] ^ result[1] ^ result[0]) == 0;
+flag_C = new_c;

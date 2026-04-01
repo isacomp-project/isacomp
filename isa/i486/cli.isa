@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CLI (0xFA)
+// Clear interrupt flag
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];            // Data segment register
+isa_state flag_IF[0:0];
+
+instr = imem[eip];
+assume instr == 0xFA;
+eip = eip + 1;
+
+// Clear interrupt flag (disable interrupts)
+flag_IF = 1'b0;

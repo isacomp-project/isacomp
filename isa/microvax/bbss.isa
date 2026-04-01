@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// BBSS - Branch on Bit Set and Set
+// Opcode: 0xE2
+// Format: [opcode:8][pos_reg:4][rs:4][offset:16]
+// Test bit at position (from pos_reg) in rs, branch if set, then set the bit
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+mem umem[12:0];
+
+var pos_reg[3:0];
+var rs[3:0];
+var pos_val[31:0];
+var val[31:0];
+var offset[15:0];
+var sext_offset[31:0];
+var bit_pos[4:0];
+var bit_val[0:0];
+var mask[31:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xE2;
+
+pos_reg = instr[23:20];
+rs = instr[19:16];
+offset = instr[15:0];
+
+pos_val = rf[pos_reg];
+val = rf[rs];
+bit_pos = pos_val[4:0];
+sext_offset = {{16{offset[15]}}, offset};
+
+bit_val = (val >> bit_pos) & 1;
+mask = 1 << bit_pos;
+
+rf[rs] = val | mask;
+pc = (bit_val == 1) ? (pc + sext_offset) : (pc + 4);

@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64C C.BNEZ - Branch if not equal to zero
+
+isa_state pc[63:0];
+var c_instr[15:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1_prime[2:0];
+var rs1[4:0];
+var r1[63:0];
+var imm[8:0];
+var sign_ext_imm[63:0];
+var branch_offset[63:0];
+var branch_dest[63:0];
+var taken[0:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.BNEZ format: CB-type
+// Encoding: 111 imm[8|4:3] rs1' imm[7:6|2:1|5] 01
+assume c_instr[1:0] == 0b01;
+assume c_instr[15:13] == 0b111;
+
+// Compressed register encoding: x8-x15
+rs1_prime = c_instr[9:7];
+rs1 = {2'b01, rs1_prime};
+
+// Immediate is imm[8:1] = {c_instr[12], c_instr[6:5], c_instr[2], c_instr[11:10], c_instr[4:3]}
+imm = {c_instr[12], c_instr[6:5], c_instr[2], c_instr[11:10], c_instr[4:3], 1'b0};
+sign_ext_imm = {{55{imm[8]}}, imm};
+branch_offset = sign_ext_imm;
+
+r1 = rf[rs1];
+
+taken = (r1 != 0);
+
+branch_dest = pc + branch_offset;
+
+pc = taken ? branch_dest : pc + 2;

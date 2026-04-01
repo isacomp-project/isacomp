@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64C C.SW - Store word (compressed regs)
+
+isa_state pc[63:0];
+var c_instr[15:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1_prime[2:0];
+var rs1[4:0];
+var rs2_prime[2:0];
+var rs2[4:0];
+var r1[63:0];
+var r2[63:0];
+var uimm[6:0];
+var zero_ext_imm[63:0];
+var addr[63:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.SW format: CS-type
+// Encoding: 110 imm[5:3] rs1' imm[2|6] rs2' 00
+assume c_instr[1:0] == 0b00;
+assume c_instr[15:13] == 0b110;
+
+pc = pc + 2;
+
+// Compressed register encoding: x8-x15
+rs1_prime = c_instr[9:7];
+rs2_prime = c_instr[4:2];
+rs1 = {2'b01, rs1_prime};
+rs2 = {2'b01, rs2_prime};
+
+// Unsigned immediate: uimm[6:2] = {c_instr[5], c_instr[12:10], c_instr[6]}
+uimm = {c_instr[5], c_instr[12:10], c_instr[6], 2'b00};
+zero_ext_imm = {57'b0, uimm};
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+
+addr = r1 + zero_ext_imm;
+umem[addr] = r2[31:0];

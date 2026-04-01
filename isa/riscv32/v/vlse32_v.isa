@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vlse32.v - Vector Load Strided 32-bit Elements
+// Encoding: vlse32.v vd, (rs1), rs2, vm
+// Operation: vd[i] = mem[rs1 + i*rs2]
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+mem dmem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var rs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var addr[31:0];
+var stride[31:0];
+var data[127:0];
+
+instr = umem[pc];
+// Opcode: 0000111 (LOAD-FP, vector load)
+assume instr[6:0] == 0b0000111;
+// width = 110 (32-bit)
+assume instr[14:12] == 0b110;
+// mop = 10 (strided)
+assume instr[27:26] == 0b10;
+// nf = 000 (single field)
+assume instr[31:29] == 0b000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+addr = rf[rs1];
+stride = rf[rs2];
+
+// Load 4 words with stride
+data[31:0] = dmem[addr];
+data[63:32] = dmem[addr + stride];
+data[95:64] = dmem[addr + stride + stride];
+data[127:96] = dmem[addr + stride + stride + stride];
+
+vrf[vd] = data;

@@ -1,0 +1,259 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER POWER9 Radix MMU Instruction Fetch Translation Aspect
+// Translates virtual PC to physical pc_pa using POWER9 radix page table walk
+// Full walk: PTCR -> Partition Table -> Process Table -> 4-level Radix Tree
+// Generates Instruction Storage Interrupt (ISI, vector 0x400) on translation failure
+//
+// Radix tree structure (4K pages, PAGE_SHIFT=12):
+//   PGD index: EA[51:39] (13 bits, 8192 entries, root directory up to 64KB)
+//   PUD index: EA[38:30] (9 bits, 512 entries)
+//   PMD index: EA[29:21] (9 bits, 512 entries)
+//   PTE index: EA[20:12] (9 bits, 512 entries)
+//   Page offset: EA[11:0] (12 bits)
+//
+// PDE/PTE format (64-bit entry):
+//   Bit 63: V (Valid) - _PAGE_PRESENT
+//   Bit 62: L (Leaf) - _PAGE_PTE
+//   Bits [56:12]: RPN (leaf) or NLB (non-leaf, Next Level Base >> 12)
+//   Non-leaf pointer: next_table_addr = {PDE[56:12], 12'b0}
+//   Leaf at PTE level (4K page):    PA = {PTE[56:12], EA[11:0]}
+//   Leaf at PMD level (2MB huge):   PA = {PMD[56:21], EA[20:0]}
+//   Leaf at PUD level (1GB huge):   PA = {PUD[56:30], EA[29:0]}
+//   Leaf at PGD level (512GB huge): PA = {PGD[56:39], EA[38:0]}
+
+// =========================================================================
+// Output: physical address for instruction fetch
+// =========================================================================
+var pc_pa[63:0];
+
+// Capture original PC before any exception redirect
+var original_pc[63:0];
+original_pc = pc;
+
+// Signal to gate instruction side-effects when translation fault occurs
+var instr_trap_taken[0:0];
+
+// =========================================================================
+// Memory declaration (shared with instruction fetch)
+// =========================================================================
+mem umem[14:0];
+
+// =========================================================================
+// ISA state declarations
+// =========================================================================
+isa_state msr[63:0];       // Machine State Register
+isa_state prtbl[63:0];     // Partition Table Control Register (PTCR, SPR 464)
+isa_state pidr[63:0];      // Process ID Register (PIDR, SPR 48)
+isa_state srr0[63:0];      // Save/Restore Register 0
+isa_state srr1[63:0];      // Save/Restore Register 1
+
+// =========================================================================
+// MSR[IR] - Instruction Relocate enable
+// Power ISA bit 58 (MSB-first numbering) = LE bit 5
+// =========================================================================
+var msr_ir[0:0];
+msr_ir = msr[5];
+
+// =========================================================================
+// Effective Address field extraction from original PC
+// =========================================================================
+var pgd_idx[12:0];          // EA[51:39] - 13-bit PGD index
+var pud_idx[8:0];            // EA[38:30] - 9-bit PUD index
+var pmd_idx[8:0];            // EA[29:21] - 9-bit PMD index
+var pte_idx[8:0];            // EA[20:12] - 9-bit PTE index
+var page_offset[11:0];       // EA[11:0]  - 12-bit page offset
+
+pgd_idx = original_pc[51:39];
+pud_idx = original_pc[38:30];
+pmd_idx = original_pc[29:21];
+pte_idx = original_pc[20:12];
+page_offset = original_pc[11:0];
+
+// =========================================================================
+// PARTITION TABLE WALK
+// PTCR format: bits [63:12] = partition table base (page-aligned)
+//              bits [4:0]   = encoded table size
+// Partition table base = {PTCR[63:12], 12'b0}
+// Each Partition Table Entry (PATE) is 16 bytes (two 64-bit words)
+// PATE address = partition_table_base + LPID * 16
+// Using LPID=0 for single-partition operation
+// =========================================================================
+var part_tbl_base[63:0];
+part_tbl_base = {prtbl[63:12], 12'b0};
+
+// Read PATE[1] at partition_table_base + 8 (LPID=0, second doubleword)
+// PATE[1] contains the Process Table Base (PRTB) field
+var pate1_addr[63:0];
+var pate1[63:0];
+pate1_addr = part_tbl_base + 8;
+pate1 = msr_ir ? umem[pate1_addr] : 0;
+
+// =========================================================================
+// PROCESS TABLE WALK
+// Process table base from PATE[1]: PRTB field = bits [51:12]
+// process_table_base = {PATE[1][51:12], 12'b0}
+// Each Process Table Entry (PRTE) is 16 bytes
+// PRTE address = process_table_base + PID * 16
+// PID selection depends on EA quadrant (Power ISA Book III, Sec 5.7.6):
+//   Quadrant 0 (EA[63:62] = 00): use PIDR
+//   Quadrant 3 (EA[63:62] = 11): use PID=0 (kernel mapping)
+// =========================================================================
+var proc_tbl_base[63:0];
+var effective_pid[63:0];
+var pid_offset[63:0];
+var prte0_addr[63:0];
+var prte0[63:0];
+
+// Quadrant check: EA[63:62] = 11 means quadrant 3 → use PID=0
+var is_quadrant3[0:0];
+is_quadrant3 = original_pc[63] & original_pc[62];
+effective_pid = is_quadrant3 ? 0 : pidr;
+
+proc_tbl_base = {12'b0, pate1[51:12], 12'b0};
+pid_offset = effective_pid << 4;
+prte0_addr = proc_tbl_base + pid_offset;
+prte0 = msr_ir ? umem[prte0_addr] : 0;
+
+// Root Page Directory Base from PRTE[0]: RPDB field = bits [56:12]
+// rpd_base = {PRTE[0][56:12], 12'b0}
+var rpd_base[63:0];
+rpd_base = {7'b0, prte0[56:12], 12'b0};
+
+// =========================================================================
+// 4-LEVEL RADIX TREE WALK
+// Each level reads an 8-byte entry from the page table
+// Non-leaf (V=1, L=0): entry[56:12] = NLB (Next Level Base >> 12)
+// Leaf (V=1, L=1): entry[56:12] = RPN (Real Page Number)
+// =========================================================================
+
+// ---- Level 1: PGD (Page Global Directory) ----
+// PGD can span up to 64KB (8192 entries * 8 bytes) for 13-bit index
+// Address: rpd_base + pgd_idx * 8
+var pgd_addr[63:0];
+var pgd_entry[63:0];
+var pgd_v[0:0];
+var pgd_l[0:0];
+var is_leaf_pgd[0:0];
+
+pgd_addr = rpd_base + (pgd_idx << 3);
+pgd_entry = msr_ir ? umem[pgd_addr] : 0;
+pgd_v = pgd_entry[63];
+pgd_l = pgd_entry[62];
+is_leaf_pgd = pgd_v & pgd_l;
+
+// ---- Level 2: PUD (Page Upper Directory) ----
+// Walk only if PGD is a valid non-leaf pointer (V=1, L=0)
+// PUD base = {PGD_entry[56:12], 12'b0}
+// Address: pud_base + pud_idx * 8
+var need_pud[0:0];
+var pud_base[63:0];
+var pud_addr[63:0];
+var pud_entry[63:0];
+var pud_v[0:0];
+var pud_l[0:0];
+var is_leaf_pud[0:0];
+
+need_pud = pgd_v & ~pgd_l;
+pud_base = {7'b0, pgd_entry[56:12], 12'b0};
+pud_addr = need_pud ? (pud_base + (pud_idx << 3)) : 0;
+pud_entry = (msr_ir & need_pud) ? umem[pud_addr] : 0;
+pud_v = pud_entry[63];
+pud_l = pud_entry[62];
+is_leaf_pud = pud_v & pud_l;
+
+// ---- Level 3: PMD (Page Middle Directory) ----
+// Walk only if PUD is a valid non-leaf pointer
+// PMD base = {PUD_entry[56:12], 12'b0}
+// Address: pmd_base + pmd_idx * 8
+var need_pmd[0:0];
+var pmd_base[63:0];
+var pmd_addr[63:0];
+var pmd_entry[63:0];
+var pmd_v[0:0];
+var pmd_l[0:0];
+var is_leaf_pmd[0:0];
+
+need_pmd = need_pud & pud_v & ~pud_l;
+pmd_base = {7'b0, pud_entry[56:12], 12'b0};
+pmd_addr = need_pmd ? (pmd_base + (pmd_idx << 3)) : 0;
+pmd_entry = (msr_ir & need_pmd) ? umem[pmd_addr] : 0;
+pmd_v = pmd_entry[63];
+pmd_l = pmd_entry[62];
+is_leaf_pmd = pmd_v & pmd_l;
+
+// ---- Level 4: PTE (Page Table Entry) ----
+// Walk only if PMD is a valid non-leaf pointer
+// PTE base = {PMD_entry[56:12], 12'b0}
+// Address: pte_base + pte_idx * 8
+var need_pte[0:0];
+var pte_base[63:0];
+var pte_addr[63:0];
+var pte_entry[63:0];
+var pte_v[0:0];
+var pte_l[0:0];
+
+need_pte = need_pmd & pmd_v & ~pmd_l;
+pte_base = {7'b0, pmd_entry[56:12], 12'b0};
+pte_addr = need_pte ? (pte_base + (pte_idx << 3)) : 0;
+pte_entry = (msr_ir & need_pte) ? umem[pte_addr] : 0;
+pte_v = pte_entry[63];
+pte_l = pte_entry[62];
+
+// =========================================================================
+// TRANSLATION VALIDITY CHECK
+// A valid translation requires finding a leaf entry (V=1, L=1) at any level
+// =========================================================================
+var is_pte_leaf[0:0];
+var translation_valid[0:0];
+
+is_pte_leaf = need_pte & pte_v & pte_l;
+
+translation_valid = is_leaf_pgd |
+                    (need_pud & is_leaf_pud) |
+                    (need_pmd & is_leaf_pmd) |
+                    is_pte_leaf;
+
+// Translation fault: translation is enabled but no valid leaf was found
+var translation_fault[0:0];
+translation_fault = msr_ir & ~translation_valid;
+
+// Gate instruction side-effects on fault
+instr_trap_taken = translation_fault;
+
+// =========================================================================
+// PHYSICAL ADDRESS COMPUTATION
+// Construct PA from the leaf entry RPN and appropriate EA offset bits:
+//   PGD leaf (512GB huge): PA = {7'b0, PGD[56:39], EA[38:0]}
+//   PUD leaf (1GB huge):   PA = {7'b0, PUD[56:30], EA[29:0]}
+//   PMD leaf (2MB huge):   PA = {7'b0, PMD[56:21], EA[20:0]}
+//   PTE leaf (4K page):    PA = {7'b0, PTE[56:12], EA[11:0]}
+// Upper bits [63:57] zero (57-bit physical address space on POWER9)
+// =========================================================================
+var pc_translated[63:0];
+pc_translated = is_leaf_pgd ?
+    {7'b0, pgd_entry[56:39], original_pc[38:0]} :
+    ((need_pud & is_leaf_pud) ?
+        {7'b0, pud_entry[56:30], original_pc[29:0]} :
+        ((need_pmd & is_leaf_pmd) ?
+            {7'b0, pmd_entry[56:21], original_pc[20:0]} :
+            {7'b0, pte_entry[56:12], original_pc[11:0]}));
+
+// Final output: translated address when IR=1, identity passthrough when IR=0
+pc_pa = msr_ir ? pc_translated : original_pc;
+
+// =========================================================================
+// ISI EXCEPTION HANDLING (Instruction Storage Interrupt)
+// Vector: 0x400 (hardcoded)
+// SRR0 = faulting PC (original_pc)
+// SRR1 = current MSR (captures state at time of fault)
+// New MSR on exception entry:
+//   SF=1 (bit 63), HV=1 (bit 60), ME=preserved (bit 12), all other bits 0
+//   exc_msr = 0x9000000000000000 | (msr & 0x1000)
+// =========================================================================
+var exc_msr[63:0];
+exc_msr = 64'h9000000000000000 | (msr & 64'h0000000000001000);
+
+srr0 when (instr_trap_taken) = original_pc;
+srr1 when (instr_trap_taken) = msr;
+msr when (instr_trap_taken) = exc_msr;
+pc when (instr_trap_taken) = 64'h0000000000000400;

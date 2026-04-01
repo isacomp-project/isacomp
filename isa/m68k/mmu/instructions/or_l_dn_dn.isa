@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 OR.L Dn,Dm - Logical OR long data registers
+// Opcode: 1000 DDD1 10000 SSS where DDD=dest reg, SSS=src reg
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_val[31:0];
+var dst_val[31:0];
+var result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b1000;  // OR opcode
+assume instr[8:6] == 0b010;     // Opmode: long, <ea> | Dn -> Dn
+assume instr[5:3] == 0b000;     // EA mode: Data Register Direct
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+dst_reg = instr[11:9];
+src_reg = instr[2:0];
+
+// Execute
+src_val = dregs[src_reg];
+dst_val = dregs[dst_reg];
+result = dst_val | src_val;
+
+// Write result
+dregs[dst_reg] when (~m68k_exc_taken) = result;
+
+// Update CCR (X not affected)
+flag_N when (~m68k_exc_taken) = result[31];
+flag_Z when (~m68k_exc_taken) = result == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

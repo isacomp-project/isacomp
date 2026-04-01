@@ -1,0 +1,89 @@
+version: '3.8'
+
+services:
+  isacomp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: isacomp:latest
+    container_name: isacomp-dev
+
+    # Keep container running for interactive use
+    stdin_open: true
+    tty: true
+
+    # Mount the current directory for live development
+    # This allows editing files on the host and testing in the container
+    volumes:
+      - .:/workspace/isacomp
+      # Persist generated files
+      - ./verilog:/workspace/isacomp/verilog
+      - ./test_output:/workspace/isacomp/test_output
+
+    # Set environment variables
+    environment:
+      - PYTHONPATH=/workspace/isacomp
+      - DISPLAY=${DISPLAY:-:0}  # For GUI support (graph_visualizer)
+
+    # Optional: enable X11 forwarding for GUI (Linux hosts)
+    # Uncomment if you want to run the graph visualizer
+    # volumes:
+    #   - /tmp/.X11-unix:/tmp/.X11-unix:ro
+    # environment:
+    #   - DISPLAY=${DISPLAY}
+
+    # Working directory
+    working_dir: /workspace/isacomp
+
+    # Resource limits (adjust as needed)
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 2G
+
+    # Default command
+    command: /bin/bash
+
+  # Optional: separate service for long-running verification tasks
+  isacomp-verify:
+    image: isacomp:latest
+    container_name: isacomp-verify
+
+    volumes:
+      - .:/workspace/isacomp
+
+    environment:
+      - PYTHONPATH=/workspace/isacomp
+
+    working_dir: /workspace/isacomp
+
+    # Example: run verification tests
+    command: python3 -m pytest test/ -v
+
+    # Only start when explicitly called
+    profiles:
+      - verification
+
+  # Optional: build and test specific ISA
+  isacomp-riscv32:
+    image: isacomp:latest
+    container_name: isacomp-riscv32
+
+    volumes:
+      - .:/workspace/isacomp
+      - ./verilog:/workspace/isacomp/verilog
+
+    environment:
+      - PYTHONPATH=/workspace/isacomp
+
+    working_dir: /workspace/isacomp
+
+    # Example: validate RISC-V32 integration
+    command: python3 validate_isa_integration.py
+
+    profiles:
+      - test

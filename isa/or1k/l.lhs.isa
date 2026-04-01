@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.lhs - Load Half Word and Extend with Sign
+// Format: l.lhs rD, I(rA)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rD[4:0];
+var rA[4:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var base[31:0];
+var data[31:0];
+var half_data[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x25;
+pc = pc + 4;
+rD = instr[25:21];
+rA = instr[20:16];
+imm = instr[15:0];
+
+base = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+addr = base + sign_ext_imm;
+
+data = dmem[addr];
+
+// Big-endian half-word extraction based on addr[1]:
+//   0 -> upper half bits[31:16], 1 -> lower half bits[15:0]
+var half_offset[0:0];
+half_offset = addr[1];
+
+var selected_half[15:0];
+selected_half = half_offset ? data[15:0] : data[31:16];
+
+half_data = {{16{selected_half[15]}}, selected_half};
+rf[rD] = half_data;

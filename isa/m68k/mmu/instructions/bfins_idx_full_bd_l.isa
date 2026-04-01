@@ -1,0 +1,184 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 BFINS Dn,(bd.l,An,Xn){#offset:#width} - Bit Field Insert, full extension, long displacement
+// Opcode: 1110 1111 11 110 AAA followed by BF ext word, full index ext word, 32-bit displacement
+// Full ext bit 8=1, BS=0 (base used), IS=0 (index used), BD size=11 (long), I/IS=0000 (no indirect)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var base_reg[2:0];
+var bfins_ext[15:0];
+var src_reg[2:0];
+var offset_field[4:0];
+var width_field[4:0];
+var width[5:0];
+var idx_ext[15:0];
+var idx_reg[2:0];
+var idx_is_addr[0:0];
+var idx_is_long[0:0];
+var idx_scale[1:0];
+var raw_idx[31:0];
+var idx_val[31:0];
+var scaled_idx[31:0];
+var bd_hi[15:0];
+var bd_lo[15:0];
+var base_disp[31:0];
+var base_addr[31:0];
+var byte_addr[31:0];
+var bit_in_byte[2:0];
+var word_addr[31:0];
+var bit_in_word[3:0];
+var w0[15:0];
+var w1[15:0];
+var val32[31:0];
+var shift_amt[5:0];
+var field_mask[31:0];
+var shifted_mask[31:0];
+var insert_bits[31:0];
+var shifted_bits[31:0];
+var result32[31:0];
+var source[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b1110111111;  // BFINS
+assume instr[5:3] == 3'b110;           // EA mode: indexed
+pc when (~m68k_exc_taken) = pc + 2;
+
+base_reg = instr[2:0];
+
+// Fetch BF extension word
+bfins_ext = dmem[pc + pc_pa_delta];
+assume bfins_ext[15] == 1'b0;
+assume bfins_ext[11] == 1'b0;  // Reserved
+assume bfins_ext[10] == 1'b0;  // Immediate offset (Do=0)
+assume bfins_ext[5] == 1'b0;   // Immediate width (Dw=0)
+pc when (~m68k_exc_taken) = pc + 2;
+
+src_reg = bfins_ext[14:12];
+offset_field = bfins_ext[9:6];
+width_field = bfins_ext[4:0];
+width = width_field == 0 ? 6'd32 : {1'b0, width_field};
+
+// Fetch full extension word
+idx_ext = dmem[pc + pc_pa_delta];
+assume idx_ext[8] == 1'b1;     // Full extension word
+assume idx_ext[7] == 1'b0;     // BS=0: base register used
+assume idx_ext[6] == 1'b0;     // IS=0: index used
+assume idx_ext[5:4] == 2'b11;  // BD size: long (32-bit displacement)
+assume idx_ext[3:0] == 4'b0000; // No memory indirect
+pc when (~m68k_exc_taken) = pc + 2;
+
+idx_reg = idx_ext[14:12];
+idx_is_addr = idx_ext[15];
+idx_is_long = idx_ext[11];
+idx_scale = idx_ext[10:9];
+
+raw_idx = idx_is_addr ? aregs[idx_reg] : dregs[idx_reg];
+idx_val = idx_is_long ? raw_idx : {{16{raw_idx[15]}}, raw_idx[15:0]};
+
+scaled_idx = idx_scale == 2'b00 ? idx_val :
+             idx_scale == 2'b01 ? (idx_val << 1) :
+             idx_scale == 2'b10 ? (idx_val << 2) :
+                                  (idx_val << 3);
+
+// Fetch 32-bit base displacement
+bd_hi = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+bd_lo = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+base_disp = {bd_hi, bd_lo};
+
+// Calculate effective address
+base_addr = aregs[base_reg] + scaled_idx + base_disp;
+
+// Calculate byte address where bit field starts
+byte_addr = base_addr + {27'b0, offset_field[4:3]};
+bit_in_byte = offset_field[2:0];
+
+// Align to word boundary
+word_addr = {byte_addr[31:1], 1'b0};
+bit_in_word = {byte_addr[0], bit_in_byte};
+
+// Read 32 bits (two words) for field manipulation
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = word_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+w0 = dmem[ea_pa];
+#else
+w0 = dmem[word_addr];
+#endif
+#ifdef MMU
+w1 = dmem[ea_pa + 2];
+#else
+w1 = dmem[word_addr + 2];
+#endif
+val32 = {w0, w1};
+
+// Get source value
+source = dregs[src_reg];
+
+// Create mask and insert value
+shift_amt = 6'd32 - {2'b0, bit_in_word} - width;
+field_mask = (width == 6'd32) ? 32'hFFFFFFFF : ((32'b1 << width) - 1);
+shifted_mask = field_mask << shift_amt;
+insert_bits = source & field_mask;
+shifted_bits = insert_bits << shift_amt;
+
+// Merge: clear field, then insert
+result32 = (val32 & ~shifted_mask) | shifted_bits;
+
+// Write back both words
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = result32[31:16];
+#else
+dmem[word_addr] when (~m68k_exc_taken & ~data_exc_taken) = result32[31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa + 2] when (~m68k_exc_taken & ~data_exc_taken) = result32[15:0];
+#else
+dmem[word_addr + 2] when (~m68k_exc_taken & ~data_exc_taken) = result32[15:0];
+#endif
+
+// Update CCR based on inserted field value
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = insert_bits[width - 1];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = insert_bits == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

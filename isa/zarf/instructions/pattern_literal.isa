@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Pattern Literal Instruction
+//
+// Opcode: 0x4 (binary 100)
+// Format: [31:29]=opcode, [28:19]=n_skip, [18:16]=unused, [15:0]=literal
+//
+// Tests if the scrutinized value (in eval_reg) matches an integer literal.
+// - If match: advance PC by 1 to execute the pattern body
+// - If no match: advance PC by 1 + n_skip to try next pattern
+//
+// The scrutinized value must be a primitive (eval_tag = 1) for a match.
+
+// State declarations
+isa_state pc[31:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+mem imem[14:0];
+
+// Instruction decode
+var instr[31:0];
+var opcode[2:0];
+var n_skip[9:0];
+var literal[15:0];
+
+// Fetch instruction
+instr = imem[pc];
+opcode = instr[31:29];
+
+// Verify this is a pattern_literal instruction
+assume opcode == 3'b100;
+
+// Extract fields
+n_skip = instr[28:19];
+literal = instr[15:0];
+
+// Sign-extend literal for comparison
+var literal_ext[31:0];
+literal_ext = {{16{literal[15]}}, literal};
+
+// Check for match:
+// 1. Must be a primitive (eval_tag = 1)
+// 2. Value must equal the literal
+var pat_lit_match[0:0];
+pat_lit_match = eval_tag & (eval_reg == literal_ext);
+
+// Compute next PC
+// Match: pc + 1 (execute pattern body)
+// No match: pc + 1 + n_skip (skip to next pattern)
+var pc_match[31:0];
+var pc_no_match[31:0];
+
+pc_match = pc + 1;
+pc_no_match = pc + 1 + {{22{1'b0}}, n_skip};
+
+pc = pat_lit_match ? pc_match : pc_no_match;

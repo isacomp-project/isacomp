@@ -1,0 +1,55 @@
+CAPI=2:
+
+name: isacomp:riscv32i_zicsr:1.0.0
+description: ISAComp generated riscv32i_zicsr processor
+
+filesets:
+  rtl:
+    files:
+      - riscv32i_zicsr.v
+    file_type: systemVerilogSource
+
+  tb:
+    files:
+      - riscv32i_zicsr_tb.sv
+    file_type: systemVerilogSource
+    depend:
+      - ::elf-loader
+
+parameters:
+  elf_load:
+    datatype: file
+    description: ELF file to load for testing
+    paramtype: plusarg
+  pass_addr:
+    datatype: str
+    description: PC address that indicates test pass
+    paramtype: plusarg
+  fail_addr:
+    datatype: str
+    description: PC address that indicates test fail
+    paramtype: plusarg
+
+targets:
+  default:
+    filesets: [rtl]
+    toplevel: riscv32i_zicsr
+
+  sim:
+    default_tool: icarus
+    filesets: [rtl, tb]
+    toplevel: riscv32i_zicsr_tb
+    parameters: [elf_load, pass_addr, fail_addr]
+    tools:
+      icarus:
+        iverilog_options:
+          - -g2012  # Enable SystemVerilog support
+      modelsim:
+        vlog_options:
+          - -sv
+      verilator:
+        mode: cc
+        verilator_options:
+          - --trace
+          - -Wall
+

@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 LSL.B Dn,Dm - Logical shift left byte by register count
+// Opcode: 1110 CCC1 00101 DDD where CCC=count reg, DDD=data reg
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var count_reg[2:0];
+var count[5:0];
+var count_eq_0[0:0];
+var src_val[7:0];
+var result[7:0];
+var last_bit_out[0:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b1110;
+assume instr[8] == 1;           // Direction: left
+assume instr[7:6] == 0b00;     // Size: byte
+assume instr[5] == 1;           // i/r: register count
+assume instr[4:3] == 0b01;     // LSL type
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+count_reg = instr[11:9];
+dst_reg = instr[2:0];
+count = dregs[count_reg][5:0];
+count_eq_0 = count == 0;
+
+// Execute
+src_val = dregs[dst_reg][7:0];
+result = src_val << count;
+last_bit_out = count_eq_0 ? 1'b0 : (src_val >> (8 - count)) & 1;
+
+// Write result (byte: preserve upper 24 bits)
+dregs[dst_reg] when (~m68k_exc_taken) = {dregs[dst_reg][31:8], result};
+
+// Update CCR
+flag_X when (~m68k_exc_taken) = count_eq_0 ? flag_X : last_bit_out;
+flag_C when (~m68k_exc_taken) = count_eq_0 ? 1'b0 : last_bit_out;
+flag_N when (~m68k_exc_taken) = result[7];
+flag_Z when (~m68k_exc_taken) = result == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;

@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 SBB [indirect], r8_low - WITH PROPER SEGMENTATION
+// Opcode: 0x00 + ModR/M byte with mod=00 (simple indirect)
+// Supports [SI], [DI], and [BX] addressing modes
+// Uses DS segment for data access
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];   // AL,CL,DL,BL
+isa_state xregs[15:0][7:0];    // 16-bit registers array
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];         // Carry flag
+
+// Fetch instruction
+instr = imem[ip];
+assume instr == 0x18;
+ip = ip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[ip];
+ip = ip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume mod_bits == 0b00;
+assume reg_idx[2] == 0;    // Low byte source
+
+var src_idx[1:0];
+var addr_reg_idx[2:0];
+var offset[15:0];              // 16-bit offset from register
+var physical_addr[19:0];       // 20-bit physical address
+var src_val[7:0];
+var dst_val[7:0];
+var result[8:0];
+
+src_idx = reg_idx[1:0];
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;   // SI
+  0b101: addr_reg_idx = 3'b111;   // DI
+  0b111: addr_reg_idx = 3'b011;   // BX
+}
+
+// Get full 16-bit offset from register
+offset = xregs[addr_reg_idx];
+
+// Calculate physical address: DS:offset
+physical_addr = {DS, 4'b0} + {4'b0, offset};
+
+// Read-modify-write: read from memory, add register, write back
+src_val = lregs[src_idx];
+dst_val = dmem[physical_addr];
+result = dst_val + src_val;
+dmem[physical_addr] = result[7:0];

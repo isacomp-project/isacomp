@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RETF imm16 with 66 prefix (0x66 0xCA)
+// Far return with 32-bit addressing and pop imm16 bytes from stack
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+isa_state SS[15:0];
+isa_state CS[15:0];
+
+var imm_lo[7:0];
+var imm_hi[7:0];
+var imm16[15:0];
+var old_esp[31:0];
+var new_esp[31:0];
+var ret_addr_b0[7:0];
+var ret_addr_b1[7:0];
+var ret_addr_b2[7:0];
+var ret_addr_b3[7:0];
+var ret_addr[31:0];
+var ret_cs_lo[7:0];
+var ret_cs_hi[7:0];
+var ret_cs[15:0];
+var phys_addr[31:0];
+
+// Fetch 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0xCA;
+
+// Read immediate operand
+imm_lo = imem[eip + 2];
+imm_hi = imem[eip + 3];
+imm16 = {imm_hi, imm_lo};
+
+// Get current stack pointer (full 32-bit ESP)
+old_esp = xregs[4];
+
+// Calculate physical address for stack access
+// Using 16-bit SP portion for segment calculation
+phys_addr = ({SS, 4'b0} + {16'h0000, old_esp[15:0]});
+
+// Pop 32-bit return address from stack
+ret_addr_b0 = dmem[phys_addr];
+ret_addr_b1 = dmem[phys_addr + 1];
+ret_addr_b2 = dmem[phys_addr + 2];
+ret_addr_b3 = dmem[phys_addr + 3];
+ret_addr = {ret_addr_b3, ret_addr_b2, ret_addr_b1, ret_addr_b0};
+
+// Pop return CS from stack (still 16-bit)
+ret_cs_lo = dmem[phys_addr + 4];
+ret_cs_hi = dmem[phys_addr + 5];
+ret_cs = {ret_cs_hi, ret_cs_lo};
+
+// Update stack pointer (pop 32-bit return address + 16-bit CS + imm16 bytes)
+new_esp = old_esp + 32'h00000006 + {16'h0000, imm16};
+xregs[4] = new_esp;
+
+// Update CS and jump to return address
+CS = ret_cs;
+eip = ret_addr;

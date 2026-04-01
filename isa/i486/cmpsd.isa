@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CMPSD (0xA7)
+// Compare dword [ESI] with [EDI], set flags, adjust both by 4
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state ESI[31:0] of xregs[6];
+isa_state EDI[31:0] of xregs[7];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var src_b0[7:0];
+var src_b1[7:0];
+var src_b2[7:0];
+var src_b3[7:0];
+var src_val[31:0];
+var dst_b0[7:0];
+var dst_b1[7:0];
+var dst_b2[7:0];
+var dst_b3[7:0];
+var dst_val[31:0];
+var result[32:0];
+var new_esi[31:0];
+var new_edi[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xA7;
+
+// Load dword from [ESI] (little-endian)
+src_b0 = dmem[ESI];
+src_b1 = dmem[ESI + 1];
+src_b2 = dmem[ESI + 2];
+src_b3 = dmem[ESI + 3];
+src_val = {src_b3, src_b2, src_b1, src_b0};
+
+// Load dword from [EDI] (little-endian)
+dst_b0 = dmem[EDI];
+dst_b1 = dmem[EDI + 1];
+dst_b2 = dmem[EDI + 2];
+dst_b3 = dmem[EDI + 3];
+dst_val = {dst_b3, dst_b2, dst_b1, dst_b0};
+
+// Compare: src - dst
+result = src_val - dst_val;
+
+// Set flags
+flag_CF = result[32];
+flag_ZF = result[31:0] == 32'h00000000;
+flag_SF = result[31];
+flag_OF = (src_val[31] != dst_val[31]) & (src_val[31] != result[31]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_AF = src_val[3:0] < dst_val[3:0];
+
+// Adjust ESI and EDI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 4 : ESI - 4;
+new_edi = flag_DF == 1'b0 ? EDI + 4 : EDI - 4;
+
+ESI = new_esi;
+EDI = new_edi;
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 BFEXTS Dn{offset:width},Dm - Bit Field Extract Signed from data register
+// Opcode: 1110 1011 11 000 SSS followed by extension word
+// Extension: 0 DDD Do OOOOO Dw WWWWW
+// Do=0: immediate offset, Dw=0: immediate width (0 means 32)
+// Extracts 'width' bits starting at 'offset' from MSB, sign-extends to 32 bits
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var ext_word[15:0];
+var dst_reg[2:0];
+var offset_val[4:0];
+var width_val[5:0];
+var src[31:0];
+var shifted[31:0];
+var field[31:0];
+var sign_bit[0:0];
+var sign_mask[31:0];
+var result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b1110101111;  // BFEXTS
+assume instr[5:3] == 0b000;          // EA mode: Dn
+pc when (~m68k_exc_taken) = pc + 2;
+
+src_reg = instr[2:0];
+
+// Fetch extension word
+ext_word = dmem[pc + pc_pa_delta];
+assume ext_word[15] == 0b0;
+assume ext_word[11] == 0b0;    // Immediate offset
+assume ext_word[5] == 0b0;     // Immediate width
+pc when (~m68k_exc_taken) = pc + 2;
+
+dst_reg = ext_word[14:12];
+offset_val = ext_word[10:6];
+width_val = ext_word[4:0] == 0 ? 6'd32 : {1'b0, ext_word[4:0]};
+
+// Extract field: shift left by offset to align MSB, then logical right shift
+src = dregs[src_reg];
+shifted = src << offset_val;
+field = shifted >> (6'd32 - width_val);
+
+// Sign extend: check the MSB of the extracted field
+sign_bit = shifted[31];
+sign_mask = sign_bit ? (32'hFFFFFFFF << width_val) : 32'h0;
+result = field | sign_mask;
+
+dregs[dst_reg] when (~m68k_exc_taken) = result;
+
+// Update CCR
+flag_N when (~m68k_exc_taken) = sign_bit;
+flag_Z when (~m68k_exc_taken) = result == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

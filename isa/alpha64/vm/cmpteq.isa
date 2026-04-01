@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// CMPTEQ with Virtual Memory Support
+// Compare T_floating Equal
+// Opcode: 0x16, Function: fphi << 5 | 0x25
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+isa_state fpcr[63:0];
+mem umem[13:0];
+
+// PAL/MMU state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+isa_state mm_stat[63:0];
+
+// ITB arrays (8 entries)
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+
+// Interrupt state
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+isa_state lock_flag[0:0];
+
+// ITB translation for instruction fetch
+aspect aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+var fa[4:0];
+var fb[4:0];
+var fc[4:0];
+var fphi[4:0];
+var fplo[5:0];
+var f1[63:0];
+var f2[63:0];
+var cmp_result[0:0];
+var result[63:0];
+
+instr = umem[pc_pa];
+assume instr[31:26] == 22;
+fa = instr[25:21];
+fb = instr[20:16];
+fc = instr[4:0];
+fphi = instr[15:11];
+fplo = {fphi, instr[5]};
+assume fplo == 6'b100101;
+f1 = frf[fa];
+f2 = frf[fb];
+cmp_result = fp_eq_d(f1, f2);
+result = cmp_result ? 64'h4000000000000000 : 64'h0000000000000000;
+
+frf[fc] when (fc != 31 && take_interrupt == 0 && itb_fault == 0) = result;
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+va when (itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+pc when (take_interrupt == 0 && itb_fault == 0) = pc + 4;

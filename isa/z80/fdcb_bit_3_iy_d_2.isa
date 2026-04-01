@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FDCB d 5A - BIT 3,(IY+d)
+// Affects S, Z, H=1, P/V=?, N=0
+
+isa_state pc[15:0];
+var fdcb_prefix[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var pc_plus_3[15:0];
+isa_state IYH[7:0];
+isa_state IYL[7:0];
+isa_state flag_S;
+isa_state flag_Z;
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+mem mainmem[15:0];
+var d[7:0];
+var d_sext[15:0];
+var addr[15:0];
+var value[7:0];
+var bit_val[0:0];
+var op_byte[7:0];
+
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc + 2;
+pc_plus_3 = pc + 3;
+
+// Read FD CB prefix
+fdcb_prefix = {mainmem[pc_plus_1], mainmem[pc]};
+assume fdcb_prefix == 16'hCBFD;
+
+// Read displacement and opcode
+d = mainmem[pc_plus_2];
+op_byte = mainmem[pc_plus_3];
+assume op_byte == 8'h5A;
+pc = pc_plus_3 + 1;
+
+// Calculate address IX + d (signed)
+d_sext = {{8{d[7]}}, d};
+addr = {IYH, IYL} + d_sext;
+value = mainmem[addr];
+
+// Test bit 3
+bit_val = value[3];
+
+flag_Z = (bit_val == 1'b0) ? 1'b1 : 1'b0;
+flag_H = 1'b1;
+flag_N = 1'b0;
+flag_S = (3 == 7) ? bit_val : 1'b0;
+flag_PV = flag_Z;

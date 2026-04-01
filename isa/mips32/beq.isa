@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+var rs[4:0];
+var rt[4:0];
+var r1[31:0];
+var r2[31:0];
+var imm[15:0];
+var beq_sign_ext_imm[31:0];
+var beq_branch_offset[31:0];
+var branch_dest[31:0];
+var res[31:0];
+
+instr = umem[pc];
+assume instr[31:26] == 0x4;
+rs = instr[25:21];
+rt = instr[20:16];
+imm = instr[15:0];
+
+r1 = rf[rs];
+r2 = rf[rt];
+
+beq_sign_ext_imm = {{16{imm[15]}}, imm};
+// Include +4 in the offset so branch_dest = pc + beq_branch_offset gets properly piped
+beq_branch_offset = {beq_sign_ext_imm[29:0], 2'b0} + 4;
+res = r1 == r2;
+
+// Compute branch target: pc + offset (offset already includes +4 for MIPS semantics)
+// Using this form ensures pc gets properly piped to Execute stage
+branch_dest = pc + beq_branch_offset;
+
+// When not taken, pc+4 uses current fetch PC (sequential fetch)
+// When taken, branch_dest uses piped PC from Execute stage
+#ifdef DELAY_SLOT
+// Set up delay slot if branch taken (and not already in a delay slot)
+delay_slot when (res && !in_delay_slot) = 1;
+branch_target when (res && !in_delay_slot) = branch_dest;
+// Always advance to delay slot instruction
+pc = pc + 4;
+#else
+pc = res ? branch_dest : pc + 4;
+#endif

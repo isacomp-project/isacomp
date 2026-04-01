@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC OR1K MMU Translation Aspect for Data Load Operations
+// Implements DTLB-based translation for load instructions using CAM
+//
+// DTLB: 128-entry fully associative CAM, tag = {Valid, VPN[31:13]}
+// DTLB Translate Register:
+//   PPN[31:13] | SWE(9) | SRE(8) | UWE(7) | URE(6) | D(5) | A(4) | ...
+
+// DTLB CAM arrays (128 entries, fully associative)
+isa_state cam dtlb_tag[19:0]@[6:0][];
+isa_state dtlb_tr_cam[31:0][6:0];
+
+// Physical address for data load (output of this aspect)
+var addr_pa[31:0];
+
+// Exception handling for loads
+var load_exception_taken[0:0];
+var load_exception_vector[31:0];
+
+// DTLB CAM lookup variables
+var dme_enabled[0:0];
+var addr_vpn[18:0];          // Virtual Page Number [31:13]
+var addr_offset[12:0];       // Page offset [12:0]
+var data_is_supervisor[0:0];
+
+// DTLB CAM lookup results
+var dtlb_search_key[19:0];
+var dtlb_cam_matches[127:0];
+var dtlb_load_hit_idx[7:0];
+var dtlb_load_idx[6:0];
+
+// Matched entry fields
+var matched_dtlb_tr[31:0];
+var dtlb_tr_ppn[18:0];
+var dtlb_tr_sre[0:0];       // Supervisor read enable
+var dtlb_tr_ure[0:0];       // User read enable
+
+var dtlb_hit[0:0];
+var dtlb_perm_ok[0:0];
+
+// Check if DME is enabled
+dme_enabled = sr[5];
+data_is_supervisor = sr[0];
+
+// Extract VPN and offset from address
+addr_vpn = addr[31:13];
+addr_offset = addr[12:0];
+
+// DTLB CAM lookup: search for {valid=1, VPN}
+dtlb_search_key = {1'b1, addr_vpn};
+dtlb_cam_matches = dtlb_tag@[dtlb_search_key];
+
+// Check for hit (gated by DME)
+dtlb_hit = dme_enabled & (|dtlb_cam_matches);
+
+// Get index of matching entry
+dtlb_load_hit_idx = ctz(dtlb_cam_matches);
+dtlb_load_idx = dtlb_load_hit_idx[6:0];
+
+// Read translate register from matched entry
+matched_dtlb_tr = dtlb_tr_cam[dtlb_load_idx];
+
+// Extract PPN and read permissions
+// DTLB TR per OR1K Linux kernel boot handler behavior:
+//   Boot handler sets bits 8,9 for identity-mapped supervisor pages.
+//   Supervisor read permission = bit 8, User read permission = bit 6
+//   (Handler writes 0x03f00332: bits 8,9 set, bits 6,7 clear)
+dtlb_tr_ppn = matched_dtlb_tr[31:13];
+dtlb_tr_sre = matched_dtlb_tr[8];
+dtlb_tr_ure = matched_dtlb_tr[6];
+
+// Check read permission based on mode
+dtlb_perm_ok = data_is_supervisor ? dtlb_tr_sre : dtlb_tr_ure;
+
+// Exception detection:
+// 1. DTLB miss: DME enabled but no TLB hit -> vector 0x900
+// 2. Data page fault (read): TLB hit but no read permission -> vector 0x300
+var dtlb_miss[0:0];
+var dpf[0:0];
+
+dtlb_miss = dme_enabled & ~dtlb_hit;
+dpf = dme_enabled & dtlb_hit & ~dtlb_perm_ok;
+
+// Gate by ~exception_taken: ITLB miss/interrupt means instruction was not
+// properly fetched, so data exceptions must not fire (garbage instruction decode)
+load_exception_taken = ~exception_taken & (dtlb_miss | dpf);
+load_exception_vector = dtlb_miss ? 32'h00000900 : 32'h00000300;
+
+// On load exception: save state and redirect
+var load_exc_new_sr[31:0];
+load_exc_new_sr = (sr & 32'hFFFFFF98) | 32'h00000001;
+
+var load_saved_pc[31:0];
+load_saved_pc = pc;
+
+// Compose SR with current flag value for save (flag is tracked separately from sr[9])
+var load_sr_with_flag[31:0];
+load_sr_with_flag = (sr & 32'hFFFFFDFF) | {22'b0, flag, 9'b0};
+
+// When data exception occurs during delay slot, save PC of the branch instruction
+// (PC-4) so the branch re-executes on return from exception via l.rfe.
+var load_epcr_save_pc[31:0];
+load_epcr_save_pc = in_delay_slot ? (load_saved_pc - 4) : load_saved_pc;
+epcr0 when (load_exception_taken) = load_epcr_save_pc;
+esr0 when (load_exception_taken) = load_sr_with_flag;
+eear0 when (load_exception_taken) = addr;
+sr when (load_exception_taken) = load_exc_new_sr;
+pc when (load_exception_taken) = load_exception_vector;
+
+// Compute physical address
+var addr_translated[31:0];
+addr_translated = {dtlb_tr_ppn, addr_offset};
+
+addr_pa = dme_enabled ? (dtlb_hit ? addr_translated : addr) : addr;

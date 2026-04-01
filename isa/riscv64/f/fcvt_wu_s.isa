@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV64F - FCVT.WU.S (Convert float to unsigned 32-bit integer)
+// Encoding: funct7=1100000, rs2=00001, rs1, rm, rd, opcode=1010011
+// Result sign-extended to 64 bits and written to integer register rd
+// Note: Per RISC-V spec, FCVT.WU.S sign-extends (not zero-extends) to 64 bits
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[31:0][4:0];
+isa_state fcsr[31:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var rm[2:0];
+var eff_rm[2:0];  // Effective rounding mode (canonical IEEE 754)
+var f1[31:0];
+var cvt_result[31:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;
+assume instr[31:27] == 0b11000;   // FCVT.W/WU.S funct5
+assume instr[26:25] == 0b00;
+assume instr[24:20] == 0b00001;   // rs2 = 1 for FCVT.WU.S
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+rm = instr[14:12];
+
+// Compute effective rounding mode (rm=111 means use fcsr[7:5])
+eff_rm = (rm == 3'b111) ? fcsr[7:5] : rm;
+
+f1 = frf[rs1];
+
+cvt_result = fp_cvt_wu_s(f1, eff_rm);
+
+// Sign-extend 32-bit result to 64 bits (per RISC-V spec)
+result = {{32{cvt_result[31]}}, cvt_result};
+
+rf[rd] when (rd != 0) = result;

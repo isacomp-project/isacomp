@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 JBE (0x76) - WITH PROPER SEGMENTATION
+// Jump if Below or Equal (CF=1 or ZF=1)
+// Uses signed byte displacement relative to IP
+// No memory access - jumps don't need segmentation
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+
+var offset[7:0];
+var signed_offset[15:0];
+var target_addr[15:0];
+
+instr = imem[ip];
+assume instr == 0x76;
+ip = ip + 1;
+
+// Read signed byte displacement
+offset = imem[ip];
+ip = ip + 1;
+
+// Sign-extend 8-bit offset to 16 bits
+signed_offset = {{8{offset[7]}}, offset};
+
+// Calculate target address (ip + signed offset)
+target_addr = ip + signed_offset;
+
+// Jump if condition is true (CF=1 OR ZF=1)
+ip = (flag_CF == 1'b1) | (flag_ZF == 1'b1) ? target_addr : ip;

@@ -1,0 +1,89 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 DIV - Divide (signed)
+// Divides rs by rt (signed), quotient in LO, remainder in HI
+// Encoding: 000000 rs rt 00000 00000 011010
+//           SPECIAL rs rt 0     0     DIV
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state hi[31:0];
+isa_state lo[31:0];
+mem umem[17:0];
+
+var rs[4:0];
+var rt[4:0];
+var dividend[31:0];
+var divisor[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and HI/LO state
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// DIV encoding
+assume instr[31:26] == 6'b000000;
+assume instr[5:0] == 6'b011010;
+assume instr[15:6] == 10'b0000000000;
+
+rs = instr[25:21];
+rt = instr[20:16];
+
+dividend = rf[rs];
+divisor = rf[rt];
+
+// Signed division
+var dividend_sign[0:0];
+var divisor_sign[0:0];
+var dividend_abs[31:0];
+var divisor_abs[31:0];
+var quotient_sign[0:0];
+var remainder_sign[0:0];
+
+dividend_sign = dividend[31];
+divisor_sign = divisor[31];
+dividend_abs = dividend_sign ? (~dividend + 1) : dividend;
+divisor_abs = divisor_sign ? (~divisor + 1) : divisor;
+
+// Quotient sign: positive if both same sign, negative if different
+quotient_sign = dividend_sign ^ divisor_sign;
+// Remainder has same sign as dividend
+remainder_sign = dividend_sign;
+
+// Unsigned division of absolute values
+// Using restoring division algorithm
+var q[31:0];  // quotient
+var r[31:0];  // remainder
+
+// For simplicity, use a behavioral division
+// In hardware, this would be a multi-cycle operation
+q = divisor_abs != 0 ? dividend_abs / divisor_abs : 0x0;
+r = divisor_abs != 0 ? dividend_abs % divisor_abs : dividend_abs;
+
+// Apply signs
+var final_quotient[31:0];
+var final_remainder[31:0];
+
+final_quotient = quotient_sign ? (~q + 1) : q;
+final_remainder = remainder_sign ? (~r + 1) : r;
+
+// Handle divide by zero: result is undefined, but don't trap
+// Write to HI (remainder) and LO (quotient)
+hi = final_remainder;
+lo = final_quotient;
+
+// Update PC
+pc = pc + 4;

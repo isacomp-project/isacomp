@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// BICPSW - Bit Clear in PSW
+// Opcode: 0xB9
+// Format: [opcode:8][mask:8][unused:16]
+// Clear bits in PSL specified by mask
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state psl[31:0];
+mem umem[12:0];
+
+var mask[7:0];
+var ext_mask[31:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xB9;
+
+mask = instr[23:16];
+ext_mask = {24'b0, mask};
+
+psl = psl & (~ext_mask);
+pc = pc + 4;

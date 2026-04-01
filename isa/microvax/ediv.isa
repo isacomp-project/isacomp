@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+mem umem[12:0];
+
+var divisor_reg[3:0];
+var dividend_lo_reg[3:0];
+var quo_reg[3:0];
+var rem_reg[3:0];
+var divisor[31:0];
+var dividend_lo[31:0];
+var quotient[31:0];
+var remainder[31:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x7D;
+pc = pc + 4;
+
+divisor_reg = instr[23:20];
+dividend_lo_reg = instr[19:16];
+quo_reg = instr[15:12];
+rem_reg = instr[11:8];
+
+divisor = rf[divisor_reg];
+dividend_lo = rf[dividend_lo_reg];
+
+quotient = dividend_lo / divisor;
+remainder = dividend_lo - (quotient * divisor);
+
+rf[quo_reg] = quotient;
+rf[rem_reg] = remainder;

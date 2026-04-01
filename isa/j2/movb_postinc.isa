@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rm[31:0];
+var data8[7:0];
+var sign_ext_data[31:0];
+
+// Register banking variables (unique to movb_postinc instruction)
+var movb_postinc_rn_lo[2:0];
+var movb_postinc_rm_lo[2:0];
+var movb_postinc_rb[0:0];
+var movb_postinc_rn_bk[0:0];
+var movb_postinc_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:12] == 0x6;
+assume instr[3:0] == 0x4;
+rn = instr[11:8];
+rm = instr[7:4];
+
+// Register banking setup
+movb_postinc_rn_lo = rn[2:0];
+movb_postinc_rm_lo = rm[2:0];
+movb_postinc_rb = sr[28];
+movb_postinc_rn_bk = (rn[3] == 1'b0) & movb_postinc_rb;
+movb_postinc_rm_bk = (rm[3] == 1'b0) & movb_postinc_rb;
+
+Rm = movb_postinc_rm_bk ? rf_bank[movb_postinc_rm_lo] : rf[rm];
+
+data8 = umem[Rm];
+sign_ext_data = {{24{data8[7]}}, data8};
+
+// Only update registers if no exception
+rf[rn] when ((movb_postinc_rn_bk == 0) & (exc_taken == 0)) = sign_ext_data;
+rf_bank[movb_postinc_rn_lo] when (movb_postinc_rn_bk & (exc_taken == 0)) = sign_ext_data;
+rf[rm] when ((movb_postinc_rm_bk == 0) & (exc_taken == 0)) = Rm + 1;  // post-increment by 1 for byte
+rf_bank[movb_postinc_rm_lo] when (movb_postinc_rm_bk & (exc_taken == 0)) = Rm + 1;
+pc = pc + 2;

@@ -1,0 +1,225 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha Internal Processor Registers (IPRs) for Linux PALcode support
+// Based on EV5/EV6 architecture with OSF/1 (Tru64/Linux) PALcode
+//
+// These registers are only accessible via HW_MFPR/HW_MTPR in PAL mode.
+// IPR indices follow the EV5 numbering convention.
+
+// ============================================================================
+// Core Processor State
+// ============================================================================
+
+// PAL mode indicator (1 = executing PALcode, 0 = normal mode)
+isa_state pal_mode[0:0];
+
+// PAL base address - entry points are at pal_base + (function * 64)
+isa_state pal_base[63:0];
+
+// Exception address - return PC for HW_REI
+isa_state exc_addr[63:0];
+
+// Processor status
+// Bits [2:0] = IPL (interrupt priority level)
+// Bit [3] = CM (current mode: 0=kernel, 1=user)
+isa_state ps[63:0];
+
+// Interrupt priority level (0-7, higher = more priority)
+isa_state ipl[5:0];
+
+// ============================================================================
+// Exception/Interrupt Handling
+// ============================================================================
+
+// Exception summary register
+isa_state exc_sum[63:0];
+
+// Exception mask
+isa_state exc_mask[63:0];
+
+// Interrupt summary register (external input from interrupt controller)
+ext isa_state isr[63:0];
+
+// Hardware interrupt enable register
+isa_state hier[63:0];
+
+// Software interrupt request register
+isa_state sirr[63:0];
+
+// AST (Asynchronous System Trap) request register
+isa_state astrr[63:0];
+
+// AST enable register
+isa_state aster[63:0];
+
+// ============================================================================
+// Virtual Memory / TLB
+// ============================================================================
+
+// Page table base register (physical address of root page table)
+isa_state ptbr[63:0];
+
+// Virtual page table pointer
+isa_state vptptr[63:0];
+
+// Faulting virtual address
+isa_state va[63:0];
+
+// VA format register (formatted VA for PTE lookup)
+isa_state va_form[63:0];
+
+// Memory management status (fault info: opcode, R/W, etc.)
+isa_state mm_stat[63:0];
+
+// Data TLB current mode
+isa_state dtb_cm[63:0];
+
+// Instruction TLB ASN (Address Space Number)
+isa_state itb_asn[63:0];
+
+// Data TLB ASN
+isa_state dtb_asn[63:0];
+
+// ============================================================================
+// TLB Arrays (8 entries each for DTB and ITB)
+// ============================================================================
+
+// Data TLB entries
+isa_state dtb_pte[63:0][2:0];   // 8 PTEs
+isa_state dtb_tag[63:0][2:0];   // 8 tags (virtual page numbers)
+isa_state dtb_valid[0:0][2:0];  // 8 valid bits
+isa_state dtb_asn_entry[7:0][2:0]; // 8 per-entry ASN snapshots
+
+// Instruction TLB entries
+isa_state itb_pte[63:0][2:0];   // 8 PTEs
+isa_state itb_tag[63:0][2:0];   // 8 tags
+isa_state itb_valid[0:0][2:0];  // 8 valid bits
+isa_state itb_asn_entry[7:0][2:0]; // 8 per-entry ASN snapshots
+
+// TLB write index (for replacement)
+isa_state dtb_idx[2:0];
+isa_state itb_idx[2:0];
+
+// ============================================================================
+// PAL Temporaries (24 scratch registers for PALcode use)
+// ============================================================================
+
+isa_state pt0[63:0];
+isa_state pt1[63:0];
+isa_state pt2[63:0];
+isa_state pt3[63:0];
+isa_state pt4[63:0];
+isa_state pt5[63:0];
+isa_state pt6[63:0];
+isa_state pt7[63:0];
+isa_state pt8[63:0];
+isa_state pt9[63:0];
+isa_state pt10[63:0];
+isa_state pt11[63:0];
+isa_state pt12[63:0];
+isa_state pt13[63:0];
+isa_state pt14[63:0];
+isa_state pt15[63:0];
+isa_state pt16[63:0];
+isa_state pt17[63:0];
+isa_state pt18[63:0];
+isa_state pt19[63:0];
+isa_state pt20[63:0];
+isa_state pt21[63:0];
+isa_state pt22[63:0];
+isa_state pt23[63:0];
+
+// ============================================================================
+// Named PAL Temporaries (Linux PALcode conventions)
+// These alias specific PT registers for readability
+// ============================================================================
+
+// pt_ksp   = pt0   - Kernel stack pointer
+// pt_usp   = pt1   - User stack pointer
+// pt_ptbr  = pt2   - Page table base (cached copy)
+// pt_entsys = pt3  - System call entry point
+// pt_entint = pt4  - Interrupt entry point
+// pt_entarith = pt5 - Arithmetic exception entry
+// pt_entmm = pt6   - Memory management fault entry
+// pt_entif = pt7   - Instruction fault entry
+// pt_entuna = pt8  - Unaligned access entry
+// pt_kgp   = pt9   - Kernel global pointer
+// pt_pcbb  = pt10  - Process control block base
+// pt_unique = pt11 - Per-thread unique value (TLS)
+
+// ============================================================================
+// Processor Identification
+// ============================================================================
+
+// Processor ID (which CPU in SMP)
+isa_state whami[63:0];
+
+// Implementation version (EV4=0, EV5=1, EV6=2)
+isa_state implver[63:0];
+
+// Architecture mask value (features present)
+isa_state amask_val[63:0];
+
+// ============================================================================
+// Performance / Cycle Counter
+// ============================================================================
+
+// Processor cycle counter (external input from clock)
+ext isa_state pcc[63:0];
+
+// Process control block base address
+isa_state pcbb[63:0];
+
+// System value (general purpose kernel value)
+isa_state sysval[63:0];
+
+// Per-process unique value (thread-local storage base)
+isa_state unique[63:0];
+
+// Machine check error summary
+isa_state mces[63:0];
+
+// Floating-point enable (0=disabled, 1=enabled)
+isa_state fen[0:0];
+
+// ============================================================================
+// IPR Index Definitions (EV5/EV6 compatible)
+// Used by HW_MFPR and HW_MTPR to select registers
+// ============================================================================
+
+// These are the IPR numbers used in the instruction encoding:
+//
+// 0x00 - 0x07: Reserved/implementation-specific
+// 0x08: PAL_BASE
+// 0x09: EXC_ADDR
+// 0x0A: PS
+// 0x0B: IPL
+// 0x0C: ISR
+// 0x0D: HIER
+// 0x0E: SIRR
+// 0x0F: ASTRR
+// 0x10: ASTER
+// 0x11: EXC_SUM
+// 0x12: EXC_MASK
+// 0x13: VA
+// 0x14: VA_FORM
+// 0x15: MM_STAT
+// 0x16: PTBR
+// 0x17: VPTPTR
+// 0x18: DTB_CM
+// 0x19: DTB_ASN
+// 0x1A: DTB_PTE (write triggers TLB update)
+// 0x1B: DTB_TAG (write triggers TLB update)
+// 0x1C: ITB_ASN
+// 0x1D: ITB_PTE
+// 0x1E: ITB_TAG
+// 0x1F: Reserved
+// 0x20: WHAMI
+// 0x21: PCBB
+// 0x22: UNIQUE
+// 0x23: SYSVAL
+// 0x24: PCC
+// 0x25: IMPLVER
+// 0x26: AMASK_VAL
+// 0x27: MCES
+// 0x28: FEN
+// 0x40 - 0x57: PT0 - PT23 (PAL temporaries)

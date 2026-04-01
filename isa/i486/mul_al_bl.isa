@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MUL BL (0xF6 with modrm 0xE3)
+// Unsigned multiply AL * BL, result in AX
+// Updates CF and OF (set if AH != 0), clears SF, ZF, AF, PF (undefined)
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state AH[7:0] of xregs[0][15:8];
+isa_state BX[15:0] of xregs[3][15:0];
+isa_state BL[7:0] of xregs[3][7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var result[15:0];
+
+instr = imem[eip];
+assume instr == 0xF6;
+eip = eip + 1;
+
+modrm = imem[eip];
+assume modrm == 0xE3;
+eip = eip + 1;
+
+// MUL: unsigned multiply AL * BL
+result = AL * BL;
+
+// Update AX with full 16-bit result
+AX = result[15:0];
+
+// CF and OF are set if upper half (AH) is non-zero
+flag_CF = result[15:8] != 0 ? 1'b1 : 1'b0;
+flag_OF = result[15:8] != 0 ? 1'b1 : 1'b0;

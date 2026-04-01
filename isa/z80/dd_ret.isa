@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD C9 - DD prefix passthrough RET
+// DD prefix consumed, RET executes unchanged
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state sp[15:0];
+mem mainmem[15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var sp_plus_1[15:0];
+var sp_plus_2[15:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'hC9DD;
+
+// Pop return address from stack (low byte first)
+addr_lo = mainmem[sp];
+sp_plus_1 = sp + 1;
+addr_hi = mainmem[sp_plus_1];
+sp_plus_2 = sp_plus_1 + 1;
+
+sp = sp_plus_2;
+pc = {addr_hi, addr_lo};

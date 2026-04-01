@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD 2F - DD prefix passthrough
+// DD prefix consumed, base opcode 2F executes unchanged
+
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_H[0:0];
+isa_state flag_N[0:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'h2FDD;
+pc = pc + 2;
+
+A = A ^ 8'hFF;  // Invert all bits
+
+flag_H = 1'b1;
+flag_N = 1'b1;

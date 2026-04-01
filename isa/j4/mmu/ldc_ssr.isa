@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// LDC Rm, SSR - Load Control Register SSR from Rm
+// SH-4 specific: Saved Status Register
+// Encoding: 0100mmmm00111110
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state ssr[31:0];  // Saved Status Register (SH-4 specific)
+mem umem[23:0];
+
+var rm[3:0];
+var Rm[31:0];
+var ldc_ssr_rm_lo[2:0];
+var ldc_ssr_rb[0:0];
+var ldc_ssr_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x3E;
+rm = instr[11:8];
+
+ldc_ssr_rm_lo = rm[2:0];
+ldc_ssr_rb = sr[29];  // RB bit (bit 29 in SR)
+ldc_ssr_rm_bk = (rm[3] == 1'b0) & ldc_ssr_rb;
+
+Rm = ldc_ssr_rm_bk ? rf_bank[ldc_ssr_rm_lo] : rf[rm];
+
+// Load SSR from Rm (privileged, SH-4 specific)
+ssr when (~int_should_take & ~itlb_exc_actually_taken) = Rm;
+pc = pc + 2;

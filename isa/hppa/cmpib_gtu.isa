@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA CMPIB,>> instruction
+// CMPIB,>> i,r,target - Compare Immediate and Branch if greater than unsigned
+// Opcode: 0x24 (bits 31:26)
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var imm5[4:0];
+var imm[31:0];
+var src[31:0];
+var w[11:0];
+var target_offset[31:0];
+var target[31:0];
+var taken[0:0];
+
+instr = umem[pc_pa];
+
+assume instr[31:26] == 0b100100;
+assume instr[15:13] == 0b100;  // unsigned less than negated
+assume instr[12] == 0b1;
+
+r = instr[25:21];
+imm5 = instr[20:16];
+
+imm = imm5[0] ? {{27{1'b1}}, imm5[4:1]} : {{27{1'b0}}, imm5[4:1]};
+src = (r == 0) ? 32'h0 : rf[r];
+
+w = {instr[0], instr[2], instr[12:4], instr[3]};
+target_offset = {{20{w[11]}}, w, 2'b00};
+target = pc + 8 + target_offset;
+
+taken = (imm > src);
+// ,n flag: forward (instr[0]=0) nullifies when taken; backward (instr[0]=1) nullifies when not taken
+var n_nullify[0:0];
+n_nullify = instr[1] & (taken ^ instr[0]);
+psw when (n_nullify & ~instr_trap_taken & ~in_nullified) = psw | 32'h00200000;
+
+delay_slot when (~in_delay_slot & taken & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (~in_delay_slot & taken & ~instr_trap_taken & ~in_nullified) = target;
+pc = pc + 4;

@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 RET NC (0xD0) - Return if NC
+// If condition met: PC = (SP), SP = SP + 2
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state sp[15:0];
+isa_state flag_C;
+mem mainmem[15:0];
+var pc_plus_1[15:0];
+var sp_plus_1[15:0];
+var sp_plus_2[15:0];
+var ret_addr[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xD0;
+pc_plus_1 = pc + 1;
+
+sp_plus_1 = sp + 1;
+sp_plus_2 = sp_plus_1 + 1;
+ret_addr = {mainmem[sp_plus_1], mainmem[sp]};
+
+sp = flag_C ? sp : sp_plus_2;
+pc = flag_C ? pc_plus_1 : ret_addr;

@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CLTS (0x0F 0x06)
+// Clear Task-Switched flag in CR0
+// Clears bit 3 (TS flag) of CR0
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+isa_state CR0[31:0];
+
+// Fetch instruction bytes
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+instr2 = imem[eip];
+assume instr2 == 0x06;
+eip = eip + 1;
+
+// Clear TS flag (bit 3) in CR0
+CR0[3] = 1'b0;

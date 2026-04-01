@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state gbr[31:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+
+var disp[7:0];
+var disp_ext[31:0];
+var movw_gbr_store_addr[31:0];
+var R0[31:0];
+
+// Address error checking variables
+var store_addr[31:0];
+var store_size[1:0];
+var movw_gbr_store_no_error[0:0];
+var halfword_data[15:0];
+
+// Register banking variables (unique to movw_gbr_store)
+var movw_gbr_store_r0_lo[2:0];
+var movw_gbr_store_rb[0:0];
+var movw_gbr_store_r0_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+// Include address error detection for stores
+aspect addr_error_store.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+instr = umem[pc];
+assume instr[15:8] == 0xC1;
+disp = instr[7:0];
+
+// Register banking setup
+movw_gbr_store_r0_lo = 3'b000;
+movw_gbr_store_rb = sr[29];  // RB bit (bit 29 in SR)
+movw_gbr_store_r0_bk = movw_gbr_store_rb;  // R0[3] is 0
+
+// MOV.W R0,@(disp,GBR): movw_gbr_store_addr = GBR + disp*2
+disp_ext = {24'b0, disp};
+movw_gbr_store_addr = gbr + {disp_ext[30:0], 1'b0};
+
+// Set up address error checking
+store_addr = movw_gbr_store_addr;
+store_size = 2'b10;  // Word access (16-bit)
+
+// Compute the no-error condition
+movw_gbr_store_no_error = (movw_gbr_store_addr[0] == 1'b0);
+
+R0 = movw_gbr_store_r0_bk ? rf_bank[movw_gbr_store_r0_lo] : rf[0];
+
+// Only store if no address error
+halfword_data = R0[15:0];
+umem[movw_gbr_store_addr] when (movw_gbr_store_no_error) = halfword_data;
+
+// Only advance PC if no address error
+pc when (movw_gbr_store_no_error) = pc + 2;

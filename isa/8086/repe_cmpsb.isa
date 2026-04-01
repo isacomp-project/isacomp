@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 REPE CMPSB (0xF3 0xA6) - WITH PROPER SEGMENTATION
+// Repeat while CX != 0 AND ZF == 1: Compare byte at DS:[SI] with ES:[DI]
+// Exit when CX == 0 OR ZF == 0 (not equal)
+// IP stays constant until loop exits
+// Uses DS segment for source, ES segment for destination
+
+isa_state ip[15:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment (source)
+isa_state ES[15:0];            // Extra segment (destination)
+isa_state SI[15:0];
+isa_state DI[15:0];
+isa_state CX[15:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_PF[0:0];
+
+var physical_addr_src[19:0];
+var physical_addr_dst[19:0];
+var byte1[7:0];
+var byte2[7:0];
+var result[8:0];
+var new_zf[7:0];
+var cx_is_zero[0:0];
+var cx_not_zero_and_equal[0:0];
+var cx_not_zero_and_not_equal[0:0];
+var new_si_inc[15:0];
+var new_si_dec[15:0];
+var new_di_inc[15:0];
+var new_di_dec[15:0];
+var new_ip[15:0];
+
+// Fetch REPE prefix
+prefix = imem[ip];
+assume prefix == 0xF3;
+
+// Fetch CMPSB instruction (at IP+1)
+instr = imem[ip + 1];
+assume instr == 0xA6;
+
+// Check counter
+cx_is_zero = CX == 16'h0000;
+
+// Calculate physical addresses using both segments
+physical_addr_src = (DS << 4) + SI;  // Source from DS:SI
+physical_addr_dst = (ES << 4) + DI;  // Destination from ES:DI
+
+// Compare byte at DS:[SI] with ES:[DI] (subtraction)
+byte1 = dmem[physical_addr_src];
+byte2 = dmem[physical_addr_dst];
+result = byte1 - byte2;
+
+// Calculate new flags based on result
+new_zf = result[7:0] == 8'h00 ? 1'b1 : 1'b0;
+
+// Three mutually exclusive conditions
+cx_not_zero_and_equal = (CX != 16'h0000) & (new_zf == 1'b1);
+cx_not_zero_and_not_equal = (CX != 16'h0000) & (new_zf == 1'b0);
+
+// Calculate new SI and DI (increment or decrement)
+new_si_inc = SI + 16'h0001;
+new_si_dec = SI - 16'h0001;
+new_di_inc = DI + 16'h0001;
+new_di_dec = DI - 16'h0001;
+
+// Calculate new IP (advance past instruction)
+new_ip = ip + 16'h0002;
+
+// When CX == 0: Just advance IP (don't execute)
+ip when(cx_is_zero) = new_ip;
+
+// When CX != 0 AND equal: Execute and continue (keep IP)
+flag_CF when(cx_not_zero_and_equal) = byte1 < byte2 ? 1'b1 : 1'b0;
+flag_ZF when(cx_not_zero_and_equal) = new_zf;
+flag_SF when(cx_not_zero_and_equal) = result[7];
+flag_PF when(cx_not_zero_and_equal) = result[0];
+flag_OF when(cx_not_zero_and_equal) = ((byte1[7] != byte2[7]) & (result[7] != byte1[7])) ? 1'b1 : 1'b0;
+SI when(cx_not_zero_and_equal) = flag_DF == 1'b0 ? new_si_inc : new_si_dec;
+DI when(cx_not_zero_and_equal) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero_and_equal) = CX - 16'h0001;
+ip when(cx_not_zero_and_equal) = ip;  // Stay at same IP (loop continues)
+
+// When CX != 0 AND not equal: Execute and exit (advance IP)
+flag_CF when(cx_not_zero_and_not_equal) = byte1 < byte2 ? 1'b1 : 1'b0;
+flag_ZF when(cx_not_zero_and_not_equal) = new_zf;
+flag_SF when(cx_not_zero_and_not_equal) = result[7];
+flag_PF when(cx_not_zero_and_not_equal) = result[0];
+flag_OF when(cx_not_zero_and_not_equal) = ((byte1[7] != byte2[7]) & (result[7] != byte1[7])) ? 1'b1 : 1'b0;
+SI when(cx_not_zero_and_not_equal) = flag_DF == 1'b0 ? new_si_inc : new_si_dec;
+DI when(cx_not_zero_and_not_equal) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero_and_not_equal) = CX - 16'h0001;
+ip when(cx_not_zero_and_not_equal) = new_ip;

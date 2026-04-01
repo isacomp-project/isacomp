@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 XADD r/m8, r8 (0x0F C0)
+// Exchange and add: temp=dest, dest=dest+src, src=temp
+// Sets all arithmetic flags (CF, PF, AF, ZF, SF, OF)
+// i486-specific instruction
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// 8-bit register arrays using wildcard syntax
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];   // AL,CL,DL,BL (low bytes)
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];  // AH,CH,DH,BH (high bytes)
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dest_idx[1:0];
+var src_idx[1:0];
+var dest_val_low[7:0];
+var dest_val_high[7:0];
+var src_val_low[7:0];
+var src_val_high[7:0];
+var dest_val[7:0];
+var src_val[7:0];
+var temp[7:0];
+var result[8:0];
+
+// Fetch first byte of instruction
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+// Fetch second byte
+instr2 = imem[eip];
+assume instr2 == 0xC0;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Get register indices
+dest_idx = rm_bits[1:0];
+src_idx = reg_bits[1:0];
+
+// Read both low and high byte values
+dest_val_low = lregs[dest_idx];
+dest_val_high = hregs[dest_idx];
+src_val_low = lregs[src_idx];
+src_val_high = hregs[src_idx];
+
+// Select based on high/low bit (bit[2] of register encoding)
+case (rm_bits[2]) {
+    1'b0: dest_val = dest_val_low;
+    1'b1: dest_val = dest_val_high;
+}
+case (reg_bits[2]) {
+    1'b0: src_val = src_val_low;
+    1'b1: src_val = src_val_high;
+}
+
+// Save destination in temp
+temp = dest_val;
+
+// Compute sum
+result = dest_val + src_val;
+
+// Write back: dest = dest + src
+case (rm_bits[2]) {
+    1'b0: lregs[dest_idx] = result[7:0];
+    1'b1: hregs[dest_idx] = result[7:0];
+}
+
+// Write back: src = old dest (temp)
+case (reg_bits[2]) {
+    1'b0: lregs[src_idx] = temp;
+    1'b1: hregs[src_idx] = temp;
+}
+
+// Set arithmetic flags
+flag_CF = result[8];
+flag_ZF = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_SF = result[7];
+flag_OF = (dest_val[7] == src_val[7]) & (dest_val[7] != result[7]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_AF = (dest_val[3:0] + src_val[3:0]) > 4'hF;

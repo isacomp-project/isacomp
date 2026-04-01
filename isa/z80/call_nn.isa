@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 CALL nn (0xCD) - Call subroutine at absolute address
+// Push PC+3 to stack, then PC = nn
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state sp[15:0];
+mem mainmem[15:0];
+
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var pc_plus_3[15:0];
+var addr_lo[7:0];
+var addr_hi[7:0];
+var target[15:0];
+var return_addr[15:0];
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xCD;
+
+// Use intermediate variables for address calculation (don't modify PC directly)
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+pc_plus_3 = pc_plus_2 + 1;
+
+addr_lo = mainmem[pc_plus_1];
+addr_hi = mainmem[pc_plus_2];
+
+target = {addr_hi, addr_lo};
+return_addr = pc_plus_3;  // Return address is instruction after CALL
+
+// Push return address to stack (high byte first)
+sp_minus_1 = sp - 1;
+mainmem[sp_minus_1] = return_addr[15:8];
+
+sp_minus_2 = sp_minus_1 - 1;
+mainmem[sp_minus_2] = return_addr[7:0];
+
+sp = sp_minus_2;
+
+// Single write to PC with final value
+pc = target;

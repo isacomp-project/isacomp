@@ -1,0 +1,165 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 ITB (Instruction TLB) Translation Aspect
+//
+// This aspect provides virtual-to-physical address translation for
+// instruction fetch. In PAL mode, addresses are used directly (physical).
+// In user/kernel mode, ITB lookup is performed.
+//
+// Provides:
+//   pc_pa      - Physical address for instruction fetch
+//   itb_miss   - Set if ITB miss occurs (triggers PAL exception)
+//
+// Requires gates: pc, pal_mode, pal_base
+
+// Physical address output
+var pc_pa[63:0];
+var itb_miss[0:0];
+
+// Extract virtual page number and offset from PC
+var pc_vpn[29:0];
+var pc_offset[12:0];
+pc_vpn = pc[42:13];
+pc_offset = pc[12:0];
+
+// ITB lookup (8 entries) - check tag matches
+var itag_match0[0:0];
+var itag_match1[0:0];
+var itag_match2[0:0];
+var itag_match3[0:0];
+var itag_match4[0:0];
+var itag_match5[0:0];
+var itag_match6[0:0];
+var itag_match7[0:0];
+itag_match0 = (itb_tag[0][29:0] == pc_vpn);
+itag_match1 = (itb_tag[1][29:0] == pc_vpn);
+itag_match2 = (itb_tag[2][29:0] == pc_vpn);
+itag_match3 = (itb_tag[3][29:0] == pc_vpn);
+itag_match4 = (itb_tag[4][29:0] == pc_vpn);
+itag_match5 = (itb_tag[5][29:0] == pc_vpn);
+itag_match6 = (itb_tag[6][29:0] == pc_vpn);
+itag_match7 = (itb_tag[7][29:0] == pc_vpn);
+
+// Combine valid and match for each entry
+var ihit0[0:0];
+var ihit1[0:0];
+var ihit2[0:0];
+var ihit3[0:0];
+var ihit4[0:0];
+var ihit5[0:0];
+var ihit6[0:0];
+var ihit7[0:0];
+var iasn0[0:0];
+iasn0 = itb_pte[0][4] | (itb_asn_entry[0] == itb_asn[7:0]);
+ihit0 = itb_valid[0] & itag_match0 & iasn0;
+var iasn1[0:0];
+iasn1 = itb_pte[1][4] | (itb_asn_entry[1] == itb_asn[7:0]);
+ihit1 = itb_valid[1] & itag_match1 & iasn1;
+var iasn2[0:0];
+iasn2 = itb_pte[2][4] | (itb_asn_entry[2] == itb_asn[7:0]);
+ihit2 = itb_valid[2] & itag_match2 & iasn2;
+var iasn3[0:0];
+iasn3 = itb_pte[3][4] | (itb_asn_entry[3] == itb_asn[7:0]);
+ihit3 = itb_valid[3] & itag_match3 & iasn3;
+var iasn4[0:0];
+iasn4 = itb_pte[4][4] | (itb_asn_entry[4] == itb_asn[7:0]);
+ihit4 = itb_valid[4] & itag_match4 & iasn4;
+var iasn5[0:0];
+iasn5 = itb_pte[5][4] | (itb_asn_entry[5] == itb_asn[7:0]);
+ihit5 = itb_valid[5] & itag_match5 & iasn5;
+var iasn6[0:0];
+iasn6 = itb_pte[6][4] | (itb_asn_entry[6] == itb_asn[7:0]);
+ihit6 = itb_valid[6] & itag_match6 & iasn6;
+var iasn7[0:0];
+iasn7 = itb_pte[7][4] | (itb_asn_entry[7] == itb_asn[7:0]);
+ihit7 = itb_valid[7] & itag_match7 & iasn7;
+
+// Combine hits with OR chain
+var ihit01[0:0];
+var ihit23[0:0];
+var ihit45[0:0];
+var ihit67[0:0];
+var ihit0123[0:0];
+var ihit4567[0:0];
+var itb_hit[0:0];
+ihit01 = ihit0 ? 1'b1 : ihit1;
+ihit23 = ihit2 ? 1'b1 : ihit3;
+ihit45 = ihit4 ? 1'b1 : ihit5;
+ihit67 = ihit6 ? 1'b1 : ihit7;
+ihit0123 = ihit01 ? 1'b1 : ihit23;
+ihit4567 = ihit45 ? 1'b1 : ihit67;
+itb_hit = ihit0123 ? 1'b1 : ihit4567;
+
+// Priority encoder for PTE selection
+var itb_pte_s7[63:0];
+var itb_pte_s6[63:0];
+var itb_pte_s5[63:0];
+var itb_pte_s4[63:0];
+var itb_pte_s3[63:0];
+var itb_pte_s2[63:0];
+var itb_pte_s1[63:0];
+var itb_pte_sel[63:0];
+itb_pte_s7 = ihit7 ? itb_pte[7] : 64'b0;
+itb_pte_s6 = ihit6 ? itb_pte[6] : itb_pte_s7;
+itb_pte_s5 = ihit5 ? itb_pte[5] : itb_pte_s6;
+itb_pte_s4 = ihit4 ? itb_pte[4] : itb_pte_s5;
+itb_pte_s3 = ihit3 ? itb_pte[3] : itb_pte_s4;
+itb_pte_s2 = ihit2 ? itb_pte[2] : itb_pte_s3;
+itb_pte_s1 = ihit1 ? itb_pte[1] : itb_pte_s2;
+itb_pte_sel = ihit0 ? itb_pte[0] : itb_pte_s1;
+
+// Extract PFN from selected PTE
+var itb_pfn[31:0];
+itb_pfn = itb_pte_sel[63:32];
+
+// Permission checking
+var itb_foe[0:0];
+var itb_kre[0:0];
+var itb_ure[0:0];
+itb_foe = itb_pte_sel[3];
+itb_kre = itb_pte_sel[8];
+itb_ure = itb_pte_sel[9];
+var is_user_mode[0:0];
+is_user_mode = ps[3];
+var itb_perm_ok[0:0];
+itb_perm_ok = itb_foe ? 1'b0 : (is_user_mode ? itb_ure : itb_kre);
+
+// Access violation: hit but no permission
+var itb_acv[0:0];
+itb_acv = not_pal_mode ? (kseg_user_fault ? 1'b1 : (is_kseg ? 1'b0 : (itb_hit ? (~itb_perm_ok) : 1'b0))) : 1'b0;
+
+// Combined fault signal
+var itb_fault[0:0];
+itb_fault = itb_miss | itb_acv;
+
+// Compute translated address
+var pc_xlated[63:0];
+pc_xlated = {itb_pfn, pc_offset};
+
+// ============================================================================
+// Translation Control
+// ============================================================================
+// Determine if we need translation (not in PAL mode)
+var not_pal_mode[0:0];
+not_pal_mode = (pal_mode == 0);
+
+// KSEG: VA[47:42] = 111111 → bypass TLB, direct physical mapping
+var is_kseg[0:0];
+is_kseg = (pc[47:42] == 6'b111111);
+var kseg_pa[63:0];
+kseg_pa = {{22{1'b0}}, pc[41:0]};
+var kseg_user_fault[0:0];
+kseg_user_fault = is_kseg & is_user_mode;
+
+// ITB miss occurs when not in PAL mode, not KSEG, and no TLB hit
+var itb_no_hit[0:0];
+itb_no_hit = (itb_hit == 0);
+itb_miss = not_pal_mode ? (is_kseg ? 1'b0 : itb_no_hit) : 1'b0;
+
+// Physical address: PAL=pc, KSEG=direct PA, TLB hit=translated, else=pc (ITB miss)
+pc_pa = not_pal_mode ? (is_kseg ? kseg_pa : (itb_hit ? pc_xlated : pc)) : pc;
+
+// ITB miss exception entry point
+var itb_miss_entry[63:0];
+itb_miss_entry = pal_base + 64'h0280;
+var itb_acv_entry[63:0];
+itb_acv_entry = pal_base + 64'h0300;

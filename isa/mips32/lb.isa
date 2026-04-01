@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 LB (Load Byte Signed) instruction
+// Uses mem primitive with 8-bit direct access
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+var rs[4:0];
+var rt[4:0];
+var base[31:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var byte_data[7:0];
+
+instr = umem[pc];
+assume instr[31:26] == 0x20;
+pc = pc + 4;
+rs = instr[25:21];
+rt = instr[20:16];
+
+base = rf[rs];
+
+imm = instr[15:0];
+sign_ext_imm = {{16{imm[15]}}, imm};
+
+addr = base + sign_ext_imm;
+
+// Direct 8-bit load from memory
+byte_data = umem[addr];
+
+// Sign-extend byte to 32 bits
+rf[rt] when (rt != 0) = {{24{byte_data[7]}}, byte_data};

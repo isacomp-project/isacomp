@@ -1,0 +1,129 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 RTE - Return from Exception
+// Opcode: 0100 1110 0111 0011 (4E73)
+// Privileged instruction - traps if executed in user mode
+// Pops SR then PC from supervisor stack
+// 68000 format: SP -> SR, SP+2 -> PC
+// 68010+ has extended stack frames with format word
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[23:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+// Full Status Register
+isa_state sr[15:0];
+isa_state usp[31:0];
+isa_state ssp[31:0];
+
+// CCR flags (aliases into SR)
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var sp[31:0];
+var new_sr[15:0];
+var new_pc_hi[15:0];
+var new_pc_lo[15:0];
+var new_pc[31:0];
+var format_word[15:0];
+var frame_format[3:0];
+var was_supervisor[0:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr == 16'h4E73;  // RTE opcode
+
+// RTE must be in supervisor mode (S bit = 1)
+// If in user mode, this would cause privilege violation (vector 8)
+// For this spec, we assume supervisor mode
+assume sr[13] == 1'b1;
+
+// Get supervisor stack pointer (aregs[7] is the live SP during supervisor execution;
+// ssp may be stale if the handler pushed/popped data on the stack)
+sp = aregs[7];
+
+// Pop SR from stack (word at sp)
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = sp;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+new_sr = dmem[ea_pa];
+#else
+new_sr = dmem[sp];
+#endif
+
+// Pop PC from stack (long at sp+2)
+#ifdef MMU
+new_pc_hi = dmem[ea_pa + 32'd2];
+#else
+new_pc_hi = dmem[sp + 32'd2];
+#endif
+#ifdef MMU
+new_pc_lo = dmem[ea_pa + 32'd4];
+#else
+new_pc_lo = dmem[sp + 32'd4];
+#endif
+new_pc = {new_pc_hi, new_pc_lo};
+
+// Read format/vector word (at sp+6, 68010+ format)
+#ifdef MMU
+format_word = dmem[ea_pa + 32'd6];
+#else
+format_word = dmem[sp + 32'd6];
+#endif
+frame_format = format_word[15:12];
+
+// Update stack pointer (8 bytes for 68010+ format 0 frame)
+// Note: Linux normalizes all frames to format 0 before RTE via stkadj
+ssp when (~m68k_exc_taken & ~data_exc_taken) = sp + 8;
+
+// Restore Status Register
+sr when (~m68k_exc_taken & ~data_exc_taken) = new_sr;
+
+// Update CCR flag aliases
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = new_sr[0];
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = new_sr[1];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = new_sr[2];
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = new_sr[3];
+flag_X when (~m68k_exc_taken & ~data_exc_taken) = new_sr[4];
+
+// If returning to user mode (S bit now 0), switch to USP
+// If staying in supervisor mode, advance SP past the popped frame
+// Note: ssp reads INPUT value, so use sp+8 for supervisor case
+was_supervisor = new_sr[13];
+aregs[7] when (~m68k_exc_taken & ~data_exc_taken) = was_supervisor ? (sp + 32'd8) : usp;
+
+// Return to saved PC
+pc when (~m68k_exc_taken) = new_pc;

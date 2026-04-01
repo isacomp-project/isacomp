@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX FSQRT - Floating-Point Square Root
+// FSQRT $X,$Z: $X = sqrt($Z) (floating-point)
+// Opcode: 0x0E
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rA[63:0];
+mem umem[14:0];
+
+var x[7:0];
+var z[7:0];
+var z_val[63:0];
+var rm[2:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x0E;
+
+x = instr[23:16];
+z = instr[7:0];
+
+z_val = rf[z];
+rm = {1'b0, rA[17:16]};
+
+result = fp_sqrt_d(z_val, rm);
+
+rf[x] = result;
+pc = pc + 4;

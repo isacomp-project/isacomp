@@ -1,0 +1,41 @@
+diff --git a/pyGHDL/dom/Literal.py b/pyGHDL/dom/Literal.py
+index 2e0ab910b..e3621d623 100644
+--- a/pyGHDL/dom/Literal.py
++++ b/pyGHDL/dom/Literal.py
+@@ -151,4 +151,35 @@ class StringLiteral(VHDLModel_StringLiteral, DOMMixin):
+             value = str_table.Get_String8_Ptr(nodes.Get_String8_Id(literalNode), nodes.Get_String_Length(literalNode))
+             return cls(literalNode, value)
+         else:
+-            WarningCollector.Raise(NotImplementedError("Bit String Literal not supported yet"))
++            # ISAComp patch: Handle Bit String Literal (x"...", b"...", etc.)
++            base = nodes.Get_Bit_String_Base(literalNode)
++            value = str_table.Get_String8_Ptr(nodes.Get_String8_Id(literalNode), nodes.Get_String_Length(literalNode))
++            # Note: Get_String8_Ptr returns binary representation for all bases
++            # For hex literals, convert binary back to hex
++            if base == nodes.NumberBaseType.Base_16:
++                # Convert binary string to hex
++                try:
++                    int_val = int(value, 2)
++                    # Calculate hex digits needed (round up to nearest nibble)
++                    hex_digits = (len(value) + 3) // 4
++                    hex_value = f'{int_val:0{hex_digits}X}'
++                    value = f'x"{hex_value}"'
++                except (ValueError, TypeError):
++                    # Fallback if conversion fails
++                    value = f'x"{value}"'
++            elif base == nodes.NumberBaseType.Base_2:
++                value = f'b"{value}"'
++            elif base == nodes.NumberBaseType.Base_8:
++                # Convert binary string to octal
++                try:
++                    int_val = int(value, 2)
++                    # Calculate octal digits needed (round up to nearest 3 bits)
++                    oct_digits = (len(value) + 2) // 3
++                    oct_value = f'{int_val:0{oct_digits}o}'
++                    value = f'o"{oct_value}"'
++                except (ValueError, TypeError):
++                    # Fallback if conversion fails
++                    value = f'o"{value}"'
++            else:
++                value = f'"{value}"'
++            return cls(literalNode, value)

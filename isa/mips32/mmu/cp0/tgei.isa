@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 TGEI - Trap if Greater or Equal Immediate (signed)
+// Generates a Trap exception (ExcCode = 13) if rs >= sign_extend(imm) (signed)
+// Encoding: 000001 rs[4:0] 01000 imm[15:0]
+//           REGIMM         TGEI
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect ../tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// TGEI encoding
+assume instr[31:26] == 6'b000001;  // REGIMM opcode
+assume instr[20:16] == 5'b01000;   // TGEI function
+
+// Extract operands
+var rs[4:0];
+var imm[15:0];
+var rs_val[31:0];
+var imm_sext[31:0];
+
+rs = instr[25:21];
+imm = instr[15:0];
+rs_val = rf[rs];
+imm_sext = {{16{imm[15]}}, imm};
+
+// Signed comparison: rs >= imm
+var diff[31:0];
+var rs_neg[0:0];
+var imm_neg[0:0];
+var diff_neg[0:0];
+var rs_lt_imm[0:0];
+var trap_cond[0:0];
+
+diff = rs_val - imm_sext;
+rs_neg = rs_val[31];
+imm_neg = imm_sext[31];
+diff_neg = diff[31];
+
+rs_lt_imm = (rs_neg & ~imm_neg) | ((rs_neg == imm_neg) & diff_neg);
+trap_cond = ~rs_lt_imm;  // rs >= imm
+
+// Exception handling
+var exc_code[4:0];
+exc_code = 13;
+
+var status_exl[0:0];
+var not_status_exl[0:0];
+var status_bev[0:0];
+var exc_vector[31:0];
+
+status_exl = cp0_status[1];
+not_status_exl = ~status_exl;
+status_bev = cp0_status[22];
+exc_vector = status_bev ? 32'hBFC00380 : 32'h80000180;
+
+cp0_epc when (trap_cond & not_status_exl) = pc;
+
+var new_cause[31:0];
+new_cause = {cp0_cause[31:7], exc_code, cp0_cause[1:0]};
+cp0_cause when (trap_cond) = new_cause;
+
+var new_status[31:0];
+new_status = cp0_status | 32'h2;
+cp0_status when (trap_cond) = new_status;
+
+var next_pc[31:0];
+next_pc = trap_cond ? exc_vector : (pc + 4);
+pc = next_pc;

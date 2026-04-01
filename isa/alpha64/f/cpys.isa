@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 - CPYS (Copy Sign)
+// Opcode: 0x17, Function: 0x020
+// Format: CPYS Fa, Fb, Fc
+// Fc = sign(Fa) | exponent+mantissa(Fb)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit)
+isa_state fpcr[63:0];          // FP control register
+mem umem[13:0];
+
+var fa[4:0];
+var fb[4:0];
+var fc[4:0];
+var f1[63:0];
+var f2[63:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:26] == 23;     // Opcode 0x17 = FP operate (branch format)
+assume instr[15:5] == 11'h020; // CPYS function code
+
+fa = instr[25:21];
+fb = instr[20:16];
+fc = instr[4:0];
+
+f1 = frf[fa];
+f2 = frf[fb];
+
+// Copy sign from Fa, rest from Fb
+result = {f1[63], f2[62:0]};
+
+frf[fc] when (fc != 31) = result;
+pc = pc + 4;

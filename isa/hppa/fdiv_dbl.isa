@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA FDIV,DBL instruction
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var t[4:0];
+var f1[63:0];
+var f2[63:0];
+var result[63:0];
+
+instr = umem[pc_pa];
+
+assume instr[31:26] == 0b001100;
+assume instr[12:9] == 0b0011;
+assume instr[5:4] == 0b01;
+
+r1 = instr[25:21];
+r2 = instr[20:16];
+t = instr[4:0];
+
+f1 = frf[r1];
+f2 = frf[r2];
+
+result = fp_div(f1, f2, 3'b000);
+
+frf[t] = result;
+pc = pc + 4;

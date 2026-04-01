@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vsse8.v - Vector Strided Store 8-bit Elements
+// Encoding: vsse8.v vs3, (rs1), rs2, vm
+// Operation: Store 8-bit elements with stride to memory
+
+isa_state pc[31:0];
+isa_state xrf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var rs2[4:0];
+var vs3[4:0];
+var vm[0:0];
+var base[31:0];
+var stride[31:0];
+var v3[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0100111;
+assume instr[14:12] == 0b000;
+assume instr[28:26] == 0b010;
+assume instr[31:29] == 0b000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+vs3 = instr[11:7];
+vm = instr[25:25];
+
+base = xrf[rs1];
+stride = xrf[rs2];
+v3 = vrf[vs3];
+
+umem[base] = v3[7:0];
+umem[base + stride] = v3[15:8];
+umem[base + stride * 2] = v3[23:16];
+umem[base + stride * 3] = v3[31:24];
+umem[base + stride * 4] = v3[39:32];
+umem[base + stride * 5] = v3[47:40];
+umem[base + stride * 6] = v3[55:48];
+umem[base + stride * 7] = v3[63:56];
+umem[base + stride * 8] = v3[71:64];
+umem[base + stride * 9] = v3[79:72];
+umem[base + stride * 10] = v3[87:80];
+umem[base + stride * 11] = v3[95:88];
+umem[base + stride * 12] = v3[103:96];
+umem[base + stride * 13] = v3[111:104];
+umem[base + stride * 14] = v3[119:112];
+umem[base + stride * 15] = v3[127:120];

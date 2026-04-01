@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX FUNE - Floating Unordered with Epsilon
+// FUNE $X,$Y,$Z: $X = (unordered($Y, $Z, rE)) ? 1 : 0
+// Opcode: 0x13
+// Note: Simplified - same as FUN for now
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var result[63:0];
+var y_is_nan[0:0];
+var z_is_nan[0:0];
+var unordered[0:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x13;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+
+// Check for NaN (exponent all 1s, non-zero mantissa)
+y_is_nan = (y_val[62:52] == 11'h7FF) & (y_val[51:0] != 52'b0);
+z_is_nan = (z_val[62:52] == 11'h7FF) & (z_val[51:0] != 52'b0);
+unordered = y_is_nan | z_is_nan;
+result = unordered ? 64'd1 : 64'd0;
+
+rf[x] = result;
+pc = pc + 4;

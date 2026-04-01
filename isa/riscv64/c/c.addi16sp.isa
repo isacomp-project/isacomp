@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64C C.ADDI16SP - Add immediate to SP (scaled by 16)
+
+isa_state pc[63:0];
+var c_instr[15:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var sp[63:0];
+var imm[9:0];
+var sign_ext_imm[63:0];
+var res[63:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.ADDI16SP format: CI-type
+// Encoding: 011 imm[9] 00010 imm[4|6|8:7|5] 01
+assume c_instr[1:0] == 0b01;
+assume c_instr[15:13] == 0b011;
+assume c_instr[11:7] == 5'b00010;
+
+pc = pc + 2;
+
+// Immediate is imm[9:4] = {c_instr[12], c_instr[4:3], c_instr[5], c_instr[2], c_instr[6]}
+imm = {c_instr[12], c_instr[4:3], c_instr[5], c_instr[2], c_instr[6], 4'b0};
+sign_ext_imm = {{54{imm[9]}}, imm};
+
+// SP is x2
+sp = rf[5'b00010];
+
+res = sp + sign_ext_imm;
+
+rf[5'b00010] = res;

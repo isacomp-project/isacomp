@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD D9 - DD prefix passthrough EXX
+// DD prefix consumed, EXX executes unchanged
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state B[7:0];
+isa_state C[7:0];
+isa_state D[7:0];
+isa_state E[7:0];
+isa_state H[7:0];
+isa_state L[7:0];
+isa_state B_prime[7:0];
+isa_state C_prime[7:0];
+isa_state D_prime[7:0];
+isa_state E_prime[7:0];
+isa_state H_prime[7:0];
+isa_state L_prime[7:0];
+mem mainmem[15:0];
+
+var dd_exx_temp_b[7:0];
+var dd_exx_temp_c[7:0];
+var dd_exx_temp_d[7:0];
+var dd_exx_temp_e[7:0];
+var dd_exx_temp_h[7:0];
+var dd_exx_temp_l[7:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'hD9DD;
+pc = pc + 2;
+
+dd_exx_temp_b = B;
+dd_exx_temp_c = C;
+dd_exx_temp_d = D;
+dd_exx_temp_e = E;
+dd_exx_temp_h = H;
+dd_exx_temp_l = L;
+
+B = B_prime;
+C = C_prime;
+D = D_prime;
+E = E_prime;
+H = H_prime;
+L = L_prime;
+
+B_prime = dd_exx_temp_b;
+C_prime = dd_exx_temp_c;
+D_prime = dd_exx_temp_d;
+E_prime = dd_exx_temp_e;
+H_prime = dd_exx_temp_h;
+L_prime = dd_exx_temp_l;

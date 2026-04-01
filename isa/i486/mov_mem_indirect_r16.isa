@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV [indirect], r16 - WITH PROPER SEGMENTATION
+// Opcode: 0x89 + ModR/M byte with mod=00 (simple indirect)
+// Supports [SI], [DI], and [BX] addressing modes
+// Uses DS segment for data access
+
+isa_state xregs[31:0][2:0];    // 16-bit registers array
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x89;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume mod_bits == 0b00;
+
+var src_idx[2:0];
+var addr_reg_idx[2:0];
+var offset[15:0];              // 16-bit offset from register
+var offset_hi[15:0];           // Offset + 1 with wraparound
+var physical_addr_lo[19:0];    // 20-bit physical address for low byte
+var physical_addr_hi[19:0];    // 20-bit physical address for high byte
+var src_val[15:0];
+
+src_idx = reg_idx;
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;   // SI
+  0b101: addr_reg_idx = 3'b111;   // DI
+  0b111: addr_reg_idx = 3'b011;   // BX
+}
+
+// Get full 16-bit offset from register (not just lower 8 bits)
+offset = xregs[addr_reg_idx];
+offset_hi = offset + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: DS:offset and DS:(offset+1)
+physical_addr_lo = {DS, 4'b0} + {4'b0, offset};
+physical_addr_hi = {DS, 4'b0} + {4'b0, offset_hi};
+
+// Write word to physical memory (little-endian)
+src_val = xregs[src_idx];
+dmem[physical_addr_lo] = src_val[7:0];
+dmem[physical_addr_hi] = src_val[15:8];

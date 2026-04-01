@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 INTO (0xCE) - WITH PROPER SEGMENTATION
+// Interrupt on overflow
+// If OF=1, pushes FLAGS, CS, IP onto SS:[SP] and jumps to INT 4 vector
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state SS[15:0];            // Stack segment register
+isa_state CS[15:0];            // Code segment register
+isa_state xregs[15:0][7:0];    // General purpose registers (xregs[4] is SP)
+isa_state flag_OF[0:0];
+isa_state flag_DF[0:0];
+isa_state flag_IF[0:0];
+isa_state flag_TF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_CF[0:0];
+
+var vector_addr[15:0];
+var new_ip_lo[7:0];
+var new_ip_hi[7:0];
+var new_cs_lo[7:0];
+var new_cs_hi[7:0];
+var new_ip[15:0];
+var new_cs[15:0];
+var flags[15:0];
+var stack_offset_lo[15:0];
+var stack_offset_hi[15:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+
+instr = imem[ip];
+assume instr == 0xCE;
+ip = ip + 1;
+
+// Build FLAGS register (8086 format)
+flags = {4'b0000, flag_OF, flag_DF, flag_IF, flag_TF, flag_SF, flag_ZF, 1'b0, flag_AF, 1'b0, flag_PF, 1'b1, flag_CF};
+
+// Only trigger interrupt if OF = 1
+// Conditionally push FLAGS, CS, IP and jump to INT 4 handler
+
+// Push FLAGS onto stack (if OF=1)
+// Decrement SP by 2 (if OF=1)
+xregs[4] = flag_OF == 1'b1 ? (xregs[4] - 16'h0002) : xregs[4];
+
+// Calculate stack offsets for FLAGS
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = (SS << 4) + stack_offset_lo;
+physical_addr_hi = (SS << 4) + stack_offset_hi;
+
+// Push FLAGS onto stack (little-endian, if OF=1)
+dmem[physical_addr_lo] = flag_OF == 1'b1 ? flags[7:0] : dmem[physical_addr_lo];
+dmem[physical_addr_hi] = flag_OF == 1'b1 ? flags[15:8] : dmem[physical_addr_hi];
+
+// Push CS onto stack (if OF=1)
+// Decrement SP by 2 (if OF=1)
+xregs[4] = flag_OF == 1'b1 ? (xregs[4] - 16'h0002) : xregs[4];
+
+// Calculate stack offsets for CS
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = (SS << 4) + stack_offset_lo;
+physical_addr_hi = (SS << 4) + stack_offset_hi;
+
+// Push CS onto stack (little-endian, if OF=1)
+dmem[physical_addr_lo] = flag_OF == 1'b1 ? CS[7:0] : dmem[physical_addr_lo];
+dmem[physical_addr_hi] = flag_OF == 1'b1 ? CS[15:8] : dmem[physical_addr_hi];
+
+// Push IP (return address) onto stack (if OF=1)
+// Decrement SP by 2 (if OF=1)
+xregs[4] = flag_OF == 1'b1 ? (xregs[4] - 16'h0002) : xregs[4];
+
+// Calculate stack offsets for IP
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = (SS << 4) + stack_offset_lo;
+physical_addr_hi = (SS << 4) + stack_offset_hi;
+
+// Push IP onto stack (little-endian, if OF=1)
+dmem[physical_addr_lo] = flag_OF == 1'b1 ? ip[7:0] : dmem[physical_addr_lo];
+dmem[physical_addr_hi] = flag_OF == 1'b1 ? ip[15:8] : dmem[physical_addr_hi];
+
+// Load interrupt vector 4 (overflow) from IVT at physical address 0x00010
+// INT 4 vector = 4 * 4 = 16 = 0x10
+vector_addr = 16'h0010;
+
+// Read new IP and CS from IVT (little-endian)
+new_ip_lo = dmem[vector_addr];
+new_ip_hi = dmem[vector_addr + 16'h0001];
+new_cs_lo = dmem[vector_addr + 16'h0002];
+new_cs_hi = dmem[vector_addr + 16'h0003];
+
+new_ip = {new_ip_hi, new_ip_lo};
+new_cs = {new_cs_hi, new_cs_lo};
+
+// Jump to interrupt handler (if OF=1)
+ip = flag_OF == 1'b1 ? new_ip : ip;
+CS = flag_OF == 1'b1 ? new_cs : CS;

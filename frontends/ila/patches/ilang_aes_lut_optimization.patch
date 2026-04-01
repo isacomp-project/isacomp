@@ -1,0 +1,24 @@
+--- /dev/fd/63	2025-11-04 07:17:16.973062650 +0000
++++ /dev/fd/62	2025-11-04 07:17:16.977645903 +0000
+@@ -1,9 +1,15 @@
++// Helper to create S-box LUT
++static ExprRef create_s_lut() {
++  std::map<unsigned long, unsigned long> s_vals;
++  for (unsigned long i = 0; i < 256; i++) {
++    s_vals[i] = S_table[i];
++  }
++  return MemConst(0, s_vals, 8, 8);  // 8-bit addr, 8-bit data, default 0
++}
++
++// ACTUAL LUT: Just a memory load!
+ ExprRef AES_128::s_table_read(const ExprRef& idx) {
+   assert(idx.bit_width() == 8);
+-
+-  ExprRef ret = BvConst(S_table[0], 8);
+-  for (int i = 1; i < 256; i++) {
+-    ret = Ite(idx == i, BvConst(S_table[i], 8), ret);
+-  }
+-  return ret;
++  static ExprRef s_lut = create_s_lut();  // Created once on first call
++  return Load(s_lut, idx);  // Single Load operation!
+ }

@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+var r0[31:0];
+var store_addr[31:0];
+var store_size[1:0];
+var movw_indexed_store_no_error[0:0];
+var halfword_data[15:0];
+
+// Register banking variables (unique to movw_indexed_store)
+var movw_indexed_store_rn_lo[2:0];
+var movw_indexed_store_rm_lo[2:0];
+var movw_indexed_store_r0_lo[2:0];
+var movw_indexed_store_rb[0:0];
+var movw_indexed_store_rn_bk[0:0];
+var movw_indexed_store_rm_bk[0:0];
+var movw_indexed_store_r0_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+// Include address error detection for stores
+aspect addr_error_store.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+instr = umem[pc];
+assume instr[15:12] == 0x0;
+assume instr[3:0] == 0x5;
+// Exclude STC control register instructions that share the 0x0NM5 opcode space
+assume instr[7:0] != 0x05;  // Not STC PTEH,Rn (0x0n05)
+assume instr[7:0] != 0x15;  // Not STC PTEL,Rn (0x0n15)
+assume instr[7:0] != 0x25;  // Not STC TTB,Rn  (0x0n25)
+assume instr[7:0] != 0x35;  // Not STC TEA,Rn  (0x0n35)
+rn = instr[11:8];
+rm = instr[7:4];
+
+// Register banking setup
+movw_indexed_store_rn_lo = rn[2:0];
+movw_indexed_store_rm_lo = rm[2:0];
+movw_indexed_store_r0_lo = 3'b000;
+movw_indexed_store_rb = sr[29];  // RB bit (bit 29 in SR)
+movw_indexed_store_rn_bk = (rn[3] == 1'b0) & movw_indexed_store_rb;
+movw_indexed_store_rm_bk = (rm[3] == 1'b0) & movw_indexed_store_rb;
+movw_indexed_store_r0_bk = movw_indexed_store_rb;  // R0[3] is 0
+
+// MOV.W Rm, @(R0, Rn): store Rm word to address (R0 + Rn)
+Rn = movw_indexed_store_rn_bk ? rf_bank[movw_indexed_store_rn_lo] : rf[rn];
+Rm = movw_indexed_store_rm_bk ? rf_bank[movw_indexed_store_rm_lo] : rf[rm];
+r0 = movw_indexed_store_r0_bk ? rf_bank[movw_indexed_store_r0_lo] : rf[0];
+store_addr = Rn + r0;
+
+// Set up address error checking
+store_size = 2'b10;  // Word access (16-bit)
+
+// Compute the no-error condition
+movw_indexed_store_no_error = (store_addr[0] == 1'b0);
+
+// Only store if no address error
+halfword_data = Rm[15:0];
+umem[store_addr] when (movw_indexed_store_no_error) = halfword_data;
+
+// Only advance PC if no address error
+pc when (movw_indexed_store_no_error) = pc + 2;

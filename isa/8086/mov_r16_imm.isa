@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 MOV r16, imm16 - Parameterized with wildcard ** syntax
+// Opcodes: 0xB8-0xBF (MOV AX/CX/DX/BX/SP/BP/SI/DI, imm16)
+// Replaces multiple files: mov_ax_imm, mov_bx_imm, mov_cx_imm, etc.
+// Opcode encoding: 0xB8 + register_index (bits [2:0] of opcode = register index)
+
+isa_state ip[15:0];
+var instr[7:0];
+
+// Word register file: AX, CX, DX, BX, SP, BP, SI, DI
+// Using wildcard ** syntax to parameterize over all 8 registers
+isa_state xregs[15:0][2:0];
+
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var reg_idx[2:0];
+var imm_lo[7:0];
+var imm_hi[7:0];
+var imm_word[15:0];
+
+// Fetch instruction
+instr = imem[ip];
+
+// Check this is a MOV r16, imm16 instruction (0xB8-0xBF)
+assume instr[7:3] == 0b10111;  // Upper 5 bits must be 10111
+
+ip = ip + 1;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read immediate word (little-endian: low byte first)
+imm_lo = imem[ip];
+ip = ip + 1;
+imm_hi = imem[ip];
+ip = ip + 1;
+
+// Combine bytes into 16-bit immediate
+imm_word = {imm_hi, imm_lo};
+
+// Move immediate to register using indexed access
+xregs[reg_idx] = imm_word;

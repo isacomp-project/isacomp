@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[23:0];
+
+// Dedicated CSR registers as isa_state (for MMU aspect)
+isa_state priv_mode[1:0];      // Privilege mode: 0=U-mode, 1=S-mode, 3=M-mode
+isa_state satp[31:0];          // Supervisor Address Translation and Protection (0x180)
+isa_state mtvec[31:0];         // Machine Trap-Vector Base-Address (0x305)
+isa_state mepc[31:0];          // Machine Exception Program Counter (0x341)
+isa_state mcause[31:0];        // Machine Cause (0x342)
+isa_state mtval[31:0];         // Machine Trap Value (0x343)
+isa_state medeleg[31:0];       // Machine Exception Delegation (0x302)
+isa_state sepc[31:0];          // Supervisor Exception Program Counter (0x141)
+isa_state stvec[31:0];          // Supervisor Trap-Vector Base-Address (0x105)
+isa_state scause[31:0];        // Supervisor Cause (0x142)
+isa_state stval[31:0];         // Supervisor Trap Value (0x143)
+isa_state mie[31:0];           // Machine Interrupt Enable (0x304)
+isa_state mstatus[31:0];       // Machine Status (0x300)
+isa_state sstatus[31:0];       // Supervisor Status (0x100) - SPP is bit 8
+ext isa_state timer_irq_pending[0:0]; // Timer interrupt pending from CLINT
+
+var rs1[4:0];
+var rs2[4:0];
+var r1[31:0];
+var r2[31:0];
+var imm[12:0];
+var sign_ext_imm[31:0];
+var branch_offset[31:0];
+var branch_dest[31:0];
+var res[0:0];
+
+// Virtual memory translation
+aspect mmu.isa gates pc, priv_mode, mepc, mcause, mtval, sepc, scause, stval, mstatus, sstatus;
+
+instr = umem[pc_pa];
+assume instr[6:0] == 0b1100011;
+assume instr[14:12] == 0x0;
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+
+imm = {instr[31], instr[7], instr[30:25], instr[11:8], 1'b0};
+sign_ext_imm = {{19{imm[12]}}, imm};
+branch_offset = sign_ext_imm;
+res = r1 == r2;
+
+branch_dest = pc + branch_offset;
+
+// PC update with exception handling
+pc = res ? branch_dest : pc + 4;

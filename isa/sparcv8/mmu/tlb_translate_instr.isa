@@ -1,0 +1,265 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 SRMMU Instruction Fetch Translation Aspect
+// Translates PC (virtual address) to pc_pa (physical address)
+// Uses CAM-based TLB lookup with context matching
+//
+// This aspect should be included in all instruction-fetching .isa files
+// when MMU is enabled. It gates: pc, mmu_fsr, mmu_far, psr, tbr
+
+// Include MMU registers and TLB arrays
+
+// Physical address output (36-bit for SRMMU)
+var pc_pa[35:0];
+
+// ============================================================================
+// Extract processor state for permission checking
+// ============================================================================
+var is_supervisor[0:0];
+is_supervisor = psr[7];  // PSR.S (supervisor mode)
+
+var mmu_enabled[0:0];
+mmu_enabled = mmu_ctrl[0];  // MMU Control.E
+
+var current_ctx[7:0];
+current_ctx = mmu_ctx[7:0];
+
+// ============================================================================
+// Address decomposition
+// ============================================================================
+var pc_vpn[19:0];         // Virtual Page Number for 4KB pages
+var pc_offset[11:0];      // Page offset (preserved through translation)
+
+pc_vpn = pc[31:12];
+pc_offset = pc[11:0];
+
+// ============================================================================
+// CAM Lookup - find VPN matches in TLB
+// ============================================================================
+var vpn_matches[63:0];
+vpn_matches = tlb_vpn@[pc_vpn];
+
+// ============================================================================
+// Context and Valid filtering
+// For each entry: match = vpn_match AND valid AND (context_match)
+// Note: SPARC doesn't have a global bit like MIPS, context must always match
+// ============================================================================
+var cv_0[0:0]; var cv_1[0:0]; var cv_2[0:0]; var cv_3[0:0];
+var cv_4[0:0]; var cv_5[0:0]; var cv_6[0:0]; var cv_7[0:0];
+var cv_8[0:0]; var cv_9[0:0]; var cv_10[0:0]; var cv_11[0:0];
+var cv_12[0:0]; var cv_13[0:0]; var cv_14[0:0]; var cv_15[0:0];
+var cv_16[0:0]; var cv_17[0:0]; var cv_18[0:0]; var cv_19[0:0];
+var cv_20[0:0]; var cv_21[0:0]; var cv_22[0:0]; var cv_23[0:0];
+var cv_24[0:0]; var cv_25[0:0]; var cv_26[0:0]; var cv_27[0:0];
+var cv_28[0:0]; var cv_29[0:0]; var cv_30[0:0]; var cv_31[0:0];
+var cv_32[0:0]; var cv_33[0:0]; var cv_34[0:0]; var cv_35[0:0];
+var cv_36[0:0]; var cv_37[0:0]; var cv_38[0:0]; var cv_39[0:0];
+var cv_40[0:0]; var cv_41[0:0]; var cv_42[0:0]; var cv_43[0:0];
+var cv_44[0:0]; var cv_45[0:0]; var cv_46[0:0]; var cv_47[0:0];
+var cv_48[0:0]; var cv_49[0:0]; var cv_50[0:0]; var cv_51[0:0];
+var cv_52[0:0]; var cv_53[0:0]; var cv_54[0:0]; var cv_55[0:0];
+var cv_56[0:0]; var cv_57[0:0]; var cv_58[0:0]; var cv_59[0:0];
+var cv_60[0:0]; var cv_61[0:0]; var cv_62[0:0]; var cv_63[0:0];
+
+// Valid AND context match for each entry
+cv_0 = tlb_v[0] & (tlb_ctx[0] == current_ctx);
+cv_1 = tlb_v[1] & (tlb_ctx[1] == current_ctx);
+cv_2 = tlb_v[2] & (tlb_ctx[2] == current_ctx);
+cv_3 = tlb_v[3] & (tlb_ctx[3] == current_ctx);
+cv_4 = tlb_v[4] & (tlb_ctx[4] == current_ctx);
+cv_5 = tlb_v[5] & (tlb_ctx[5] == current_ctx);
+cv_6 = tlb_v[6] & (tlb_ctx[6] == current_ctx);
+cv_7 = tlb_v[7] & (tlb_ctx[7] == current_ctx);
+cv_8 = tlb_v[8] & (tlb_ctx[8] == current_ctx);
+cv_9 = tlb_v[9] & (tlb_ctx[9] == current_ctx);
+cv_10 = tlb_v[10] & (tlb_ctx[10] == current_ctx);
+cv_11 = tlb_v[11] & (tlb_ctx[11] == current_ctx);
+cv_12 = tlb_v[12] & (tlb_ctx[12] == current_ctx);
+cv_13 = tlb_v[13] & (tlb_ctx[13] == current_ctx);
+cv_14 = tlb_v[14] & (tlb_ctx[14] == current_ctx);
+cv_15 = tlb_v[15] & (tlb_ctx[15] == current_ctx);
+cv_16 = tlb_v[16] & (tlb_ctx[16] == current_ctx);
+cv_17 = tlb_v[17] & (tlb_ctx[17] == current_ctx);
+cv_18 = tlb_v[18] & (tlb_ctx[18] == current_ctx);
+cv_19 = tlb_v[19] & (tlb_ctx[19] == current_ctx);
+cv_20 = tlb_v[20] & (tlb_ctx[20] == current_ctx);
+cv_21 = tlb_v[21] & (tlb_ctx[21] == current_ctx);
+cv_22 = tlb_v[22] & (tlb_ctx[22] == current_ctx);
+cv_23 = tlb_v[23] & (tlb_ctx[23] == current_ctx);
+cv_24 = tlb_v[24] & (tlb_ctx[24] == current_ctx);
+cv_25 = tlb_v[25] & (tlb_ctx[25] == current_ctx);
+cv_26 = tlb_v[26] & (tlb_ctx[26] == current_ctx);
+cv_27 = tlb_v[27] & (tlb_ctx[27] == current_ctx);
+cv_28 = tlb_v[28] & (tlb_ctx[28] == current_ctx);
+cv_29 = tlb_v[29] & (tlb_ctx[29] == current_ctx);
+cv_30 = tlb_v[30] & (tlb_ctx[30] == current_ctx);
+cv_31 = tlb_v[31] & (tlb_ctx[31] == current_ctx);
+cv_32 = tlb_v[32] & (tlb_ctx[32] == current_ctx);
+cv_33 = tlb_v[33] & (tlb_ctx[33] == current_ctx);
+cv_34 = tlb_v[34] & (tlb_ctx[34] == current_ctx);
+cv_35 = tlb_v[35] & (tlb_ctx[35] == current_ctx);
+cv_36 = tlb_v[36] & (tlb_ctx[36] == current_ctx);
+cv_37 = tlb_v[37] & (tlb_ctx[37] == current_ctx);
+cv_38 = tlb_v[38] & (tlb_ctx[38] == current_ctx);
+cv_39 = tlb_v[39] & (tlb_ctx[39] == current_ctx);
+cv_40 = tlb_v[40] & (tlb_ctx[40] == current_ctx);
+cv_41 = tlb_v[41] & (tlb_ctx[41] == current_ctx);
+cv_42 = tlb_v[42] & (tlb_ctx[42] == current_ctx);
+cv_43 = tlb_v[43] & (tlb_ctx[43] == current_ctx);
+cv_44 = tlb_v[44] & (tlb_ctx[44] == current_ctx);
+cv_45 = tlb_v[45] & (tlb_ctx[45] == current_ctx);
+cv_46 = tlb_v[46] & (tlb_ctx[46] == current_ctx);
+cv_47 = tlb_v[47] & (tlb_ctx[47] == current_ctx);
+cv_48 = tlb_v[48] & (tlb_ctx[48] == current_ctx);
+cv_49 = tlb_v[49] & (tlb_ctx[49] == current_ctx);
+cv_50 = tlb_v[50] & (tlb_ctx[50] == current_ctx);
+cv_51 = tlb_v[51] & (tlb_ctx[51] == current_ctx);
+cv_52 = tlb_v[52] & (tlb_ctx[52] == current_ctx);
+cv_53 = tlb_v[53] & (tlb_ctx[53] == current_ctx);
+cv_54 = tlb_v[54] & (tlb_ctx[54] == current_ctx);
+cv_55 = tlb_v[55] & (tlb_ctx[55] == current_ctx);
+cv_56 = tlb_v[56] & (tlb_ctx[56] == current_ctx);
+cv_57 = tlb_v[57] & (tlb_ctx[57] == current_ctx);
+cv_58 = tlb_v[58] & (tlb_ctx[58] == current_ctx);
+cv_59 = tlb_v[59] & (tlb_ctx[59] == current_ctx);
+cv_60 = tlb_v[60] & (tlb_ctx[60] == current_ctx);
+cv_61 = tlb_v[61] & (tlb_ctx[61] == current_ctx);
+cv_62 = tlb_v[62] & (tlb_ctx[62] == current_ctx);
+cv_63 = tlb_v[63] & (tlb_ctx[63] == current_ctx);
+
+// Combine into context-valid mask
+var ctx_valid_mask[63:0];
+ctx_valid_mask = {cv_63, cv_62, cv_61, cv_60, cv_59, cv_58, cv_57, cv_56,
+                  cv_55, cv_54, cv_53, cv_52, cv_51, cv_50, cv_49, cv_48,
+                  cv_47, cv_46, cv_45, cv_44, cv_43, cv_42, cv_41, cv_40,
+                  cv_39, cv_38, cv_37, cv_36, cv_35, cv_34, cv_33, cv_32,
+                  cv_31, cv_30, cv_29, cv_28, cv_27, cv_26, cv_25, cv_24,
+                  cv_23, cv_22, cv_21, cv_20, cv_19, cv_18, cv_17, cv_16,
+                  cv_15, cv_14, cv_13, cv_12, cv_11, cv_10, cv_9, cv_8,
+                  cv_7, cv_6, cv_5, cv_4, cv_3, cv_2, cv_1, cv_0};
+
+// Final match: VPN match AND valid AND context match
+var tlb_match[63:0];
+tlb_match = vpn_matches & ctx_valid_mask;
+
+// ============================================================================
+// Find first matching entry using ctz (count trailing zeros)
+// ============================================================================
+var tlb_hit[0:0];
+var tlb_hit_idx[6:0];
+tlb_hit = |tlb_match;
+tlb_hit_idx = ctz(tlb_match);
+
+// Extract 6-bit index
+var hit_idx[5:0];
+hit_idx = tlb_hit_idx[5:0];
+
+// ============================================================================
+// Read matched TLB entry data
+// ============================================================================
+var matched_ppn[23:0];
+var matched_acc[2:0];
+var matched_c[0:0];
+
+matched_ppn = tlb_ppn[hit_idx];
+matched_acc = tlb_acc[hit_idx];
+matched_c = tlb_c[hit_idx];
+
+// ============================================================================
+// Permission checking for instruction fetch
+// ACC encoding for execute permission:
+// 000 = super read only - NO execute
+// 001 = super read/write - NO execute
+// 010 = super read/execute - YES for super
+// 011 = super read/write/execute - YES for super
+// 100 = super execute only - YES for super
+// 101 = user read only, super read only - NO execute
+// 110 = user read/execute, super all - YES for both
+// 111 = user all, super all - YES for both
+// ============================================================================
+var exec_allowed[0:0];
+
+// Execute allowed if:
+// - Supervisor: ACC in {010, 011, 100, 110, 111}
+// - User: ACC in {110, 111}
+var super_exec[0:0];
+var user_exec[0:0];
+
+super_exec = (matched_acc == 3'b010) | (matched_acc == 3'b011) |
+             (matched_acc == 3'b100) | (matched_acc == 3'b110) |
+             (matched_acc == 3'b111);
+user_exec = (matched_acc == 3'b110) | (matched_acc == 3'b111);
+
+exec_allowed = is_supervisor ? super_exec : user_exec;
+
+// ============================================================================
+// Exception detection
+// ============================================================================
+var tlb_miss[0:0];
+var prot_error[0:0];
+var instr_access_exception[0:0];
+
+// TLB miss: MMU enabled, no TLB hit
+tlb_miss = mmu_enabled & (~tlb_hit);
+
+// Protection error: TLB hit but no execute permission
+prot_error = mmu_enabled & tlb_hit & (~exec_allowed);
+
+// Any instruction access exception
+instr_access_exception = tlb_miss | prot_error;
+
+// ============================================================================
+// Fault Status Register update
+// AT = 011 (supervisor instruction) or 010 (user instruction)
+// FT = 100 (translation error) for miss, 010 (protection error) for prot
+// ============================================================================
+var fault_at[2:0];
+var fault_ft[2:0];
+var new_fsr[31:0];
+
+fault_at = is_supervisor ? 3'b011 : 3'b010;
+fault_ft = tlb_miss ? 3'b100 : 3'b010;
+
+// FSR format: [17:10]=EBE, [9:8]=L, [7:5]=AT, [4:2]=FT, [1]=FAV, [0]=OW
+// L=0 for page-level faults
+new_fsr = {14'b0, 8'b0, 2'b00, fault_at, fault_ft, 1'b1, mmu_fsr[0]};
+
+// Update FSR and FAR on exception
+mmu_fsr when (instr_access_exception) = new_fsr;
+mmu_far when (instr_access_exception) = pc;
+
+// ============================================================================
+// Trap vector calculation
+// instruction_access_exception = trap type 0x01
+// Vector = TBR[31:12] | (tt << 4)
+// ============================================================================
+var trap_vector[31:0];
+trap_vector = {tbr[31:12], 8'h01, 4'b0000};
+
+// Redirect PC to trap handler
+pc when (instr_access_exception) = trap_vector;
+
+// Update PSR: set S bit, clear ET bit (disable traps)
+var new_psr[31:0];
+new_psr = {psr[31:8], 1'b1, psr[6:5], 1'b0, psr[3:0]};  // Set S (bit 7), clear ET (bit 5)
+psr when (instr_access_exception) = new_psr;
+
+// ============================================================================
+// Compute physical address
+// ============================================================================
+var translated_pa[35:0];
+var passthrough_pa[35:0];
+
+// TLB translation: {PPN[23:0], offset[11:0]}
+translated_pa = {matched_ppn, pc_offset};
+
+// Pass-through: zero-extend VA to 36 bits
+passthrough_pa = {4'b0000, pc};
+
+// Select based on MMU enable and exception
+pc_pa = instr_access_exception ? {4'b0, trap_vector} :
+        mmu_enabled ? translated_pa : passthrough_pa;
+
+// ============================================================================
+// Update Referenced bit on successful access
+// ============================================================================
+tlb_r[hit_idx] when (mmu_enabled & tlb_hit & (~instr_access_exception)) = 1'b1;

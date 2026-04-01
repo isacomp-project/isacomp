@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 GATE instruction (64-bit)
+// GATE d(sr,b) - Gateway: like BL but promotes privilege level
+// Opcode: 0x3A (bits 31:26), bits[15:13]=001
+// 17-bit displacement. target = pc + 8 + offset. Link = instr[25:21].
+// Privilege promotion occurs via the ITLB gateway page attribute.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var link[4:0];
+var w[16:0];
+var target_offset[63:0];
+var target[63:0];
+
+instr = umem[pc_pa];
+
+// GATE encoding: opcode=0x3A, bits[15:13]=001
+assume instr[31:26] == 0b111010;
+assume instr[15:13] == 0b001;
+
+// Extract link register
+link = instr[25:21];
+
+// Assemble 17-bit displacement from scattered bits
+// w = {instr[0], instr[20:16], instr[2], instr[12:3]}
+w = {instr[0], instr[20:16], instr[2], instr[12:3]};
+
+// Sign-extend and word-align (shift left 2)
+target_offset = {{45{w[16]}}, w, 2'b00};
+
+// Target is relative to PC+8
+target = pc + 8 + target_offset;
+
+// Save return address (pc+8) to link register
+// The link register encodes the caller's privilege level in bits [1:0]
+rf[link] when (link != 0 & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = pc + 8;
+
+// Nullification: GATE,N sets PSW.N to nullify delay slot
+psw when (instr[1] & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Set up delay slot
+delay_slot when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+
+// Advance PC to delay slot instruction
+// Note: privilege promotion is handled by the interruption aspect via gateway_promote
+pc = pc + 4;

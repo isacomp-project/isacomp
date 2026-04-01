@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX CMP - Compare (signed)
+// CMP $X,$Y,$Z: $X = ($Y < $Z) ? -1 : (($Y > $Z) ? 1 : 0)
+// Opcode: 0x30
+// For signed comparison: check sign bits to determine relative order
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var y_neg[0:0];
+var z_neg[0:0];
+var lt[0:0];
+var gt[0:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x30;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+
+// Get sign bits
+y_neg = y_val[63];
+z_neg = z_val[63];
+
+// Signed less than:
+// - y negative, z non-negative: y < z is true
+// - y non-negative, z negative: y < z is false
+// - same sign: compare as unsigned
+lt = (y_neg && !z_neg) || ((y_neg == z_neg) && (y_val < z_val));
+
+// Signed greater than:
+// - y non-negative, z negative: y > z is true
+// - y negative, z non-negative: y > z is false
+// - same sign: compare as unsigned
+gt = (!y_neg && z_neg) || ((y_neg == z_neg) && (y_val > z_val));
+
+result = lt ? 64'hFFFFFFFFFFFFFFFF : (gt ? 64'h0000000000000001 : 64'h0000000000000000);
+
+rf[x] = result;
+pc = pc + 4;

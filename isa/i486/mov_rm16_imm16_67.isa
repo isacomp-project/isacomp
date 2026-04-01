@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 67-prefix MOV r/m16, imm16 (0x67 0xC7/0)
+// Move immediate word to register or memory
+// With 67 prefix: 32-bit addressing mode
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+
+var modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var imm_lo[7:0];
+var imm_hi[7:0];
+var imm16[15:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xC7;
+
+modrm = imem[eip + 2];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Must be opcode extension 0 for MOV
+assume reg_bits == 3'b000;
+// For register-direct mode only (mod=11)
+assume mod_bits == 2'b11;
+
+// Get immediate value (little-endian) - after prefix(1)+opcode(1)+modrm(1)
+imm_lo = imem[eip + 3];
+imm_hi = imem[eip + 4];
+imm16 = {imm_hi, imm_lo};
+
+// Write to register - rm_bits directly indexes xregs
+xregs[rm_bits][15:0] = imm16;
+
+// Update EIP: prefix (1) + opcode (1) + ModR/M (1) + imm16 (2) = 5 bytes
+eip = eip + 5;

@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rB[4:0];
+var target[31:0];
+var pc_plus_4[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x12;
+assume instr[25:21] == 0x0;
+assume instr[20:16] == 0x0;
+rB = instr[15:11];
+
+pc_plus_4 = pc + 4;
+target = rf[rB];
+
+rf[9] = pc_plus_4;
+pc = target;

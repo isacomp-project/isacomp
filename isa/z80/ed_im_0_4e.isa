@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED 4E - Undocumented IM 0 variant (behaves like IM 0)
+// Does not affect flags
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+isa_state IM[1:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 16'h4EED;
+pc = pc_plus_1 + 1;
+
+IM = 0;

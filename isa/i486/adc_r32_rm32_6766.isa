@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ADC r32, r/m32 with 6766 prefix (0x67 0x66 0x13) - 32-bit addressing + 32-bit operands
+
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix67[7:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var dst_idx[2:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp32_b0[7:0];
+var disp32_b1[7:0];
+var disp32_b2[7:0];
+var disp32_b3[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr[31:0];
+var physical_addr_1[31:0];
+var physical_addr_2[31:0];
+var physical_addr_3[31:0];
+var src_mem_val_b0[7:0];
+var src_mem_val_b1[7:0];
+var src_mem_val_b2[7:0];
+var src_mem_val_b3[7:0];
+var src_mem_val[31:0];
+var src_reg_val[31:0];
+var src_val[31:0];
+var dst_val[31:0];
+var result[32:0];
+var is_mem_src[0:0];
+
+prefix67 = imem[eip];
+assume prefix67 == 0x67;
+
+prefix = imem[eip + 1];
+assume prefix == 0x66;
+
+instr = imem[eip + 2];
+assume instr == 0x13;
+
+modrm = imem[eip + 3];
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+dst_idx = reg_idx;
+dst_val = xregs[dst_idx];
+base_val = xregs[rm_bits];
+
+disp8 = imem[eip + 4];
+disp32_b0 = imem[eip + 4];
+disp32_b1 = imem[eip + 5];
+disp32_b2 = imem[eip + 6];
+disp32_b3 = imem[eip + 7];
+disp32 = {disp32_b3, disp32_b2, disp32_b1, disp32_b0};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  2'b00: offset = base_val;
+  2'b01: offset = base_val + signed_disp8;
+  2'b10: offset = base_val + disp32;
+  2'b11: offset = 32'h00000000;
+}
+
+case (mod_bits) {
+  2'b00: is_mem_src = 1'b1;
+  2'b01: is_mem_src = 1'b1;
+  2'b10: is_mem_src = 1'b1;
+  2'b11: is_mem_src = 1'b0;
+}
+
+case (mod_bits) {
+  2'b00: eip = eip + 4;
+  2'b01: eip = eip + 5;
+  2'b10: eip = eip + 8;
+  2'b11: eip = eip + 4;
+}
+
+physical_addr = ({16'h0000, DS} << 4) + offset;
+physical_addr_1 = physical_addr + 32'h00000001;
+physical_addr_2 = physical_addr + 32'h00000002;
+physical_addr_3 = physical_addr + 32'h00000003;
+
+src_mem_val_b0 = dmem[physical_addr];
+src_mem_val_b1 = dmem[physical_addr_1];
+src_mem_val_b2 = dmem[physical_addr_2];
+src_mem_val_b3 = dmem[physical_addr_3];
+src_mem_val = {src_mem_val_b3, src_mem_val_b2, src_mem_val_b1, src_mem_val_b0};
+src_reg_val = xregs[rm_bits];
+
+case (is_mem_src) {
+  1'b1: src_val = src_mem_val;
+  1'b0: src_val = src_reg_val;
+}
+
+result = {1'b0, dst_val} + {1'b0, src_val} + {32'b0, flag_CF};
+
+flag_CF = result[32];
+flag_OF = (dst_val[31] == src_val[31]) & (dst_val[31] != result[31]);
+flag_SF = result[31];
+flag_ZF = result[31:0] == 32'h00000000;
+flag_AF = (dst_val[3:0] + src_val[3:0]) > 4'hF;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+xregs[dst_idx] = result[31:0];

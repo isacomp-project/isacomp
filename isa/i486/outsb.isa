@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 OUTSB (0x6E)
+// Output byte from [ESI] to port DX, adjust ESI by 1 based on DF
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state ESI[31:0] of xregs[6];
+isa_state DX[15:0] of xregs[2][15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state io_ports[7:0][15:0];
+isa_state flag_DF[0:0];
+
+var new_esi[31:0];
+var val[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x6E;
+
+// Read byte from [ESI]
+val = dmem[ESI];
+
+// Write byte to I/O port DX
+io_ports[DX] = val;
+
+// Adjust ESI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 1 : ESI - 1;
+ESI = new_esi;
+
+// OUTSB does not affect flags
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

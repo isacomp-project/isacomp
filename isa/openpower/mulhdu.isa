@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mulhdu - Multiply High Doubleword Unsigned (XO-Form)
+// mulhdu RT,RA,RB
+// Primary opcode 31, XO=9
+// Returns high 64 bits of 64x64->128 unsigned multiply
+// RT <- high64((RA) * unsigned (RB))
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var rb[4:0];
+var ra_val[63:0];
+var rb_val[63:0];
+
+// Break down into 32-bit parts for 64x64->128 multiply
+var a_hi[31:0];
+var a_lo[31:0];
+var b_hi[31:0];
+var b_lo[31:0];
+var p_hh[63:0];
+var p_hl[63:0];
+var p_lh[63:0];
+var p_ll[63:0];
+var mid_sum[64:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 9
+assume instr[9:1] == 9;
+// Rc bit = 0
+assume instr[0] == 0;
+// OE bit = 0
+assume instr[10] == 0;
+
+// Extract register fields
+rt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+ra_val = rf[ra];
+rb_val = rf[rb];
+
+// Split into high and low 32-bit parts
+a_hi = ra_val[63:32];
+a_lo = ra_val[31:0];
+b_hi = rb_val[63:32];
+b_lo = rb_val[31:0];
+
+// Compute partial products
+p_hh = a_hi * b_hi;
+p_hl = a_hi * b_lo;
+p_lh = a_lo * b_hi;
+p_ll = a_lo * b_lo;
+
+// Combine: high_part = p_hh + (p_hl >> 32) + (p_lh >> 32) + carry from lower parts
+mid_sum = {32'h0, p_hl[31:0]} + {32'h0, p_lh[31:0]} + {32'h0, p_ll[63:32]};
+result = p_hh + {32'h0, p_hl[63:32]} + {32'h0, p_lh[63:32]} + {31'h0, mid_sum[64:32]};
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

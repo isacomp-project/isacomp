@@ -1,0 +1,29 @@
+diff --git a/pyGHDL/dom/Concurrent.py b/pyGHDL/dom/Concurrent.py
+index ef1018940..96fd545f1 100644
+--- a/pyGHDL/dom/Concurrent.py
++++ b/pyGHDL/dom/Concurrent.py
+@@ -626,6 +626,11 @@ class WaveformElement(VHDLModel_WaveformElement, DOMMixin):
+ 
+         value = GetExpressionFromNode(nodes.Get_We_Value(waveNode))
+ 
++        # ISAComp patch: Handle case where expression parsing returns None
++        # This can happen with incomplete expression trees in complex VHDL
++        if value is None:
++            return None
++
+         timeNode = nodes.Get_Time(waveNode)
+         if timeNode is nodes.Null_Iir:
+             time = None
+@@ -656,7 +661,11 @@ class ConcurrentSimpleSignalAssignment(VHDLModel_ConcurrentSimpleSignalAssignmen
+ 
+         waveform = []
+         for wave in utils.chain_iter(nodes.Get_Waveform_Chain(assignmentNode)):
+-            waveform.append(WaveformElement.parse(wave))
++            # ISAComp patch: Skip waveform elements that fail to parse
++            # This handles incomplete expression trees gracefully
++            element = WaveformElement.parse(wave)
++            if element is not None:
++                waveform.append(element)
+ 
+         return cls(assignmentNode, label, targetName, waveform)
+ 

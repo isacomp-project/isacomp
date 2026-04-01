@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RCR r/m8, imm8 with 67 prefix (0x67 0xC0 /3) - 32-bit addressing mode
+// Rotate through Carry Right by immediate count with address-size prefix
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var dst_reg_idx[2:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp32_b0[7:0];
+var disp32_b1[7:0];
+var disp32_b2[7:0];
+var disp32_b3[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr[31:0];
+var dst_mem_val[7:0];
+var dst_reg_val_low[7:0];
+var dst_reg_val_high[7:0];
+var dst_reg_val[7:0];
+var dst_val[7:0];
+var count[7:0];
+var effective_count[3:0];
+var result[7:0];
+var temp_cf[8:0];
+var is_mem_dst[0:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xC0;
+
+modrm = imem[eip + 2];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b011;  // RCR
+
+dst_reg_idx = rm_bits[1:0];
+
+// For 32-bit addressing, rm selects base register
+base_val = xregs[rm_bits];
+
+disp8 = imem[eip + 3];
+disp32_b0 = imem[eip + 3];
+disp32_b1 = imem[eip + 4];
+disp32_b2 = imem[eip + 5];
+disp32_b3 = imem[eip + 6];
+disp32 = {disp32_b3, disp32_b2, disp32_b1, disp32_b0};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  2'b00: offset = base_val;
+  2'b01: offset = base_val + signed_disp8;
+  2'b10: offset = base_val + disp32;
+  2'b11: offset = 32'h00000000;
+}
+
+case (mod_bits) {
+  2'b00: is_mem_dst = 1'b1;
+  2'b01: is_mem_dst = 1'b1;
+  2'b10: is_mem_dst = 1'b1;
+  2'b11: is_mem_dst = 1'b0;
+}
+
+physical_addr = ({16'h0000, DS} << 4) + offset;
+
+dst_mem_val = dmem[physical_addr];
+dst_reg_val_low = lregs[dst_reg_idx];
+dst_reg_val_high = hregs[dst_reg_idx];
+
+case (rm_bits[2]) {
+  1'b1: dst_reg_val = dst_reg_val_high;
+  1'b0: dst_reg_val = dst_reg_val_low;
+}
+
+case (is_mem_dst) {
+  1'b1: dst_val = dst_mem_val;
+  1'b0: dst_val = dst_reg_val;
+}
+
+// Read immediate count based on mod_bits
+case (mod_bits) {
+  2'b00: count = imem[eip + 3];
+  2'b01: count = imem[eip + 4];
+  2'b10: count = imem[eip + 7];
+  2'b11: count = imem[eip + 3];
+}
+
+case (mod_bits) {
+  2'b00: eip = eip + 4;
+  2'b01: eip = eip + 5;
+  2'b10: eip = eip + 8;
+  2'b11: eip = eip + 4;
+}
+
+// Effective count is count mod 9 for 8-bit RCR (9 because of CF)
+effective_count = count[3:0] % 4'd9;
+
+// RCR: Rotate through carry right by effective_count
+case (effective_count) {
+  4'd0: temp_cf = {flag_CF, dst_val};
+  4'd1: temp_cf = {dst_val[0], flag_CF, dst_val[7:1]};
+  4'd2: temp_cf = {dst_val[1], dst_val[0], flag_CF, dst_val[7:2]};
+  4'd3: temp_cf = {dst_val[2], dst_val[1:0], flag_CF, dst_val[7:3]};
+  4'd4: temp_cf = {dst_val[3], dst_val[2:0], flag_CF, dst_val[7:4]};
+  4'd5: temp_cf = {dst_val[4], dst_val[3:0], flag_CF, dst_val[7:5]};
+  4'd6: temp_cf = {dst_val[5], dst_val[4:0], flag_CF, dst_val[7:6]};
+  4'd7: temp_cf = {dst_val[6], dst_val[5:0], flag_CF, dst_val[7]};
+  4'd8: temp_cf = {dst_val[7], dst_val[6:0], flag_CF};
+}
+
+result = temp_cf[7:0];
+
+// Update CF
+case (effective_count) {
+  4'd0: flag_CF = flag_CF;
+  default: flag_CF = temp_cf[8];
+}
+
+// OF only defined for count=1: OF = MSB(result) XOR MSB-1(result)
+case (count) {
+  8'h01: flag_OF = result[7] ^ result[6];
+}
+
+// Write result
+case (is_mem_dst) {
+  1'b1: dmem[physical_addr] = result;
+  1'b0: dmem[physical_addr] = dmem[physical_addr];
+}
+
+var write_high[0:0];
+write_high = (~is_mem_dst) & rm_bits[2];
+case (write_high) {
+  1'b1: hregs[dst_reg_idx] = result;
+  1'b0: hregs[dst_reg_idx] = hregs[dst_reg_idx];
+}
+
+var write_low[0:0];
+write_low = (~is_mem_dst) & (~rm_bits[2]);
+case (write_low) {
+  1'b1: lregs[dst_reg_idx] = result;
+  1'b0: lregs[dst_reg_idx] = lregs[dst_reg_idx];
+}

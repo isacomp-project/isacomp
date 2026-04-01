@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 EXTB.L - Extend Byte to Long
+// Opcode: 0100 1001 1100 0 rrr (49C0-49C7)
+// Sign-extends byte (bits 7:0) of Dn to 32 bits
+// New in 68020 (68000 only has EXT.W and EXT.L)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+
+isa_state sr[15:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var reg_num[2:0];
+var byte_val[7:0];
+var result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+instr = dmem[pc_pa];
+assume instr[15:3] == 13'b0100100111000;  // EXTB.L opcode
+pc when (~m68k_exc_taken) = pc + 2;
+
+reg_num = instr[2:0];
+byte_val = dregs[reg_num][7:0];
+
+// Sign extend byte to long
+result = {{24{byte_val[7]}}, byte_val};
+dregs[reg_num] when (~m68k_exc_taken) = result;
+
+flag_N when (~m68k_exc_taken) = result[31];
+flag_Z when (~m68k_exc_taken) = (result == 0);
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

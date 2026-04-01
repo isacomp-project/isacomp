@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.sfnei with MMU - Set Flag if Not Equal Immediate
+// Format: l.sfnei rA, I
+// flag <- (rA != sext(I))
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[23:0];
+isa_state spr[31:0][15:0];
+isa_state cam itlb_tag[19:0]@[6:0][];
+isa_state itlb_tr_cam[31:0][6:0];
+isa_state cam dtlb_tag[19:0]@[6:0][];
+isa_state dtlb_tr_cam[31:0][6:0];
+isa_state sr[31:0];
+isa_state epcr0[31:0];
+isa_state esr0[31:0];
+isa_state eear0[31:0];
+isa_state flag[0:0];
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+isa_state ttmr[31:0];
+isa_state ttcr[31:0];
+
+
+var rA[4:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var r1[31:0];
+
+// Instruction fetch MMU translation
+aspect delay_slot.isa gates delay_slot;
+aspect mmu.isa gates pc, sr, epcr0, esr0, eear0;
+
+instr = umem[pc_pa];
+assume instr[31:26] == 0x2F;
+assume instr[25:21] == 0x01;
+pc = (in_delay_slot & ~exception_taken) ? branch_target : pc + 4;
+rA = instr[20:16];
+imm = instr[15:0];
+
+r1 = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+
+flag when (~exception_taken) = (r1 != sign_ext_imm);
+
+// Tick timer: counter increment and IP flag management
+var tt_mode[1:0];
+tt_mode = ttmr[31:30];
+var tt_en[0:0];
+tt_en = (tt_mode != 2'b00);
+var tt_match[0:0];
+tt_match = tt_en & (ttcr[27:0] == ttmr[27:0]);
+var tt_new_count[27:0];
+tt_new_count = tt_match ?
+    ((tt_mode == 2'b01) ? 28'b0 :
+     (tt_mode == 2'b10) ? ttcr[27:0] :
+     ttcr[27:0] + 1) :
+    ttcr[27:0] + 1;
+ttcr = tt_en ? {ttcr[31:28], tt_new_count} : ttcr;
+ttmr = tt_match ? (ttmr | 32'h10000000) : ttmr;

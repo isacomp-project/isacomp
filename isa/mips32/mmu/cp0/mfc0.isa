@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 MFC0 - Move From Coprocessor 0
+// Reads a CP0 register and writes to a general purpose register
+// Encoding: 010000 00000 rt rd 00000000 sel
+//           COP0   MF    rt rd          sel
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rt[4:0];
+var rd[4:0];
+var sel[2:0];
+var cp0_val[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect ../tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// MFC0 encoding: opcode=010000, rs=00000 (MF), rt, rd, 00000000, sel
+assume instr[31:26] == 6'b010000;  // COP0 opcode
+assume instr[25:21] == 5'b00000;   // MF function
+// rt = instr[20:16] - destination GPR
+// rd = instr[15:11] - CP0 register number
+// sel = instr[2:0]  - register select
+
+rt = instr[20:16];
+rd = instr[15:11];
+sel = instr[2:0];
+
+// CP0 register selection based on rd
+// Using conditional mux chain for register selection
+var is_cp0_0[0:0];   // Index
+var is_cp0_1[0:0];   // Random
+var is_cp0_2[0:0];   // EntryLo0
+var is_cp0_3[0:0];   // EntryLo1
+var is_cp0_4[0:0];   // Context
+var is_cp0_6[0:0];   // Wired
+var is_cp0_8[0:0];   // BadVAddr
+var is_cp0_9[0:0];   // Count
+var is_cp0_10[0:0];  // EntryHi
+var is_cp0_11[0:0];  // Compare
+var is_cp0_12[0:0];  // Status
+var is_cp0_13[0:0];  // Cause
+var is_cp0_14[0:0];  // EPC
+var is_cp0_15[0:0];  // PRId
+var is_cp0_16[0:0];  // Config
+var is_cp0_30[0:0];  // ErrorEPC
+
+is_cp0_0 = (rd == 0);
+is_cp0_1 = (rd == 1);
+is_cp0_2 = (rd == 2);
+is_cp0_3 = (rd == 3);
+is_cp0_4 = (rd == 4);
+is_cp0_6 = (rd == 6);
+is_cp0_8 = (rd == 8);
+is_cp0_9 = (rd == 9);
+is_cp0_10 = (rd == 10);
+is_cp0_11 = (rd == 11);
+is_cp0_12 = (rd == 12);
+is_cp0_13 = (rd == 13);
+is_cp0_14 = (rd == 14);
+is_cp0_15 = (rd == 15);
+is_cp0_16 = (rd == 16);
+is_cp0_30 = (rd == 30);
+
+// Build mux chain for CP0 register read
+var mux_30[31:0];
+var mux_16[31:0];
+var mux_15[31:0];
+var mux_14[31:0];
+var mux_13[31:0];
+var mux_12[31:0];
+var mux_11[31:0];
+var mux_10[31:0];
+var mux_9[31:0];
+var mux_8[31:0];
+var mux_6[31:0];
+var mux_4[31:0];
+var mux_3[31:0];
+var mux_2[31:0];
+var mux_1[31:0];
+
+// Default value (for undefined registers)
+mux_30 = is_cp0_30 ? cp0_errorepc : 32'h0;
+mux_16 = is_cp0_16 ? cp0_config : mux_30;
+mux_15 = is_cp0_15 ? cp0_prid : mux_16;
+mux_14 = is_cp0_14 ? cp0_epc : mux_15;
+mux_13 = is_cp0_13 ? cp0_cause : mux_14;
+mux_12 = is_cp0_12 ? cp0_status : mux_13;
+mux_11 = is_cp0_11 ? cp0_compare : mux_12;
+mux_10 = is_cp0_10 ? cp0_entryhi : mux_11;
+mux_9 = is_cp0_9 ? cp0_count : mux_10;
+mux_8 = is_cp0_8 ? cp0_badvaddr : mux_9;
+mux_6 = is_cp0_6 ? cp0_wired : mux_8;
+mux_4 = is_cp0_4 ? cp0_context : mux_6;
+mux_3 = is_cp0_3 ? cp0_entrylo1 : mux_4;
+mux_2 = is_cp0_2 ? cp0_entrylo0 : mux_3;
+mux_1 = is_cp0_1 ? cp0_random : mux_2;
+cp0_val = is_cp0_0 ? cp0_index : mux_1;
+
+// Write to destination register
+rf[rt] when (rt != 0) = cp0_val;
+
+// Update PC
+pc = pc + 4;

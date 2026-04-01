@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 BA instruction (branch always)
+// Format 2: op=00, cond=1000, op2=010
+// BA disp22
+// pc <- pc + sign_extend(disp22 << 2)
+// Has a delay slot - next instruction always executes before branch
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];  // 256 physical registers (136 used for 8 windows)
+isa_state cwp[2:0];       // Current Window Pointer (0-7)
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+var disp22[21:0];
+var offset[31:0];
+var target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[31:30] == 0b00;       // op = 00 (Format 2)
+assume instr[28:25] == 0b1000;     // cond = BA (always)
+assume instr[24:22] == 0b010;      // op2 = Bicc
+
+disp22 = instr[21:0];
+
+// Sign-extend and multiply by 4 (word offset)
+offset = {{10{disp22[21]}}, disp22} << 2;
+target = pc + offset;
+
+// BA always branches - set up delay slot for next instruction
+// Don't set up delay slot if we're already in one (would overwrite pending target)
+delay_slot when (in_delay_slot == 0) = 1;
+branch_target when (in_delay_slot == 0) = target;
+
+// Always advance to delay slot instruction
+// The aspect will override PC with branch_target after the delay slot executes
+pc = pc + 4;

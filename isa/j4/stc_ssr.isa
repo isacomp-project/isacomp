@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC SSR, Rn - Store Control Register SSR to Rn
+// SH-4 specific: Saved Status Register
+// Encoding: 0000nnnn00110010
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state ssr[31:0];  // Saved Status Register (SH-4 specific)
+mem umem[23:0];
+
+var rn[3:0];
+var stc_ssr_rn_lo[2:0];
+var stc_ssr_rb[0:0];
+var stc_ssr_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x0;
+assume instr[7:0] == 0x32;
+rn = instr[11:8];
+
+stc_ssr_rn_lo = rn[2:0];
+stc_ssr_rb = sr[29];  // RB bit (bit 29 in SR)
+stc_ssr_rn_bk = (rn[3] == 1'b0) & stc_ssr_rb;
+
+// Store SSR to Rn (privileged, SH-4 specific)
+rf[rn] when (stc_ssr_rn_bk == 0) = ssr;
+rf_bank[stc_ssr_rn_lo] when (stc_ssr_rn_bk) = ssr;
+pc = pc + 2;

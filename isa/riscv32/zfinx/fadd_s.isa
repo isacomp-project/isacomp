@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV32 Zfinx - FADD.S (Single-precision floating-point add using integer registers)
+// Encoding: funct7=0000000, rs2, rs1, rm, rd, opcode=1010011
+// Zfinx: Uses integer register file instead of dedicated FP registers
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];       // Integer register file (holds FP values in Zfinx)
+isa_state fcsr[31:0];          // FP control/status register
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var rm[2:0];
+var eff_rm[2:0];  // Effective rounding mode (canonical IEEE 754)
+var f1[31:0];
+var f2[31:0];
+var add_result[31:0];          // FP result value
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;   // FP opcode
+assume instr[31:27] == 0b00000;   // FADD.S funct5
+assume instr[26:25] == 0b00;      // fmt = S (single precision)
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+rm = instr[14:12];
+
+// Compute effective rounding mode (rm=111 means use fcsr[7:5])
+eff_rm = (rm == 3'b111) ? fcsr[7:5] : rm;
+
+// Read FP operands from integer register file
+f1 = rf[rs1];
+f2 = rf[rs2];
+
+// Perform FP addition with rounding mode
+add_result = fp_add(f1, f2, eff_rm);
+
+// Write IEEE 754 value to integer register file (skip x0)
+rf[rd] when (rd != 0) = add_result;

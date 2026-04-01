@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 JNS rel8 (0x79)
+// Jump if Not Sign (SF=0)
+// Uses signed byte displacement relative to EIP
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state flag_SF[0:0];
+
+var offset[7:0];
+var signed_offset[31:0];
+var target_addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x79;
+eip = eip + 1;
+
+// Read signed byte displacement
+offset = imem[eip];
+eip = eip + 1;
+
+// Sign-extend 8-bit offset to 32 bits
+signed_offset = {{24{offset[7]}}, offset};
+
+// Calculate target address (eip + signed offset)
+target_addr = eip + signed_offset;
+
+// Jump if condition is true
+eip = flag_SF == 1'b0 ? target_addr : eip;

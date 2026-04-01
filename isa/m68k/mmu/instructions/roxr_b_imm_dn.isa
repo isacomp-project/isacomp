@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 ROXR.B #count,Dn - Rotate right through extend, byte, by immediate count
+// Opcode: 1110 CCC0 00010 DDD where CCC=count (0=8, 1-7=1-7), DDD=reg
+// Rotates the 8-bit byte + X flag (9 bits total) right by count
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var count_field[2:0];
+var count[3:0];
+var src_val[7:0];
+var old_X[0:0];
+var result[7:0];
+var new_X[0:0];
+var temp_val[8:0];
+var rotated[17:0];
+var left_part[17:0];
+var right_part[17:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b1110;
+assume instr[8] == 0;           // Direction: right
+assume instr[7:6] == 0b00;     // Size: byte
+assume instr[5] == 0;           // i/r: immediate count
+assume instr[4:3] == 0b10;     // ROXR type
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+count_field = instr[11:9];
+dst_reg = instr[2:0];
+count = count_field == 0 ? 4'd8 : {1'b0, count_field};
+
+// Execute - rotate right through X flag (9-bit rotation)
+src_val = dregs[dst_reg][7:0];
+old_X = flag_X;
+temp_val = {src_val, old_X};
+
+// Rotate right by count positions (9-bit circular)
+right_part = {{9{1'b0}}, temp_val} >> count;
+left_part = {{9{1'b0}}, temp_val} << (9 - count);
+rotated = left_part | right_part;
+
+result = rotated[8:1];
+new_X = rotated[0];
+
+// Write result (byte: preserve upper 24 bits)
+dregs[dst_reg] when (~m68k_exc_taken) = {dregs[dst_reg][31:8], result};
+
+// Update CCR
+flag_X when (~m68k_exc_taken) = new_X;
+flag_C when (~m68k_exc_taken) = new_X;
+flag_N when (~m68k_exc_taken) = result[7];
+flag_Z when (~m68k_exc_taken) = result == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;

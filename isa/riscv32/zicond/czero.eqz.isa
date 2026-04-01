@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var r1[31:0];
+var r2[31:0];
+var res[31:0];
+
+instr = imem[pc];
+assume instr[6:0] == 0b0110011;
+assume instr[14:12] == 0b101;
+assume instr[31:25] == 0b0000111;
+pc = pc + 4;
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+
+// CZERO.EQZ: rd = (rs2 == 0) ? 0 : rs1
+res = (r2 == 0) ? 0 : r1;
+
+rf[rd] when (rd != 0) = res;

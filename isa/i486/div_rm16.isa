@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 DIV r/m16 (0xF7 /6) - CONSOLIDATED ALL ADDRESSING MODES
+// Unsigned divide: DX:AX / rm16 -> AX (quotient), DX (remainder)
+
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+
+var src_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var physical_addr_lo[31:0];
+var physical_addr_hi[31:0];
+var src_mem_val[15:0];
+var src_reg_val[15:0];
+var src_val[15:0];
+var dividend[31:0];
+var quotient[31:0];
+var remainder[31:0];
+var is_mem_src[0:0];
+
+instr = imem[eip];
+assume instr == 0xF7;
+
+modrm = imem[eip + 1];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b110;  // DIV
+
+src_reg_idx = rm_bits;
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+base_offset = xregs[addr_reg_idx];
+
+disp8 = imem[eip + 2];
+disp16_lo = imem[eip + 2];
+disp16_hi = imem[eip + 3];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+case (mod_bits) {
+  0b00: is_mem_src = 1'b1;
+  0b01: is_mem_src = 1'b1;
+  0b10: is_mem_src = 1'b1;
+  0b11: is_mem_src = 1'b0;
+}
+
+case (mod_bits) {
+  0b00: eip = eip + 2;
+  0b01: eip = eip + 3;
+  0b10: eip = eip + 4;
+  0b11: eip = eip + 2;
+}
+
+physical_addr_lo = (DS << 4) + offset;
+physical_addr_hi = (DS << 4) + offset + 16'h0001;
+
+var src_mem_val_lo[7:0];
+var src_mem_val_hi[7:0];
+src_mem_val_lo = dmem[physical_addr_lo];
+src_mem_val_hi = dmem[physical_addr_hi];
+src_mem_val = {src_mem_val_hi, src_mem_val_lo};
+src_reg_val = xregs[src_reg_idx][15:0];
+
+case (is_mem_src) {
+  1'b1: src_val = src_mem_val;
+  1'b0: src_val = src_reg_val;
+}
+
+// Form 32-bit dividend from DX:AX (use only the 16-bit portions)
+dividend = {xregs[2][15:0], xregs[0][15:0]};  // {DX, AX}
+
+// Unsigned division - extend divisor to 32 bits
+var src_ext[31:0];
+src_ext = {16'h0000, src_val};
+
+quotient = dividend / src_ext;
+remainder = dividend - (quotient * src_ext);
+
+// Check for overflow - quotient must fit in 16 bits
+var overflow[0:0];
+overflow = (quotient[31:16] != 16'h0000) ? 1'b1 : 1'b0;
+
+// Only write results if no overflow (otherwise #DE exception, no change)
+case (overflow) {
+  1'b0: xregs[0] = {xregs[0][31:16], quotient[15:0]};   // AX = quotient
+  1'b1: xregs[0] = xregs[0];  // unchanged
+}
+case (overflow) {
+  1'b0: xregs[2] = {xregs[2][31:16], remainder[15:0]};  // DX = remainder
+  1'b1: xregs[2] = xregs[2];  // unchanged
+}
+// Flags are undefined after DIV

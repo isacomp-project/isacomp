@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA MTSM instruction (Move To System Mask)
+// MTSM r - move lower bits of r into PSW system mask
+// Opcode: 0x00 (bits 31:26), sub-opcode bits[12:5]=0b11000011 (0xC3)
+// Format: bits[25:21]=0, bits[20:16]=source r, bits[15:13]=0, bits[4:0]=unused
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+var instr[31:0];
+var r[4:0];
+var src[31:0];
+
+instr = umem[pc_pa];
+
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b11000011;
+
+r = instr[20:16];
+src = (r == 0) ? 32'h0 : rf[r];
+
+// Move source register to PSW system mask bits [23:0]
+// PA-RISC "system mask" = PSW bits 8:31 in PA-RISC notation = bits[23:0] in LSB-0 notation
+// Covers: I(0), D(1), P(2), Q(3), R(4), F(5), G(6), X(7), ..., N(21), C(18), ...
+psw when (~instr_trap_taken & ~in_nullified) = (psw & 32'hFF000000) | (src & 32'h00FFFFFF);
+
+pc = pc + 4;

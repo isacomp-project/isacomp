@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER xoris - XOR Immediate Shifted (D-Form)
+// xoris RA,RS,UI
+// Primary opcode 27
+// RA <- (RS) ^ (0x0000_0000 || UI || 0x0000)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var ui[15:0];
+var rs_val[63:0];
+var shifted_ui[63:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 27
+assume instr[31:26] == 27;
+
+// Extract fields
+rs = instr[25:21];
+ra = instr[20:16];
+ui = instr[15:0];
+
+rs_val = rf[rs];
+// Shift UI left by 16, zero-extend to 64 bits
+shifted_ui = {32'h0, ui, 16'h0};
+
+result = rs_val ^ shifted_ui;
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+pc = pc + 4;

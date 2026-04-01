@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: CPU; MOV %reg, dst (read control register to stack)
+// CPU prefix (opcode 0x0B, subcode 0x0) followed by MOV (opcode 0x06)
+// Combined 8 bytes: 2-byte CPU prefix + 6-byte MOV with register source mode
+// dst = register[src_field[3:0]]
+//
+// Register encoding (Table 1-24):
+//   0x1=MSP, 0x2=ISP, 0x3=SP, 0x4=CONFIG, 0x5=PSW,
+//   0x6=SHAD, 0x7=VB, 0x8=STB, 0x9=FAULT, 0xA=ID,
+//   0xB=TIMER1, 0xC=TIMER2
+//
+// The CPU prefix changes mode 0x7 to register mode. This file models
+// reading the PSW register specifically (register 0x5) as an example.
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state psw[31:0];
+mem umem[31:0];
+
+var prefix[15:0];
+var parcel0[15:0];
+var parcel1[15:0];
+var parcel2[15:0];
+var opcode6[5:0];
+var smode[3:0];
+var dmode[3:0];
+var src_field[15:0];
+var dst_field[15:0];
+var dst_addr[31:0];
+
+// Fetch CPU prefix
+prefix = umem[pc];
+assume prefix[15] == 0;
+assume prefix[14:10] == 0x0B;
+assume prefix[9:0] == 0x000;
+
+// Fetch the following MOV instruction (three-parcel)
+parcel0 = umem[pc + 2];
+parcel1 = umem[pc + 4];
+parcel2 = umem[pc + 6];
+
+assume parcel0[15:14] == 0b10;
+opcode6 = parcel0[13:8];
+assume opcode6 == 0x06;
+
+smode = parcel0[7:4];
+dmode = parcel0[3:0];
+
+// Source: register mode (0x7 after CPU prefix)
+assume smode == 0x7;
+src_field = parcel1;
+// Register 0x5 = PSW
+assume src_field[3:0] == 0x5;
+
+// Destination: word stack offset
+assume dmode == 0xD;
+dst_field = parcel2;
+dst_addr = sp + {{16{dst_field[15]}}, dst_field};
+
+// Read PSW into destination
+umem[dst_addr] = psw;
+
+// CPU prefix + three-parcel instruction = 2 + 6 = 8 bytes
+pc = pc + 8;

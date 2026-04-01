@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// FABS DRn - Double-precision floating-point absolute value
+// DRn = |DRn| (when FPSCR.PR=1)
+// Encoding: 1111nnn001011101 (0xFn5D) with n even
+isa_state pc[31:0];
+var instr[15:0];
+isa_state fpr[31:0][3:0];
+mem umem[23:0];
+
+var drn[2:0];
+var frn_idx[3:0];
+var DRn_hi[31:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0xF;
+assume instr[7:0] == 0x5D;
+assume instr[8] == 1'b0;
+
+drn = instr[11:9];
+frn_idx = {drn, 1'b0};
+
+// For double, just clear sign bit in high word
+DRn_hi = fpr[frn_idx];
+fpr[frn_idx] = DRn_hi & 32'h7FFFFFFF;
+
+pc = pc + 2;

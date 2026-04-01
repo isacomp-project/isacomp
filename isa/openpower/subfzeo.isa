@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER subfzeo - Subtract From Zero Extended with Overflow (XO-Form)
+// subfzeo RT,RA
+// Primary opcode 31, XO=200, OE=1
+// RT <- ~(RA) + CA
+// CA <- new carry out
+// Updates XER[OV,SO] on overflow
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state xer[63:0];
+// XER bits:
+// XER[32] = SO (Summary Overflow) - sticky
+// XER[33] = OV (Overflow)
+// XER[34] = CA (Carry)
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var ra_val[63:0];
+var ca[0:0];
+var sum[64:0];
+var result[63:0];
+var carry[0:0];
+var overflow[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 200
+assume instr[9:1] == 200;
+// OE bit = 1 (overflow enable)
+assume instr[10] == 1;
+// Rc bit = 0 (no record)
+assume instr[0] == 0;
+
+// Extract register fields
+rt = instr[25:21];
+ra = instr[20:16];
+// RB field is reserved, should be 0
+assume instr[15:11] == 0;
+
+ra_val = rf[ra];
+ca = xer[34];  // Read CA bit
+
+// Compute ~(RA) + CA with carry
+sum = {1'b0, ~ra_val} + {64'h0, ca};
+result = sum[63:0];
+carry = sum[64];
+
+// Signed overflow for negation with carry
+// This is effectively -(RA) + CA - 1
+// Overflow is rare but can occur
+overflow = (ra_val == 64'h8000000000000000) & (ca == 1'b0);
+
+// Update XER bits
+xer[34] = carry;              // CA bit
+xer[33] = overflow;           // OV
+xer[32] = xer[32] | overflow; // SO (sticky)
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

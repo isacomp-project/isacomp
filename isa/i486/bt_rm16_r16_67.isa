@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BT r/m16, r16 with 67 prefix (0x67 0x0F 0xA3) - 32-bit addressing
+// Test bit in r/m16, bit index in r16. CF = bit value.
+
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp32_b0[7:0];
+var disp32_b1[7:0];
+var disp32_b2[7:0];
+var disp32_b3[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr[31:0];
+var physical_addr_1[31:0];
+var is_mem_src[0:0];
+var src_mem_lo[7:0];
+var src_mem_hi[7:0];
+var src_val[15:0];
+var bit_idx[15:0];
+var bit_pos[3:0];
+var bit_val[0:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+instr2 = imem[eip + 2];
+assume instr2 == 0xA3;
+
+modrm = imem[eip + 3];
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+base_val = xregs[rm_bits];
+bit_idx = xregs[reg_idx][15:0];
+
+disp8 = imem[eip + 4];
+disp32_b0 = imem[eip + 4];
+disp32_b1 = imem[eip + 5];
+disp32_b2 = imem[eip + 6];
+disp32_b3 = imem[eip + 7];
+disp32 = {disp32_b3, disp32_b2, disp32_b1, disp32_b0};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  2'b00: offset = base_val;
+  2'b01: offset = base_val + signed_disp8;
+  2'b10: offset = base_val + disp32;
+  2'b11: offset = 32'h00000000;
+}
+
+case (mod_bits) {
+  2'b00: is_mem_src = 1'b1;
+  2'b01: is_mem_src = 1'b1;
+  2'b10: is_mem_src = 1'b1;
+  2'b11: is_mem_src = 1'b0;
+}
+
+case (mod_bits) {
+  2'b00: eip = eip + 4;
+  2'b01: eip = eip + 5;
+  2'b10: eip = eip + 8;
+  2'b11: eip = eip + 4;
+}
+
+physical_addr = ({16'h0000, DS} << 4) + offset;
+physical_addr_1 = physical_addr + 32'h00000001;
+
+src_mem_lo = dmem[physical_addr];
+src_mem_hi = dmem[physical_addr_1];
+
+case (is_mem_src) {
+  1'b1: src_val = {src_mem_hi, src_mem_lo};
+  1'b0: src_val = xregs[rm_bits][15:0];
+}
+
+bit_pos = bit_idx[3:0];
+bit_val = src_val[bit_pos];
+flag_CF = bit_val;

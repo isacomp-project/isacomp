@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 OUTSD (0x6F)
+// Output dword from [ESI] to port DX, adjust ESI by 4 based on DF
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state ESI[31:0] of xregs[6];
+isa_state DX[15:0] of xregs[2][15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state io_ports[7:0][15:0];
+isa_state flag_DF[0:0];
+
+var new_esi[31:0];
+var val_b0[7:0];
+var val_b1[7:0];
+var val_b2[7:0];
+var val_b3[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x6F;
+
+// Read dword from [ESI] (little-endian)
+val_b0 = dmem[ESI];
+val_b1 = dmem[ESI + 1];
+val_b2 = dmem[ESI + 2];
+val_b3 = dmem[ESI + 3];
+
+// Write dword to I/O port DX (little-endian)
+io_ports[DX] = val_b0;
+io_ports[DX + 1] = val_b1;
+io_ports[DX + 2] = val_b2;
+io_ports[DX + 3] = val_b3;
+
+// Adjust ESI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 4 : ESI - 4;
+ESI = new_esi;
+
+// OUTSD does not affect flags
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

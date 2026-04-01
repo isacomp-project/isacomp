@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 ADC AX, imm16 (0x15)
+// Direct accumulator addressing - no ModR/M byte
+
+isa_state AX[15:0] of xregs[0];
+isa_state xregs[15:0][7:0];
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var imm_lo[7:0];
+var imm_hi[7:0];
+var imm_val[15:0];
+var result[16:0];
+
+// Fetch instruction
+instr = imem[ip];
+assume instr == 0x15;
+ip = ip + 1;
+
+// Fetch immediate value (16-bit little-endian)
+imm_lo = imem[ip];
+ip = ip + 1;
+imm_hi = imem[ip];
+ip = ip + 1;
+imm_val = {imm_hi, imm_lo};
+
+// Perform ADC operation
+result = AX + imm_val + {15'b0, flag_CF};
+
+// Set flags
+flag_CF = result[16];
+flag_OF = (AX[15] == imm_val[15]) & (AX[15] != result[15]);
+flag_SF = result[15];
+flag_ZF = result[15:0] == 16'h0000;
+flag_AF = (AX[3:0] + imm_val[3:0] + {4'b0, flag_CF}) > 4'hF;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+// Write result
+AX = result[15:0];

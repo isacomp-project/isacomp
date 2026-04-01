@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Zicsr - CSRRCI (Atomic Read and Clear CSR Immediate) with F extension fcsr aliasing
+// Encoding: csr[11:0], uimm[4:0], funct3=111, rd, opcode=1110011
+// Uses 5-bit zero-extended immediate as clear mask
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state fcsr[31:0];
+isa_state csr[63:0][11:0];
+mem umem[12:0];
+
+var rd[4:0];
+var csr_addr[11:0];
+var uimm[4:0];
+var uimm_val[63:0];
+var uimm_inv[63:0];
+var csr_val[63:0];
+var new_csr_val[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1110011;
+assume instr[14:12] == 0b111;
+pc = pc + 4;
+
+rd = instr[11:7];
+csr_addr = instr[31:20];
+uimm = instr[19:15];
+uimm_val = {59'b0, uimm};
+uimm_inv = uimm_val ^ 64'hFFFFFFFFFFFFFFFF;
+
+// CSR address matching
+var csrci_addr_is_fflags[0:0];
+var csrci_addr_is_frm[0:0];
+var csrci_addr_is_fcsr[0:0];
+var csrci_addr_is_f_csr[0:0];
+
+csrci_addr_is_fflags = (csr_addr == 12'h001);
+csrci_addr_is_frm = (csr_addr == 12'h002);
+csrci_addr_is_fcsr = (csr_addr == 12'h003);
+csrci_addr_is_f_csr = csrci_addr_is_fflags | csrci_addr_is_frm | csrci_addr_is_fcsr;
+
+// Read CSR value with aliasing - mux chain pattern
+var csrci_rd_base[63:0];
+var csrci_rd_s3[63:0];
+var csrci_rd_s2[63:0];
+var csrci_rd_s1[63:0];
+
+csrci_rd_base = csr[csr_addr];
+csrci_rd_s3 = csrci_addr_is_fcsr ? {56'b0, fcsr[7:0]} : csrci_rd_base;
+csrci_rd_s2 = csrci_addr_is_frm ? {61'b0, fcsr[7:5]} : csrci_rd_s3;
+csrci_rd_s1 = csrci_addr_is_fflags ? {59'b0, fcsr[4:0]} : csrci_rd_s2;
+csr_val = csrci_rd_s1;
+
+// Compute new value (clear bits according to mask)
+new_csr_val = csr_val & uimm_inv;
+
+// Compute new fcsr values with aliasing (clear bits)
+var csrci_wr_fflags[31:0];
+var csrci_wr_frm[31:0];
+var csrci_wr_full[31:0];
+var csrci_wr_val[31:0];
+
+csrci_wr_fflags = {fcsr[31:5], fcsr[4:0] & uimm_inv[4:0]};
+csrci_wr_frm = {fcsr[31:8], fcsr[7:5] & uimm_inv[2:0], fcsr[4:0]};
+csrci_wr_full = {24'b0, fcsr[7:0] & uimm_inv[7:0]};  // fcsr is only 8 bits wide
+
+// Build mux chain to select correct fcsr write value
+csrci_wr_val = csrci_addr_is_fcsr ? csrci_wr_full :
+               (csrci_addr_is_frm ? csrci_wr_frm :
+               (csrci_addr_is_fflags ? csrci_wr_fflags : fcsr));
+
+// Only write if uimm != 0 (uimm=0 means read-only) and addressing F extension CSR
+fcsr when (csrci_addr_is_f_csr & (uimm != 0)) = csrci_wr_val;
+
+csr[csr_addr] when ((csrci_addr_is_f_csr == 0) & (uimm != 0)) = new_csr_val;
+
+rf[rd] when (rd != 0) = csr_val;

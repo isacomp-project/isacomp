@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC OR1K Exception Handling Aspect
+// This aspect handles external interrupt exceptions.
+//
+// OR1K Exception Vectors:
+//   0x100 - Reset
+//   0x200 - Bus Error
+//   0x300 - Data Page Fault
+//   0x400 - Instruction Page Fault
+//   0x500 - Tick Timer
+//   0x600 - Alignment
+//   0x700 - Illegal Instruction
+//   0x800 - External Interrupt
+//   0x900 - DTLB Miss
+//   0xA00 - ITLB Miss
+//   0xB00 - Range
+//   0xC00 - System Call
+//   0xD00 - Floating Point
+//   0xE00 - Trap
+//
+// This aspect checks for external interrupts. It runs after instruction
+// execution and checks SR.IEE (bit 2) and the external interrupt signal.
+//
+// SR bit layout:
+//   [0]  SM   - Supervisor Mode
+//   [1]  TEE  - Tick Timer Exception Enable
+//   [2]  IEE  - Interrupt Exception Enable
+//   [3]  DCE  - Data Cache Enable
+//   [4]  ICE  - Instruction Cache Enable
+//   [5]  DME  - Data MMU Enable
+//   [6]  IME  - Instruction MMU Enable
+//   [7]  LEE  - Little Endian Enable
+//   [8]  CE   - CID Enable
+//   [9]  F    - Flag (same as flag register)
+//   [10] CY   - Carry
+//   [11] OV   - Overflow
+//   [12] OVE  - Overflow Exception Enable
+//   [13] DSX  - Delay Slot Exception
+//   [14] EPH  - Exception Prefix High (vectors at 0xF0000000)
+//   [15] FO   - Fixed One (always 1)
+//   [16] SUMRA - SPR User Mode Read Access
+//   [16:27] reserved
+//   [28:31] CID - Context ID
+
+// External interrupt inputs
+ext isa_state irq_pending[0:0];      // External interrupt pending
+
+// Interrupt handling variables
+var take_ext_interrupt[0:0];
+var iee_enabled[0:0];
+var eph_bit[0:0];
+var exc_base[31:0];
+
+// Check if external interrupts are enabled
+iee_enabled = sr[2];
+
+// Exception prefix: if EPH=1, vectors start at 0xF0000000
+eph_bit = sr[13];
+exc_base = eph_bit ? 32'hF0000000 : 32'h00000000;
+
+// Take external interrupt if:
+// 1. No other exception already taken (from MMU aspects)
+// 2. IEE is enabled in SR
+// 3. External interrupt is pending
+take_ext_interrupt = (~exception_taken) & iee_enabled & irq_pending;
+
+// On external interrupt: save state and jump to vector 0x800
+var ext_int_new_sr[31:0];
+ext_int_new_sr = sr;
+ext_int_new_sr[0] = 1;     // SM = 1 (supervisor mode)
+ext_int_new_sr[1] = 0;     // TEE = 0
+ext_int_new_sr[2] = 0;     // IEE = 0
+ext_int_new_sr[5] = 0;     // DME = 0
+ext_int_new_sr[6] = 0;     // IME = 0
+
+var ext_saved_pc[31:0];
+ext_saved_pc = pc;
+
+epcr0 when (take_ext_interrupt) = ext_saved_pc;
+esr0 when (take_ext_interrupt) = sr;
+sr when (take_ext_interrupt) = ext_int_new_sr;
+pc when (take_ext_interrupt) = exc_base | 32'h00000800;
+
+// Combined trap signal for gating instruction side effects
+var instr_trap_taken[0:0];
+instr_trap_taken = exception_taken | take_ext_interrupt;

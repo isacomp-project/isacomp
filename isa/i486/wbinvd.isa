@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 WBINVD (0x0F 0x09)
+// Write-Back and Invalidate Cache
+//
+// On a system with cache:
+//   - Writes back all modified cache lines to memory
+//   - Then invalidates (flushes) all internal cache entries
+//   - Ensures data integrity before invalidation
+//   - Should also signal external caches to write-back and invalidate
+//   - This instruction can take a long time to complete
+//
+// On a single-core design without cache: No-op
+// This instruction is privileged (CPL must be 0)
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state imem[7:0][31:0];
+
+// Fetch first byte of opcode
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+// Fetch second byte of opcode
+instr2 = imem[eip];
+assume instr2 == 0x09;
+eip = eip + 1;
+
+// No-op: No cache to write-back or invalidate in this implementation

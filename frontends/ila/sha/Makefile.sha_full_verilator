@@ -1,0 +1,32 @@
+# Verilator Makefile for SHA-1 Full Integration Testbench
+
+# Verilator configuration
+VERILATOR = verilator
+VERILATOR_FLAGS = --cc --exe --build --trace --timing -Wno-fatal -Wno-WIDTHTRUNC -Wno-WIDTHEXPAND -Wno-SELRANGE
+
+# Source files
+RTL_SOURCES = sha_full_inlined.v
+TB_SOURCES = sha_full_inlined_tb.v
+
+# Output directory
+OBJ_DIR = obj_dir_sha_full
+
+# Top module
+TOP_MODULE = sha_full_inlined_tb
+
+# Default target
+all: compile
+
+# Compile with Verilator
+compile:
+	$(VERILATOR) $(VERILATOR_FLAGS) --Mdir $(OBJ_DIR) --top-module $(TOP_MODULE) $(TB_SOURCES) $(RTL_SOURCES)
+
+# Run simulation
+run: compile
+	./$(OBJ_DIR)/V$(TOP_MODULE)
+
+# Clean build artifacts
+clean:
+	rm -rf $(OBJ_DIR) sha_full_inlined_tb.vcd
+
+.PHONY: all compile run clean

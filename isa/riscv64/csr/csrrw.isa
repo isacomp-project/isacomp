@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Zicsr - CSRRW (Atomic Read/Write CSR) with F extension fcsr aliasing
+// Encoding: csr[11:0], rs1, funct3=001, rd, opcode=1110011
+//
+// Handles special F extension CSR addresses:
+//   0x001 - fflags: reads/writes fcsr[4:0]
+//   0x002 - frm:    reads/writes fcsr[7:5]
+//   0x003 - fcsr:   reads/writes full fcsr
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state fcsr[31:0];
+isa_state csr[63:0][11:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var csr_addr[11:0];
+var rs1_val[63:0];
+var csr_val[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1110011;
+assume instr[14:12] == 0b001;
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+csr_addr = instr[31:20];
+rs1_val = rf[rs1];
+
+// CSR address matching for F extension CSRs
+var csrw_addr_is_fflags[0:0];
+var csrw_addr_is_frm[0:0];
+var csrw_addr_is_fcsr[0:0];
+var csrw_addr_is_f_csr[0:0];
+
+csrw_addr_is_fflags = (csr_addr == 12'h001);
+csrw_addr_is_frm = (csr_addr == 12'h002);
+csrw_addr_is_fcsr = (csr_addr == 12'h003);
+csrw_addr_is_f_csr = csrw_addr_is_fflags | csrw_addr_is_frm | csrw_addr_is_fcsr;
+
+// Read CSR value with aliasing - mux chain pattern
+var csrw_rd_base[63:0];
+var csrw_rd_s3[63:0];
+var csrw_rd_s2[63:0];
+var csrw_rd_s1[63:0];
+
+csrw_rd_base = csr[csr_addr];
+csrw_rd_s3 = csrw_addr_is_fcsr ? {56'b0, fcsr[7:0]} : csrw_rd_base;
+csrw_rd_s2 = csrw_addr_is_frm ? {61'b0, fcsr[7:5]} : csrw_rd_s3;
+csrw_rd_s1 = csrw_addr_is_fflags ? {59'b0, fcsr[4:0]} : csrw_rd_s2;
+csr_val = csrw_rd_s1;
+
+// Compute new fcsr value with aliasing - use mux chain to select correct value
+var csrw_wr_fflags[31:0];
+var csrw_wr_frm[31:0];
+var csrw_wr_full[31:0];
+var csrw_wr_val[31:0];
+
+csrw_wr_fflags = {fcsr[31:5], rs1_val[4:0]};
+csrw_wr_frm = {fcsr[31:8], rs1_val[2:0], fcsr[4:0]};
+csrw_wr_full = {24'b0, rs1_val[7:0]};  // fcsr is only 8 bits wide
+
+// Build mux chain: fcsr -> fflags -> frm -> full fcsr
+csrw_wr_val = csrw_addr_is_fcsr ? csrw_wr_full :
+              (csrw_addr_is_frm ? csrw_wr_frm :
+              (csrw_addr_is_fflags ? csrw_wr_fflags : fcsr));
+
+// Single conditional write to fcsr
+fcsr when (csrw_addr_is_f_csr) = csrw_wr_val;
+
+// Write to generic CSR array if not an F extension CSR
+csr[csr_addr] when (csrw_addr_is_f_csr == 0) = rs1_val;
+
+// Write old CSR value to destination register (if rd != 0)
+rf[rd] when (rd != 0) = csr_val;

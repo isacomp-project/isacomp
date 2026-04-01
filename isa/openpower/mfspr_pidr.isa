@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mfspr PIDR - Move From Process ID Register
+// mfspr RT,48 (SPR 48 = PIDR)
+// Primary opcode 31, XO=339
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state pidr[63:0];
+
+var rt[4:0];
+var mfspr_pidr_result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 31;
+assume instr[10:1] == 339;
+// SPR field for PIDR (SPR 48): spr_hi=1, spr_lo=16
+assume instr[15:11] == 1;
+assume instr[20:16] == 16;
+
+rt = instr[25:21];
+mfspr_pidr_result = pidr;
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = mfspr_pidr_result;
+#else
+rf[rt] = mfspr_pidr_result;
+#endif
+
+pc = pc + 4;

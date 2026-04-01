@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 JMP (d16,PC) - Jump with 16-bit PC-relative displacement
+// Opcode: 0100 1110 11 111 010 followed by 16-bit signed displacement
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var jmp_pd_base_pc[31:0];
+var jmp_pd_disp[15:0];
+var jmp_pd_target[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100111011;  // JMP opcode
+assume instr[5:3] == 0b111;          // EA mode: special
+assume instr[2:0] == 0b010;          // (d16,PC)
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Save base PC (points to displacement word, used for address calculation)
+jmp_pd_base_pc = pc;
+
+// Fetch 16-bit displacement
+jmp_pd_disp = dmem[pc + pc_pa_delta];
+
+// Calculate target address: PC + sign-extended displacement
+jmp_pd_target = jmp_pd_base_pc + {{16{jmp_pd_disp[15]}}, jmp_pd_disp};
+
+// Jump to target
+pc when (~m68k_exc_taken) = jmp_pd_target;
+
+// JMP does not affect flags

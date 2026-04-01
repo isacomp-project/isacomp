@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX PUSHJB - Push Registers and Jump Backward
+// PUSHJB $X,RA: push local registers, $X = return address, jump backward
+// Opcode: 0xF3
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rJ[63:0];
+mem umem[14:0];
+
+var x[7:0];
+var ra[15:0];
+var offset[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xF3;
+
+x = instr[23:16];
+ra = instr[15:0];
+
+rJ = pc + 4;
+rf[x] = pc + 4;
+
+offset = {48'h0, ra} << 2;
+pc = pc - offset;

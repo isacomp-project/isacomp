@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ROR r/m32, 1 with 66 prefix (0x66 0xD1 /1)
+// Rotate Right by 1
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var result[31:0];
+
+prefix = imem[eip];
+assume prefix == 0x66;
+
+instr = imem[eip + 1];
+assume instr == 0xD1;
+
+modrm = imem[eip + 2];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b001;
+assume mod_bits == 0b11;
+
+eip = eip + 3;
+
+dst_val = xregs[rm_bits];
+result = (dst_val >> 1) | {dst_val[0], 31'b0};
+
+xregs[rm_bits] = result;
+flag_CF = dst_val[0];
+flag_OF = result[31] ^ result[30];

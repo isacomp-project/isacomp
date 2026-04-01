@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+var diff[31:0];
+var b0_zero[0:0];
+var b1_zero[0:0];
+var b2_zero[0:0];
+var b3_zero[0:0];
+var cmpstr_rb[0:0];
+var cmpstr_rn_lo[2:0];
+var cmpstr_rm_lo[2:0];
+var cmpstr_rn_bk[0:0];
+var cmpstr_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x2;
+assume instr[3:0] == 0xC;
+rn = instr[11:8];
+rm = instr[7:4];
+
+cmpstr_rn_lo = rn[2:0];
+cmpstr_rm_lo = rm[2:0];
+cmpstr_rb = sr[29];  // RB bit (bit 29 in SR)
+cmpstr_rn_bk = (rn[3] == 1'b0) & cmpstr_rb;
+cmpstr_rm_bk = (rm[3] == 1'b0) & cmpstr_rb;
+
+Rn = cmpstr_rn_bk ? rf_bank[cmpstr_rn_lo] : rf[rn];
+Rm = cmpstr_rm_bk ? rf_bank[cmpstr_rm_lo] : rf[rm];
+
+// XOR to find differences
+diff = Rn ^ Rm;
+
+// Check if any byte is zero (meaning those bytes were equal)
+b0_zero = (diff[7:0] == 8'b0) ? 1'b1 : 1'b0;
+b1_zero = (diff[15:8] == 8'b0) ? 1'b1 : 1'b0;
+b2_zero = (diff[23:16] == 8'b0) ? 1'b1 : 1'b0;
+b3_zero = (diff[31:24] == 8'b0) ? 1'b1 : 1'b0;
+
+// T=1 if any byte pair matches
+t when (~int_should_take & ~itlb_exc_actually_taken) = b0_zero | b1_zero | b2_zero | b3_zero;
+pc = pc + 2;

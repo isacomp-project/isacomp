@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV r8, imm8 (0xB0-0xB7)
+// B0-B3: AL, CL, DL, BL (low bytes)
+// B4-B7: AH, CH, DH, BH (high bytes)
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];   // AL,CL,DL,BL (low bytes)
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];  // AH,CH,DH,BH (high bytes)
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+
+var reg_idx[1:0];
+var imm8[7:0];
+var is_high[0:0];
+
+instr = imem[eip];
+imm8 = imem[eip + 1];
+
+// Opcodes B0-B3: AL, CL, DL, BL (low bytes) - bit 2 is 0
+// Opcodes B4-B7: AH, CH, DH, BH (high bytes) - bit 2 is 1
+reg_idx = instr[1:0];
+is_high = instr[2:2];
+
+eip = eip + 2;
+
+// Write to low or high byte register
+case (is_high) {
+  1'b0: lregs[reg_idx] = imm8;
+  1'b1: hregs[reg_idx] = imm8;
+}
+// MOV does not affect flags

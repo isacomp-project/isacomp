@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V WFI (Wait For Interrupt) instruction
+// For now implemented as NOP - just advances PC
+// Full implementation would stall until interrupt arrives
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[23:0];
+mem csr[11:0];
+
+// Dedicated CSR registers as isa_state (for MMU aspect)
+isa_state priv_mode[1:0];
+isa_state satp[31:0];
+isa_state mtvec[31:0];
+isa_state mepc[31:0];
+isa_state mcause[31:0];
+isa_state mtval[31:0];
+isa_state medeleg[31:0];
+isa_state sepc[31:0];
+isa_state stvec[31:0];
+isa_state scause[31:0];
+isa_state stval[31:0];
+isa_state sscratch[31:0];
+isa_state mscratch[31:0];
+isa_state mie[31:0];
+isa_state mstatus[31:0];
+isa_state sstatus[31:0];       // Supervisor Status (0x100)
+ext isa_state timer_irq_pending[0:0]; // Timer interrupt pending from CLINT
+
+// Virtual memory translation
+aspect ../mmu.isa gates pc, priv_mode, mepc, mcause, mtval, sepc, scause, stval, mstatus, sstatus;
+
+instr = umem[pc_vm_result];
+
+// WFI instruction encoding: 0x10500073
+// opcode: 0b1110011 (SYSTEM)
+// funct3: 0b000
+// rs1: 0b00000
+// rd: 0b00000
+// imm[11:0]: 0x105 (0001 0000 0101)
+assume instr[6:0] == 0b1110011;
+assume instr[14:12] == 0b000;
+assume instr[19:15] == 0b00000;
+assume instr[11:7] == 0b00000;
+assume instr[31:20] == 12'h105;
+
+// WFI implemented as NOP for now
+// In full implementation, this would:
+// 1. Check if any pending interrupts exist
+// 2. If not, stall until interrupt arrives
+// 3. Then continue execution
+
+pc = pc + 4;

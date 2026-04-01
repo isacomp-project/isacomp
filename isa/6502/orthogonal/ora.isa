@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 ORA — Logical OR (all addressing modes via orthogon)
+//
+// Opcodes covered:
+//   0x09 (imm), 0x05 (zp), 0x15 (zp,x), 0x0D (abs), 0x1D (abs,x),
+//   0x19 (abs,y), 0x01 (ind,x), 0x11 (ind,y), 0x12 (zp_ind)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state X[7:0];
+isa_state Y[7:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state mainmem[7:0][15:0];
+
+var result[7:0];
+
+// Fetch and decode
+instr = mainmem[pc];
+assume instr == 0x09 | instr == 0x05 | instr == 0x15 |
+       instr == 0x0D | instr == 0x1D | instr == 0x19 |
+       instr == 0x01 | instr == 0x11 | instr == 0x12;
+pc = pc + 1;
+
+// Map opcode to addressing mode selector.
+// For 6502 group 1 (cc=01), bits [4:2] encode addressing mode:
+//   000 -> (ind,x)  = sel 6
+//   001 -> zp       = sel 1
+//   010 -> imm      = sel 0
+//   011 -> abs      = sel 2
+//   100 -> (ind),y  = sel 7  (or zp_ind = sel 8 for 0x12)
+//   101 -> zp,x     = sel 3
+//   110 -> abs,y    = sel 5
+//   111 -> abs,x    = sel 4
+var addr_sel[3:0];
+addr_sel = instr[4:2] == 3'b000 ? 4'd6 :
+           instr[4:2] == 3'b001 ? 4'd1 :
+           instr[4:2] == 3'b010 ? 4'd0 :
+           instr[4:2] == 3'b011 ? 4'd2 :
+           instr[4:2] == 3'b100 ? (instr == 0x12 ? 4'd8 : 4'd7) :
+           instr[4:2] == 3'b101 ? 4'd3 :
+           instr[4:2] == 3'b110 ? 4'd5 :
+                                  4'd4 ;
+
+// Invoke addressing mode orthogon — data[7:0] and eff_addr[15:0] now in scope
+use addr_mode(addr_sel);
+
+// === ORA computation ===
+result = A | data;
+
+A = result;
+
+flag_N = result[7];
+flag_Z = result == 0 ? 1'b1 : 1'b0;

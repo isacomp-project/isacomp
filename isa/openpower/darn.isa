@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER darn - Deliver A Random Number (X-Form)
+// darn RT,L
+// Primary opcode 31, XO=755
+// Returns a random number, or -1 if unavailable.
+// POWER9+ instruction for hardware random number generation.
+// In simulation without hardware RNG: always returns -1 (unavailable).
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 755 (bits 10:1)
+assume instr[10:1] == 755;
+assume instr[0] == 0;
+
+rt = instr[25:21];
+
+// No hardware RNG available - return all 1s (-1) to indicate failure
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = 64'hFFFFFFFFFFFFFFFF;
+#else
+rf[rt] = 64'hFFFFFFFFFFFFFFFF;
+#endif
+pc = pc + 4;

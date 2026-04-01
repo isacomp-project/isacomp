@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED 5D - Undocumented RETN variant (behaves like RETN)
+// Return from non-maskable interrupt
+// Pops PC from stack, copies IFF2 to IFF1
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+isa_state sp[15:0];
+isa_state int_ff1[0:0];
+isa_state int_ff2[0:0];
+mem mainmem[15:0];
+var ed_retn_5d_sp_plus_1[15:0];
+var ed_retn_5d_ret_addr[15:0];
+
+pc_plus_1 = pc + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 16'h5DED;
+
+// Pop return address from stack
+ed_retn_5d_ret_addr = {mainmem[sp + 1], mainmem[sp]};
+ed_retn_5d_sp_plus_1 = sp + 1;
+sp = ed_retn_5d_sp_plus_1 + 1;
+
+// Copy IFF2 to IFF1
+int_ff1 = int_ff2;
+
+pc = ed_retn_5d_ret_addr;

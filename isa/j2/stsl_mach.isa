@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STS.L MACH, @-Rn - Store System Register to Memory with Pre-decrement
+// Decrements Rn by 4, then stores MACH to @Rn
+// Opcode: 0100nnnn00000010 (0x4n02)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state mach[31:0];
+
+var rn[3:0];
+var Rn[31:0];
+var stsl_mach_addr[31:0];
+
+// Address error checking variables
+var store_addr[31:0];
+var store_size[1:0];
+var stsl_mach_no_error[0:0];
+
+// Register banking variables (unique to stsl_mach)
+var stsl_mach_rn_lo[2:0];
+var stsl_mach_rb[0:0];
+var stsl_mach_rn_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include address error detection for stores
+aspect addr_error_store.isa gates pc, sr, vbr, rf, umem, exc_taken:2, exc_vector:2;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x02;
+rn = instr[11:8];
+
+// Register banking setup
+stsl_mach_rn_lo = rn[2:0];
+stsl_mach_rb = sr[28];
+stsl_mach_rn_bk = (rn[3] == 1'b0) & stsl_mach_rb;
+
+Rn = stsl_mach_rn_bk ? rf_bank[stsl_mach_rn_lo] : rf[rn];
+// STS.L MACH, @-Rn: decrement Rn by 4, store MACH to @Rn
+stsl_mach_addr = Rn - 4;
+
+// Set up address error checking
+store_addr = stsl_mach_addr;
+store_size = 2'b11;  // Long access (32-bit)
+
+// Compute the no-error condition (bits 1:0 must be 00)
+stsl_mach_no_error = (stsl_mach_addr[1:0] == 2'b00);
+
+// Only update register and store if no address error (combined with banking)
+rf[rn] when (stsl_mach_no_error & (stsl_mach_rn_bk == 0)) = stsl_mach_addr;
+rf_bank[stsl_mach_rn_lo] when (stsl_mach_no_error & stsl_mach_rn_bk) = stsl_mach_addr;
+umem[stsl_mach_addr] when (stsl_mach_no_error) = mach;
+
+// Only advance PC if no address error
+pc when (stsl_mach_no_error) = pc + 2;

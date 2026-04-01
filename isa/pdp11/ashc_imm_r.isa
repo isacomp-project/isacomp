@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// PDP-11 ASHC instruction - Immediate
+// ASHC src, Rn: shift Rn:Rn|1 by src[5:0]
+
+isa_state pc[15:0];
+var instr[15:0];
+isa_state rf[15:0][2:0];  // 8 registers, R7 is PC
+isa_state umem[7:0][15:0];      // Byte-addressable memory
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_val[15:0];
+var operand_hi[15:0];
+var operand_lo[15:0];
+var operand[31:0];
+var shift_right[0:0];
+var neg_count[5:0];
+var result[31:0];
+var imm_lo[7:0];
+var imm_hi[7:0];
+
+
+// Fetch instruction (little-endian)
+var instr_lo[7:0];
+var instr_hi[7:0];
+instr_lo = umem[pc];
+instr_hi = umem[pc + 1];
+instr = {instr_hi, instr_lo};
+
+
+assume instr[15:9] == 0b0111011;  // ASHC opcode (073)
+assume instr[5:3] == 0b010;       // Source mode 2 (autoincrement)
+assume instr[2:0] == 0b111;       // Source reg 7 (PC) = immediate
+
+dst_reg = instr[8:6];  // Destination register
+
+pc = pc + 2;
+
+// Fetch source operand
+imm_lo = umem[pc];
+imm_hi = umem[pc + 1];
+src_val = {imm_hi, imm_lo};
+pc = pc + 2;
+
+operand_hi = dst_reg == 7 ? pc : rf[dst_reg];
+operand_lo = rf[dst_reg | 1];
+operand = {operand_hi, operand_lo};
+shift_right = src_val[5];
+neg_count = ~src_val[5:0] + 1;
+
+// Variable arithmetic shift using 6-bit signed shift count
+result = shift_right ? (operand >>> neg_count[4:0]) : (operand << src_val[4:0]);
+
+rf[dst_reg] when (dst_reg != 7) = result[31:16];
+rf[dst_reg | 1] when ((dst_reg | 1) != 7) = result[15:0];
+
+flag_N = result[31];
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+flag_V = operand[31] != result[31] ? 1'b1 : 1'b0;
+flag_C = shift_right ? operand[0] : operand[31];

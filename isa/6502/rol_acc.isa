@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 ROL A (0x2A) - Rotate Left through Carry (Accumulator)
+// Rotates the accumulator left by 1 bit through carry
+// Old Carry goes to bit 0, bit 7 goes to new Carry
+// Sets N flag if bit 7 of result is set
+// Sets Z flag if result is zero
+// Sets C flag to old bit 7
+// Instruction format: ROL A (1 byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_C[0:0];
+isa_state mainmem[7:0][15:0];
+
+var result[15:0];
+var rol_acc_old_carry[0:0];
+
+instr = mainmem[pc];
+assume instr == 0x2A;
+pc = pc + 1;
+
+// Save old carry
+rol_acc_old_carry = flag_C;
+
+// Rotate left: bit 7 -> Carry, bits 6-0 -> bits 7-1, old Carry -> bit 0
+result = {A[6:0], rol_acc_old_carry};
+
+// Update flags
+flag_C = A[7];           // Old bit 7 goes to new Carry
+flag_N = result[7];      // Bit 7 of result
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+
+// Update accumulator
+A = result;

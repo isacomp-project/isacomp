@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 CAS - Compare and Swap
+// Opcode: 0000 1ss0 11mm mrrr followed by extension word
+//   ss = size (01=byte, 10=word, 11=long)
+//   mmm rrr = effective address
+// Extension: 0000 000 UUU 000 DDD
+//   UUU = Du (update register)
+//   DDD = Dc (compare register)
+// Operation: Compare Dc to <ea>
+//   If equal: <ea> <- Du (swap)
+//   If not equal: Dc <- <ea> (load)
+// Atomic read-modify-write operation (essential for SMP)
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+// Status Register
+isa_state sr[15:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var size[1:0];
+var ea_mode[2:0];
+var ea_reg[2:0];
+var dc_reg[2:0];
+var du_reg[2:0];
+
+var addr[31:0];
+var mem_val[31:0];
+var compare_val[31:0];
+var update_val[31:0];
+var result[31:0];
+var is_equal[0:0];
+
+// For flag calculation
+var sub_result[31:0];
+var msb_pos[4:0];
+var src_msb[0:0];
+var dst_msb[0:0];
+var res_msb[0:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 4'b0000;
+assume instr[7:6] == 2'b11;
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+size = instr[10:9];      // 01=byte, 10=word, 11=long
+ea_mode = instr[5:3];
+ea_reg = instr[2:0];
+
+// Fetch extension word
+extw = dmem[pc + pc_pa_delta];
+assume extw[15:9] == 7'b0000000;
+assume extw[5:3] == 3'b000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+dc_reg = extw[2:0];
+du_reg = extw[8:6];
+
+// This variant: (An) addressing mode
+assume instr[5:3] == 3'b010;
+addr = aregs[ea_reg];
+
+// Read memory operand (size-dependent)
+// For long word
+assume size == 2'b11;
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+mem_val = {dmem[ea_pa], dmem[addr + 2]};
+#else
+mem_val = {dmem[addr], dmem[addr + 2]};
+#endif
+
+// Get compare and update values
+compare_val = dregs[dc_reg];
+update_val = dregs[du_reg];
+
+// Compare
+is_equal = (mem_val == compare_val);
+
+// If equal, write update value to memory; else load memory to Dc
+#ifdef MMU
+dmem[ea_pa] when (is_equal & ~m68k_exc_taken) = update_val[31:16];
+#else
+dmem[addr] when (is_equal & ~m68k_exc_taken) = update_val[31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa + 2] when (is_equal & ~m68k_exc_taken) = update_val[15:0];
+#else
+dmem[addr + 2] when (is_equal & ~m68k_exc_taken) = update_val[15:0];
+#endif
+dregs[dc_reg] when (~is_equal & ~m68k_exc_taken) = mem_val;
+
+// Calculate flags (as for CMP: compare - memory)
+sub_result = compare_val - mem_val;
+
+// Get MSB positions based on size
+msb_pos = 5'd31;  // Long
+src_msb = mem_val[31];
+dst_msb = compare_val[31];
+res_msb = sub_result[31];
+
+// Update CCR
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = res_msb;
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = is_equal;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = (dst_msb & ~src_msb & ~res_msb) | (~dst_msb & src_msb & res_msb);
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = (~dst_msb & src_msb) | (res_msb & ~dst_msb) | (src_msb & res_msb);
+// X not affected

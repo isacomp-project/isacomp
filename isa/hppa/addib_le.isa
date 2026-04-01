@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA ADDIB,<= instruction (Add Immediate and Branch if <= 0, signed)
+// ADDIB,<= imm5,r,target - Add immediate and branch if result <= 0 (signed)
+// Uses true opcode 0x29 (bits 31:26), condition 011 (<=)
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var imm5_raw[4:0];
+var imm5[31:0];
+var src[31:0];
+var result[31:0];
+var w[11:0];
+var target_offset[31:0];
+var target[31:0];
+var taken[0:0];
+var n_bit[0:0];
+
+instr = umem[pc_pa];
+
+// ADDIB,<= encoding: true opcode=0x29 (101001), cond=011 (<=)
+assume instr[31:26] == 0b101001;
+
+// Condition field (bits 15:13) - 011 for <=
+assume instr[15:13] == 0b011;
+
+// Extract register field
+r = instr[25:21];
+imm5_raw = instr[20:16];
+
+// N bit for ADDIB/ADDB is at bit[1] (not bit[12])
+// bit[12] is part of the branch displacement
+n_bit = instr[1];
+
+// Sign-extend 5-bit immediate (low-sign-extended: bit 0 is sign, bits[4:1] are value)
+imm5 = {{28{imm5_raw[0]}}, imm5_raw[4:1]};
+
+// Read source register
+src = (r == 0) ? 32'h0 : rf[r];
+
+// Perform addition
+result = src + imm5;
+
+// Write result back
+rf[r] when (r != 0 & ~instr_trap_taken & ~in_nullified) = result;
+
+// HPPA branch displacement encoding:
+// w[10] (sign) = instr[0]
+// w[9:1] = instr[12:4]
+// w[0] = instr[3]
+w = {instr[0], instr[2], instr[12:4], instr[3]};
+
+// Sign-extend the 11-bit w to 32 bits and multiply by 4 (shift left 2)
+target_offset = {{20{w[11]}}, w, 2'b00};
+
+// Calculate target (relative to PC+8 due to delay slot)
+target = pc + 8 + target_offset;
+
+// Check condition: result <= 0 (signed) = zero or negative
+taken = (result == 32'h0) | result[31];
+
+// ,n flag: forward (instr[0]=0) nullifies when taken; backward (instr[0]=1) nullifies when not taken
+var n_nullify[0:0];
+n_nullify = n_bit & (taken ^ instr[0]);
+psw when (n_nullify & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 32'h00200000;
+
+// Branch if condition met
+// Set up delay slot when branch is taken
+delay_slot when (~in_delay_slot & taken & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (~in_delay_slot & taken & ~instr_trap_taken & ~in_nullified) = target;
+pc = pc + 4;

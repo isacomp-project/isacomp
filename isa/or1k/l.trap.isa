@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.trap - Trap
+// Format: l.trap K
+// Triggers trap exception (vector 0xE00)
+// Used for debugging and breakpoints
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state sr[31:0];
+isa_state epcr0[31:0];
+isa_state esr0[31:0];
+
+var imm[15:0];
+var new_sr[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x08;
+assume instr[25] == 0x1;
+imm = instr[15:0];
+
+// Save exception state
+epcr0 = pc;
+esr0 = sr;
+
+// Enter supervisor mode, disable interrupts and MMU
+new_sr = sr;
+new_sr[0] = 1;     // SM = 1 (supervisor mode)
+new_sr[1] = 0;     // TEE = 0
+new_sr[2] = 0;     // IEE = 0
+new_sr[4] = 0;     // DME = 0
+new_sr[5] = 0;     // IME = 0
+sr = new_sr;
+
+// Jump to trap exception vector
+pc = 32'h00000E00;

@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vfirst.m - Find First Set Mask Bit
+// Encoding: vfirst.m rd, vs2, vm
+// Operation: x[rd] = index of first set bit in vs2.mask, or -1 if none
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs2[4:0];
+var rd[4:0];
+var vm[0:0];
+var v2[127:0];
+var idx[31:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b010;
+// funct6 = 010000 (vfirst)
+assume instr[31:26] == 0b010000;
+// vs1 = 10001 for vfirst
+assume instr[19:15] == 0b10001;
+
+pc = pc + 4;
+
+vs2 = instr[24:20];
+rd = instr[11:7];
+vm = instr[25:25];
+
+v2 = vrf[vs2];
+
+// Find first set bit (simplified for 4 elements)
+idx = (v2[0:0] == 1) ? 0 : ((v2[1:1] == 1) ? 1 : ((v2[2:2] == 1) ? 2 : ((v2[3:3] == 1) ? 3 : -1)));
+
+rf[rd] when (rd != 0) = idx;

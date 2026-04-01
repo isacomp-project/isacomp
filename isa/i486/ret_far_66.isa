@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RET far with 66 prefix (0x66 0xCB) - WITH PROPER SEGMENTATION
+// Return from far procedure with 32-bit addressing
+// Pops EIP, then CS from SS:[ESP] and jumps to CS:EIP
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];            // Stack segment register
+isa_state CS[15:0];            // Code segment register
+isa_state xregs[31:0][2:0];    // General purpose registers (xregs[4] is ESP)
+
+var return_eip_b0[7:0];
+var return_eip_b1[7:0];
+var return_eip_b2[7:0];
+var return_eip_b3[7:0];
+var return_cs_lo[7:0];
+var return_cs_hi[7:0];
+var return_eip[31:0];
+var return_cs[15:0];
+var stack_phys[31:0];
+var old_esp[31:0];
+
+// Fetch 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0xCB;
+
+// Get current ESP
+old_esp = xregs[4];
+
+// Calculate physical address: SS:ESP (real mode: seg * 16 + offset)
+stack_phys = {SS, 4'b0} + {16'h0000, old_esp[15:0]};
+
+// Pop EIP from stack (little-endian, 32-bit)
+return_eip_b0 = dmem[stack_phys];
+return_eip_b1 = dmem[stack_phys + 1];
+return_eip_b2 = dmem[stack_phys + 2];
+return_eip_b3 = dmem[stack_phys + 3];
+return_eip = {return_eip_b3, return_eip_b2, return_eip_b1, return_eip_b0};
+
+// Pop CS from stack (little-endian, 16-bit) at ESP+4
+return_cs_lo = dmem[stack_phys + 4];
+return_cs_hi = dmem[stack_phys + 5];
+return_cs = {return_cs_hi, return_cs_lo};
+
+// Increment ESP by 6 (4-byte EIP + 2-byte CS)
+xregs[4] = old_esp + 32'h00000006;
+
+// Restore CS:EIP
+eip = return_eip;
+CS = return_cs;

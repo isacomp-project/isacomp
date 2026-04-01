@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state eip[31:0];
+var instr[7:0]; // instr[7:0];
+isa_state modrm[7:0];
+isa_state AL[7:0];
+isa_state BL[7:0];
+isa_state AH[7:0];
+isa_state BH[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][15:0];
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var result[8:0];
+
+instr = imem[eip];
+assume instr == 0x30;
+eip = eip + 1;
+modrm = imem[eip];
+assume modrm == 0xD8;
+eip = eip + 1;
+
+result = AL | BL;
+
+AL = result;
+
+flag_CF = 1'b0;
+flag_OF = 1'b0;
+flag_ZF = result == 0 ? 1'b1 : 1'b0;
+flag_SF = result[7];
+flag_PF = result[0];

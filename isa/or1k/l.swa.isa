@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.swa - Store Word Atomic (Conditional)
+// Format: l.swa I(rA), rB
+// Store word conditionally: succeeds only if reservation is still valid
+// Sets flag to indicate success (flag=1) or failure (flag=0)
+// Used by Linux for atomic compare-and-swap operations
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state flag[0:0];
+isa_state atomic_reserve[31:0];
+isa_state atomic_flag[0:0];
+
+var rA[4:0];
+var rB[4:0];
+var imm_high[4:0];
+var imm_low[10:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var base[31:0];
+var data[31:0];
+var store_success[0:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x33;
+pc = pc + 4;
+imm_high = instr[25:21];
+rA = instr[20:16];
+rB = instr[15:11];
+imm_low = instr[10:0];
+
+imm = {imm_high, imm_low};
+base = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+addr = base + sign_ext_imm;
+
+data = rf[rB];
+
+// Check if reservation is still valid for this address
+store_success = atomic_flag & (atomic_reserve == addr);
+
+// Conditionally store
+dmem[addr] when (store_success) = data;
+
+// Set flag to indicate success/failure
+flag = store_success;
+
+// Clear reservation regardless
+atomic_flag = 0;

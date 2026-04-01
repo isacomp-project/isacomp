@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+isa_state mach[31:0];
+isa_state macl[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+var Rn_ext[63:0];
+var Rm_ext[63:0];
+var res[63:0];
+var dmulul_rb[0:0];
+var dmulul_rn_lo[2:0];
+var dmulul_rm_lo[2:0];
+var dmulul_rn_bk[0:0];
+var dmulul_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:12] == 0x3;
+assume instr[3:0] == 0x5;
+rn = instr[11:8];
+rm = instr[7:4];
+
+dmulul_rn_lo = rn[2:0];
+dmulul_rm_lo = rm[2:0];
+dmulul_rb = sr[28];
+dmulul_rn_bk = (rn[3] == 1'b0) & dmulul_rb;
+dmulul_rm_bk = (rm[3] == 1'b0) & dmulul_rb;
+
+Rn = dmulul_rn_bk ? rf_bank[dmulul_rn_lo] : rf[rn];
+Rm = dmulul_rm_bk ? rf_bank[dmulul_rm_lo] : rf[rm];
+
+// Zero extend to 64-bit
+Rn_ext = {32'b0, Rn};
+Rm_ext = {32'b0, Rm};
+
+// Unsigned 64-bit multiply
+res = Rn_ext * Rm_ext;
+
+// Store result in MACH:MACL
+mach when (exc_taken == 0) = res[63:32];
+macl when (exc_taken == 0) = res[31:0];
+pc = pc + 2;

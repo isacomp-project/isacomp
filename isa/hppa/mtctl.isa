@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA MTCTL instruction
+// MTCTL r,cr - Move To Control Register
+// Opcode: 0x00 (bits 31:26), function=0xC2 (bits 12:6)
+//
+// Correct PA-RISC 1.1 CR numbering per CR audit:
+//   CR0=RCTR, CR8=PID1, CR9=PID2, CR10=CCR, CR11=SAR,
+//   CR14=IVA, CR15=EIEM, CR16=ITMR, CR17=IIASQ, CR18=IIAOQ,
+//   CR19=IIR, CR20=ISR, CR21=IOR, CR22=IPSW, CR23=EIRR,
+//   CR24-31=TR0-TR7
+//
+// CR18 (IAOQ) special: uses queue rotation semantics.
+//   MTCTL r, CR18 rotates: old back -> front, value -> back.
+//   Linux saves/restores IAOQ via two consecutive MTCTL to CR18.
+
+// === ISA State ===
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+isa_state sar[4:0];
+isa_state priv_level[1:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Control registers (crNN naming, matching interruption.isa)
+isa_state cr0[31:0];        // Recovery Counter (RCTR)
+isa_state cr8[31:0];        // Protection ID 1
+isa_state cr9[31:0];        // Protection ID 2
+isa_state cr10[31:0];       // CCR
+isa_state cr14[31:0];       // IVA - Interruption Vector Address
+isa_state cr15[31:0];       // EIEM - External Interrupt Enable Mask
+ext isa_state cr16[31:0];   // ITMR - Interval Timer (free-running, driven by testbench)
+isa_state cr17[31:0];       // IIASQ - Interruption IA Space Queue (front)
+isa_state cr17_back[31:0];  // IIASQ back
+isa_state cr18[31:0];       // IIAOQ - Interruption IA Offset Queue (front)
+isa_state cr18_back[31:0];  // IIAOQ back
+isa_state cr19[31:0];       // IIR - Interruption Instruction Register
+isa_state cr20[31:0];       // ISR - Interruption Space Register
+isa_state cr21[31:0];       // IOR - Interruption Offset Register
+isa_state cr22[31:0];       // IPSW - Interruption PSW
+ext isa_state cr23[31:0];   // EIRR - External Interrupt Request Register (managed by testbench/SoC)
+isa_state cr24[31:0];       // TR0
+isa_state cr25[31:0];       // TR1
+isa_state cr26[31:0];       // TR2
+isa_state cr27[31:0];       // TR3
+isa_state cr28[31:0];       // TR4
+isa_state cr29[31:0];       // TR5
+isa_state cr30[31:0];       // TR6
+isa_state cr31[31:0];       // TR7
+
+// External state for interruption aspect
+ext isa_state timer_irq_pending[0:0];
+ext isa_state ext_irq_lines[31:0];
+
+// Push output: value written by MTCTL CR16 (CPU -> SoC for timer compare)
+ext push isa_state cr16_write[31:0];
+
+// Push output: EIRR clear mask (CPU -> SoC for write-one-to-clear)
+ext push isa_state cr23_clear[31:0];
+
+mem umem[25:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+// === Instruction decode ===
+var instr[31:0];
+var r[4:0];
+var cr[4:0];
+var value[31:0];
+var no_trap[0:0];
+
+instr = umem[pc_pa];
+
+// MTCTL encoding: bits[12:5]=0xC2
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b11000010;
+
+r = instr[20:16];
+cr = instr[25:21];
+
+value = (r == 0) ? 32'h0 : rf[r];
+no_trap = ~instr_trap_taken & ~in_nullified;
+
+// Write to control register based on correct PA-RISC 1.1 CR number
+cr0  when (cr == 0  & no_trap) = value;
+cr8  when (cr == 8  & no_trap) = value;
+cr9  when (cr == 9  & no_trap) = value;
+cr10 when (cr == 10 & no_trap) = value;
+sar  when (cr == 11 & no_trap) = value[4:0];
+cr14 when (cr == 14 & no_trap) = value;
+cr15 when (cr == 15 & no_trap) = value;
+// CR16: push the written value to SoC for timer compare programming.
+// The free-running counter (cr16) is driven by testbench; this pushes the compare value out.
+cr16_write when (cr == 16 & no_trap) = value;
+// CR17 (IASQ) queue rotation: old back -> new front, value -> new back
+// Matches PA-RISC queue semantics used by Linux's save/restore path.
+var cr17_old_back[31:0];
+cr17_old_back = cr17_back;
+cr17      when (cr == 17 & no_trap) = cr17_old_back;
+cr17_back when (cr == 17 & no_trap) = value;
+
+// CR18 (IAOQ) queue rotation: old back -> new front, value -> new back
+// This matches PA-RISC queue semantics used by Linux's save/restore path:
+//   Save:    MFCTL CR18 -> front; MTCTL 0,CR18; MFCTL CR18 -> (old back)
+//   Restore: MTCTL iaoq0,CR18; MTCTL iaoq1,CR18 -> front=iaoq0, back=iaoq1
+var cr18_old_back[31:0];
+cr18_old_back = cr18_back;
+cr18      when (cr == 18 & no_trap) = cr18_old_back;
+cr18_back when (cr == 18 & no_trap) = value;
+
+cr19 when (cr == 19 & no_trap) = value;
+cr20 when (cr == 20 & no_trap) = value;
+cr21 when (cr == 21 & no_trap) = value;
+cr22 when (cr == 22 & no_trap) = value;
+// CR23 (EIRR) write-one-to-clear: push clear mask to testbench/SoC
+// The testbench manages the actual EIRR register and applies: eirr &= ~value
+cr23_clear when (cr == 23 & no_trap) = value;
+cr24 when (cr == 24 & no_trap) = value;
+cr25 when (cr == 25 & no_trap) = value;
+cr26 when (cr == 26 & no_trap) = value;
+cr27 when (cr == 27 & no_trap) = value;
+cr28 when (cr == 28 & no_trap) = value;
+cr29 when (cr == 29 & no_trap) = value;
+cr30 when (cr == 30 & no_trap) = value;
+cr31 when (cr == 31 & no_trap) = value;
+
+pc = pc + 4;

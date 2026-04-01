@@ -1,0 +1,438 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Sv39 Virtual Memory Translation Aspect with Exception Handling
+// This aspect provides address translation for instruction fetch (PC -> pc_pa)
+// Checks execute permission and raises instruction page fault on violation
+// Sv39: 3-level page table, 39-bit virtual address, 56-bit physical address, 64-bit PTEs
+
+// Physical address for PC (output of this aspect)
+var pc_pa[63:0];
+
+// Capture original PC value for identity mapping
+var original_pc[63:0];
+original_pc = pc;
+
+// Capture original privilege mode for instruction fetch translation
+var original_priv_mode[1:0];
+original_priv_mode = priv_mode;
+
+// Exception handling
+var exception_taken[0:0];      // Exception occurred during translation
+var exception_cause[63:0];      // Exception cause code
+var exception_vaddr[63:0];      // Faulting virtual address
+
+// Memory declarations (needed for page table accesses)
+mem umem[23:0];
+
+// Page table walk variables for INSTRUCTION FETCH
+// Sv39 virtual address: VPN[2] = va[38:30], VPN[1] = va[29:21], VPN[0] = va[20:12]
+var fetch_vpn2[8:0];         // Virtual page number level 2 [38:30]
+var fetch_vpn1[8:0];         // Virtual page number level 1 [29:21]
+var fetch_vpn0[8:0];         // Virtual page number level 0 [20:12]
+var fetch_page_offset[11:0]; // Page offset [11:0]
+
+// SATP fields for Sv39
+// satp[63:60] = mode (8 = Sv39), satp[59:44] = ASID, satp[43:0] = PPN
+var satp_mode[3:0];
+var satp_ppn[43:0];
+
+// Level 2 page table walk
+var pte2_addr[63:0];    // Address of level-2 PTE
+var pte2[63:0];         // Level-2 page table entry (64-bit)
+var pte2_v[0:0];        // Valid bit
+var pte2_r[0:0];        // Read bit
+var pte2_w[0:0];        // Write bit
+var pte2_x[0:0];        // Execute bit
+var pte2_u[0:0];        // User mode accessible bit
+var pte2_ppn[43:0];     // Physical page number from PTE2
+
+// Level 1 page table walk
+var pte1_addr[63:0];    // Address of level-1 PTE
+var pte1[63:0];         // Level-1 page table entry (64-bit)
+var pte1_v[0:0];        // Valid bit
+var pte1_r[0:0];        // Read bit
+var pte1_w[0:0];        // Write bit
+var pte1_x[0:0];        // Execute bit
+var pte1_u[0:0];        // User mode accessible bit
+var pte1_ppn[43:0];     // Physical page number from PTE1
+
+// Level 0 page table walk
+var pte0_addr[63:0];    // Address of level-0 PTE
+var pte0[63:0];         // Level-0 page table entry (64-bit)
+var pte0_v[0:0];        // Valid bit
+var pte0_x[0:0];        // Execute bit
+var pte0_u[0:0];        // User mode accessible bit
+var pte0_ppn[43:0];     // Physical page number from PTE0
+
+var is_leaf_pte2[0:0]; // Is PTE2 a leaf entry? (1GiB gigapage)
+var is_leaf_pte1[0:0]; // Is PTE1 a leaf entry? (2MiB megapage)
+var vm_enabled[0:0];   // Is virtual memory enabled (current priv mode)?
+
+// Final PTE permission bits (from whichever level is the leaf) - for instruction fetch
+var final_pte_v[0:0];
+var final_pte_x[0:0];
+var final_pte_u[0:0];
+
+// Exception CSR handling - M-mode and S-mode trap vectors
+var mtvec_base[63:0];
+var stvec_base[63:0];
+
+// Exception delegation variables
+var delegate_to_smode[0:0];
+var delegate_to_mmode[0:0];
+var medeleg_bit[0:0];
+var trap_target[63:0];
+
+// Read SATP register directly
+satp_mode = satp[63:60];        // Sv39 mode (8 = enabled)
+satp_ppn = satp[43:0];          // 44-bit PPN for root page table
+
+// Check if we're in M-mode
+var is_m_mode[0:0];
+is_m_mode = priv_mode[1] & priv_mode[0];  // M-mode is 11 (3)
+
+// Check if we were in M-mode (original privilege mode)
+var is_m_mode_orig[0:0];
+is_m_mode_orig = original_priv_mode[1] & original_priv_mode[0];
+
+// Read trap vector registers directly
+mtvec_base = {mtvec[63:2], 2'b00};
+stvec_base = {stvec[63:2], 2'b00};
+
+// Check if virtual memory is enabled for instruction fetch
+var vm_enabled_for_fetch[0:0];
+var satp_is_sv39[0:0];
+satp_is_sv39 = (satp_mode == 4'h8);
+vm_enabled_for_fetch = satp_is_sv39 & ~is_m_mode_orig;
+
+// Check if virtual memory is enabled (for exception detection)
+vm_enabled = satp_is_sv39 & ~is_m_mode;
+
+// =============================================================================
+// INSTRUCTION FETCH TRANSLATION PATH (uses original_pc, original_priv_mode)
+// =============================================================================
+
+// PC translation logic - use ORIGINAL pc for instruction fetch translation
+fetch_vpn2 = original_pc[38:30];
+fetch_vpn1 = original_pc[29:21];
+fetch_vpn0 = original_pc[20:12];
+fetch_page_offset = original_pc[11:0];
+
+// Level 2 page table walk for PC (PTEs are 8 bytes, so shift VPN by 3)
+pte2_addr = (satp_ppn << 12) | (fetch_vpn2 << 3);
+pte2 = vm_enabled_for_fetch ? umem[pte2_addr] : 0;
+
+// Extract PTE fields
+pte2_v = pte2[0];
+pte2_r = pte2[1];
+pte2_w = pte2[2];
+pte2_x = pte2[3];
+pte2_u = pte2[4];
+pte2_ppn = pte2[53:10];
+
+// Check if PTE2 is a leaf (1GiB gigapage)
+is_leaf_pte2 = pte2_r | pte2_w | pte2_x;
+
+// Level 1 page table walk
+pte1_addr = is_leaf_pte2 ? 0 : ((pte2_ppn << 12) | (fetch_vpn1 << 3));
+pte1 = (vm_enabled_for_fetch & (is_leaf_pte2 == 0)) ? umem[pte1_addr] : 0;
+pte1_v = pte1[0];
+pte1_r = pte1[1];
+pte1_w = pte1[2];
+pte1_x = pte1[3];
+pte1_u = pte1[4];
+pte1_ppn = pte1[53:10];
+
+// Check if PTE1 is a leaf (2MiB megapage)
+is_leaf_pte1 = pte1_r | pte1_w | pte1_x;
+
+// Level 0 page table walk (only if neither PTE2 nor PTE1 is a leaf)
+var need_pte0[0:0];
+need_pte0 = (is_leaf_pte2 == 0) & (is_leaf_pte1 == 0);
+pte0_addr = need_pte0 ? ((pte1_ppn << 12) | (fetch_vpn0 << 3)) : 0;
+pte0 = (vm_enabled_for_fetch & need_pte0) ? umem[pte0_addr] : 0;
+pte0_v = pte0[0];
+pte0_x = pte0[3];
+pte0_u = pte0[4];
+pte0_ppn = pte0[53:10];
+
+// Final PTE permission bits for instruction fetch
+// Level 2 leaf: use PTE2 bits
+// Level 1 leaf: use PTE1 bits (PTE2 must be valid non-leaf)
+// Level 0 leaf: use PTE0 bits (PTE2 and PTE1 must be valid non-leaves)
+final_pte_v = is_leaf_pte2 ? pte2_v :
+              (is_leaf_pte1 ? (pte2_v & pte1_v) :
+              (pte2_v & pte1_v & pte0_v));
+final_pte_x = is_leaf_pte2 ? (pte2_v & pte2_x) :
+              (is_leaf_pte1 ? (pte2_v & pte1_v & pte1_x) :
+              (pte2_v & pte1_v & pte0_x));
+final_pte_u = is_leaf_pte2 ? (pte2_v & pte2_u) :
+              (is_leaf_pte1 ? (pte2_v & pte1_v & pte1_u) :
+              (pte2_v & pte1_v & pte0_u));
+
+// =============================================================================
+// EXCEPTION DETECTION PATH (uses NEW pc, NEW priv_mode after sret/mret)
+// =============================================================================
+
+var exc_vpn2[8:0];
+var exc_vpn1[8:0];
+var exc_vpn0[8:0];
+
+exc_vpn2 = pc[38:30];
+exc_vpn1 = pc[29:21];
+exc_vpn0 = pc[20:12];
+
+// Level 2 page table walk for exception detection
+var exc_pte2_addr[63:0];
+var exc_pte2[63:0];
+var exc_pte2_v[0:0];
+var exc_pte2_r[0:0];
+var exc_pte2_w[0:0];
+var exc_pte2_x[0:0];
+var exc_pte2_u[0:0];
+var exc_pte2_ppn[43:0];
+
+exc_pte2_addr = (satp_ppn << 12) | (exc_vpn2 << 3);
+exc_pte2 = vm_enabled ? umem[exc_pte2_addr] : 0;
+
+exc_pte2_v = exc_pte2[0];
+exc_pte2_r = exc_pte2[1];
+exc_pte2_w = exc_pte2[2];
+exc_pte2_x = exc_pte2[3];
+exc_pte2_u = exc_pte2[4];
+exc_pte2_ppn = exc_pte2[53:10];
+
+var exc_is_leaf_pte2[0:0];
+exc_is_leaf_pte2 = exc_pte2_r | exc_pte2_w | exc_pte2_x;
+
+// Level 1 page table walk for exception detection
+var exc_pte1_addr[63:0];
+var exc_pte1[63:0];
+var exc_pte1_v[0:0];
+var exc_pte1_r[0:0];
+var exc_pte1_w[0:0];
+var exc_pte1_x[0:0];
+var exc_pte1_u[0:0];
+var exc_pte1_ppn[43:0];
+
+exc_pte1_addr = exc_is_leaf_pte2 ? 0 : ((exc_pte2_ppn << 12) | (exc_vpn1 << 3));
+exc_pte1 = (vm_enabled & (exc_is_leaf_pte2 == 0)) ? umem[exc_pte1_addr] : 0;
+
+exc_pte1_v = exc_pte1[0];
+exc_pte1_r = exc_pte1[1];
+exc_pte1_w = exc_pte1[2];
+exc_pte1_x = exc_pte1[3];
+exc_pte1_u = exc_pte1[4];
+exc_pte1_ppn = exc_pte1[53:10];
+
+var exc_is_leaf_pte1[0:0];
+exc_is_leaf_pte1 = exc_pte1_r | exc_pte1_w | exc_pte1_x;
+
+// Level 0 page table walk for exception detection
+var exc_need_pte0[0:0];
+var exc_pte0_addr[63:0];
+var exc_pte0[63:0];
+var exc_pte0_v[0:0];
+var exc_pte0_x[0:0];
+var exc_pte0_u[0:0];
+
+exc_need_pte0 = (exc_is_leaf_pte2 == 0) & (exc_is_leaf_pte1 == 0);
+exc_pte0_addr = exc_need_pte0 ? ((exc_pte1_ppn << 12) | (exc_vpn0 << 3)) : 0;
+exc_pte0 = (vm_enabled & exc_need_pte0) ? umem[exc_pte0_addr] : 0;
+exc_pte0_v = exc_pte0[0];
+exc_pte0_x = exc_pte0[3];
+exc_pte0_u = exc_pte0[4];
+
+// Final exception PTE validity and permissions
+var exc_final_pte_v[0:0];
+var exc_final_pte_x[0:0];
+var exc_final_pte_u[0:0];
+exc_final_pte_v = exc_is_leaf_pte2 ? exc_pte2_v :
+                  (exc_is_leaf_pte1 ? (exc_pte2_v & exc_pte1_v) :
+                  (exc_pte2_v & exc_pte1_v & exc_pte0_v));
+exc_final_pte_x = exc_is_leaf_pte2 ? (exc_pte2_v & exc_pte2_x) :
+                  (exc_is_leaf_pte1 ? (exc_pte2_v & exc_pte1_v & exc_pte1_x) :
+                  (exc_pte2_v & exc_pte1_v & exc_pte0_x));
+exc_final_pte_u = exc_is_leaf_pte2 ? (exc_pte2_v & exc_pte2_u) :
+                  (exc_is_leaf_pte1 ? (exc_pte2_v & exc_pte1_v & exc_pte1_u) :
+                  (exc_pte2_v & exc_pte1_v & exc_pte0_u));
+
+// Check privilege mode for U-bit permission
+var is_u_mode[0:0];
+var u_bit_violation[0:0];
+is_u_mode = (priv_mode == 0);
+u_bit_violation = exc_final_pte_v & exc_final_pte_x &
+                  ((is_u_mode & (exc_final_pte_u == 0)) | ((is_u_mode == 0) & exc_final_pte_u));
+
+// Permission checking for instruction fetch
+exception_taken = vm_enabled & ((exc_final_pte_v == 0) | (exc_final_pte_x == 0) | u_bit_violation);
+exception_cause = 12;  // Instruction page fault (RISC-V cause code 12)
+exception_vaddr = pc;
+
+// Check if exception should be delegated to S-mode
+medeleg_bit = medeleg[12];
+delegate_to_smode = medeleg_bit & ~is_m_mode;
+delegate_to_mmode = (delegate_to_smode == 0);
+
+// Choose trap target based on delegation
+trap_target = delegate_to_smode ? stvec_base : mtvec_base;
+
+// Use intermediate variable to prevent ISA compiler value-merge bug
+var exc_saved_pc[63:0];
+exc_saved_pc = pc;
+
+// Write exception information to M-mode CSRs (when NOT delegating)
+mepc when (exception_taken & delegate_to_mmode) = exc_saved_pc;
+mcause when (exception_taken & delegate_to_mmode) = exception_cause;
+mtval when (exception_taken & delegate_to_mmode) = exception_vaddr;
+
+// Save mstatus when trapping to M-mode: MPIE=MIE, MIE=0, MPP=priv_mode
+var exc_new_mstatus[63:0];
+exc_new_mstatus = (mstatus & 64'hFFFFFFFFFFFFE677) |           // Clear MPP(12:11), MPIE(7), MIE(3)
+                  ({63'b0, mstatus[3]} << 7) |                 // MPIE = old MIE
+                  ({62'b0, priv_mode} << 11);                  // MPP = old priv_mode
+mstatus when (exception_taken & delegate_to_mmode) = exc_new_mstatus;
+
+// Write exception information to S-mode CSRs (when delegating)
+sepc when (exception_taken & delegate_to_smode) = exc_saved_pc;
+scause when (exception_taken & delegate_to_smode) = exception_cause;
+stval when (exception_taken & delegate_to_smode) = exception_vaddr;
+
+// Save sstatus when trapping to S-mode: SPIE=SIE, SIE=0, SPP=priv_mode[0]
+var exc_new_sstatus[63:0];
+exc_new_sstatus = (sstatus & 64'hFFFFFFFFFFFFFEDD) |            // Clear SPP(8), SPIE(5), SIE(1)
+                  ({63'b0, sstatus[1]} << 5) |                  // SPIE = old SIE
+                  ({63'b0, priv_mode[0]} << 8);                 // SPP = old priv_mode[0]
+sstatus when (exception_taken & delegate_to_smode) = exc_new_sstatus;
+
+// Redirect PC to trap handler when exception occurs
+pc when (exception_taken) = trap_target;
+
+// Compute exception target privilege mode
+var exception_priv[1:0];
+exception_priv = delegate_to_smode ? 2'b01 : 2'b11;
+
+// Set privilege mode on exception
+priv_mode when (exception_taken) = exception_priv;
+
+// =============================================================================
+// A-BIT MANAGEMENT (for instruction fetch path only)
+// =============================================================================
+
+var pte2_with_a[63:0];
+var pte1_with_a[63:0];
+var pte0_with_a[63:0];
+var access_successful[0:0];
+var pte2_needs_a_update[0:0];
+var pte1_needs_a_update[0:0];
+var pte0_needs_a_update[0:0];
+
+pte2_with_a = pte2 | 64'h40;
+pte1_with_a = pte1 | 64'h40;
+pte0_with_a = pte0 | 64'h40;
+
+// Access is successful if VM is enabled for fetch and no exception occurred
+access_successful = vm_enabled_for_fetch & ~exception_taken;
+
+pte2_needs_a_update = access_successful & is_leaf_pte2 & ~pte2[6];
+pte1_needs_a_update = access_successful & ~is_leaf_pte2 & is_leaf_pte1 & ~pte1[6];
+pte0_needs_a_update = access_successful & need_pte0 & ~pte0[6];
+
+umem[pte2_addr] when (pte2_needs_a_update) = pte2_with_a;
+umem[pte1_addr] when (pte1_needs_a_update) = pte1_with_a;
+umem[pte0_addr] when (pte0_needs_a_update) = pte0_with_a;
+
+// =============================================================================
+// PHYSICAL ADDRESS COMPUTATION (for instruction fetch)
+// =============================================================================
+
+var pc_translated[63:0];
+// Level 2 leaf (1GiB gigapage): {ppn[2], vpn[1], vpn[0], offset}
+// Level 1 leaf (2MiB megapage): {ppn[2], ppn[1], vpn[0], offset}
+// Level 0 leaf (4KiB page): {ppn, offset}
+pc_translated = is_leaf_pte2 ?
+    {10'b0, pte2_ppn[43:18], fetch_vpn1, fetch_vpn0, fetch_page_offset} :
+    (is_leaf_pte1 ?
+        {10'b0, pte1_ppn[43:9], fetch_vpn0, fetch_page_offset} :
+        {10'b0, pte0_ppn, fetch_page_offset});
+
+var pc_vm_result[63:0];
+pc_vm_result = vm_enabled_for_fetch ? pc_translated : original_pc;
+
+// =========================================================================
+// Timer Interrupt Handling (M-mode and S-mode)
+// =========================================================================
+// External timer state from CLINT
+ext isa_state mtime[63:0];           // Full 64-bit mtime from CLINT
+// stimecmp is an internal CSR register (writable)
+isa_state stimecmp[63:0];            // Supervisor Time Compare (0x14D) - sstc extension
+isa_state sstatus[63:0];             // Supervisor Status (0x100)
+
+// Compute STIP continuously (sstc extension)
+var stip[0:0];
+stip = (mtime >= stimecmp) ? 1'b1 : 1'b0;
+
+// M-mode timer interrupt handling
+var take_m_timer_int[0:0];
+
+var m_timer_can_interrupt[0:0];
+m_timer_can_interrupt = mie[7] & (~is_m_mode | mstatus[3]);
+
+take_m_timer_int = (~exception_taken) & timer_irq_pending & m_timer_can_interrupt;
+
+var m_timer_int_cause[63:0];
+m_timer_int_cause = 64'h8000000000000007;
+
+// Save context when taking M-mode timer interrupt
+mepc when (take_m_timer_int) = original_pc;
+mcause when (take_m_timer_int) = m_timer_int_cause;
+
+var new_mstatus_m_int[63:0];
+new_mstatus_m_int = (mstatus & 64'hFFFFFFFFFFFFE777) |
+                  ({63'b0, mstatus[3]} << 7) |
+                  ({62'b0, priv_mode} << 11);
+mstatus when (take_m_timer_int) = new_mstatus_m_int;
+
+priv_mode when (take_m_timer_int) = 2'b11;
+pc when (take_m_timer_int) = mtvec_base;
+
+// =========================================================================
+// S-mode Timer Interrupt Handling (sstc extension)
+// =========================================================================
+var s_timer_int_enabled[0:0];
+var take_s_timer_int[0:0];
+var is_s_mode[0:0];
+
+is_s_mode = (~priv_mode[1]) & priv_mode[0];
+
+var sie_effective[0:0];
+sie_effective = is_s_mode ? sstatus[1] : 1'b1;
+
+s_timer_int_enabled = mie[5] & sie_effective;
+
+take_s_timer_int = (~exception_taken) & (~take_m_timer_int) & stip & s_timer_int_enabled & (~is_m_mode);
+
+var s_timer_int_cause[63:0];
+s_timer_int_cause = 64'h8000000000000005;
+
+sepc when (take_s_timer_int) = original_pc;
+scause when (take_s_timer_int) = s_timer_int_cause;
+
+var new_sstatus_s_int[63:0];
+new_sstatus_s_int = (sstatus & 64'hFFFFFFFFFFFFFEDD) |
+                  ({63'b0, sstatus[1]} << 5) |
+                  ({63'b0, priv_mode[0]} << 8);
+sstatus when (take_s_timer_int) = new_sstatus_s_int;
+
+priv_mode when (take_s_timer_int) = 2'b01;
+pc when (take_s_timer_int) = stvec_base;
+
+// =========================================================================
+// Combined trap signal for gating instruction side effects
+// =========================================================================
+var instr_trap_taken[0:0];
+instr_trap_taken = exception_taken | take_m_timer_int | take_s_timer_int;
+
+// =========================================================================
+// Final PC physical address calculation
+// =========================================================================
+pc_pa = pc_vm_result;

@@ -1,0 +1,161 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TDMI TST (register) - Test bits (AND, sets flags only)
+// Encoding: cond|00|0|1000|1|Rn|0000|00000|00|0|Rm
+// TST{cond} Rn, Rm
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+
+// Banked registers for FIQ mode (R8-R14)
+isa_state rf_fiq[31:0][2:0];       // R8_fiq(0) - R14_fiq(6)
+
+// Banked SP/LR for other privileged modes
+isa_state rf_irq_sp[31:0];
+isa_state rf_irq_lr[31:0];
+isa_state rf_svc_sp[31:0];
+isa_state rf_svc_lr[31:0];
+isa_state rf_abt_sp[31:0];
+isa_state rf_abt_lr[31:0];
+isa_state rf_und_sp[31:0];
+isa_state rf_und_lr[31:0];
+
+// Saved Program Status Registers
+isa_state spsr_fiq[31:0];
+isa_state spsr_irq[31:0];
+isa_state spsr_svc[31:0];
+isa_state spsr_abt[31:0];
+isa_state spsr_und[31:0];
+mem umem[21:0];
+
+var cond[3:0];
+var rd[3:0];
+var rn[3:0];
+var rm[3:0];
+var Rn_val[31:0];
+var Rm_val[31:0];
+var result[31:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+
+// Mode detection
+var mode[4:0];
+var is_fiq[0:0];
+var is_irq[0:0];
+var is_svc[0:0];
+var is_abt[0:0];
+var is_und[0:0];
+var rn_fiq_idx[2:0];
+var rm_fiq_idx[2:0];
+
+var new_n[0:0];
+var new_z[0:0];
+var new_cpsr[31:0];
+
+instr = umem[pc];
+
+assume instr[27:26] == 0b00;
+assume instr[25] == 0b0;
+assume instr[24:21] == 0b1000;  // TST opcode
+assume instr[20] == 0b1;
+// Rd field is SBZ (should be zero) but when Rd=15, SPSR->CPSR copy occurs
+assume instr[11:4] == 0x00;
+
+cond = instr[31:28];
+rd = instr[15:12];
+rn = instr[19:16];
+rm = instr[3:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |
+            ((cond == 0b0000) & z_flag) |
+            ((cond == 0b0001) & ~z_flag) |
+            ((cond == 0b0010) & c_flag) |
+            ((cond == 0b0011) & ~c_flag) |
+            ((cond == 0b0100) & n_flag) |
+            ((cond == 0b0101) & ~n_flag) |
+            ((cond == 0b0110) & v_flag) |
+            ((cond == 0b0111) & ~v_flag) |
+            ((cond == 0b1000) & c_flag & ~z_flag) |
+            ((cond == 0b1001) & (~c_flag | z_flag)) |
+            ((cond == 0b1010) & (n_flag == v_flag)) |
+            ((cond == 0b1011) & (n_flag != v_flag)) |
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) |
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag)));
+
+// Detect current processor mode
+mode = cpsr[4:0];
+is_fiq = (mode == 5'b10001);
+is_irq = (mode == 5'b10010);
+is_svc = (mode == 5'b10011);
+is_abt = (mode == 5'b10111);
+is_und = (mode == 5'b11011);
+rn_fiq_idx = rn[2:0];
+rm_fiq_idx = rm[2:0];
+
+// Read Rn with mode-aware banking
+Rn_val = (rn == 0b1111) ? (pc + 8) :
+         (rn == 4'b1101) ? (is_fiq ? rf_fiq[5] :
+                           is_irq ? rf_irq_sp :
+                           is_svc ? rf_svc_sp :
+                           is_abt ? rf_abt_sp :
+                           is_und ? rf_und_sp :
+                           rf[13]) :
+         (rn == 4'b1110) ? (is_fiq ? rf_fiq[6] :
+                           is_irq ? rf_irq_lr :
+                           is_svc ? rf_svc_lr :
+                           is_abt ? rf_abt_lr :
+                           is_und ? rf_und_lr :
+                           rf[14]) :
+         ((rn[3] == 1'b1) & (rn != 4'b1111) & is_fiq) ? rf_fiq[rn_fiq_idx] :
+         rf[rn];
+// Read Rm with mode-aware banking
+Rm_val = (rm == 0b1111) ? (pc + 8) :
+         (rm == 4'b1101) ? (is_fiq ? rf_fiq[5] :
+                           is_irq ? rf_irq_sp :
+                           is_svc ? rf_svc_sp :
+                           is_abt ? rf_abt_sp :
+                           is_und ? rf_und_sp :
+                           rf[13]) :
+         (rm == 4'b1110) ? (is_fiq ? rf_fiq[6] :
+                           is_irq ? rf_irq_lr :
+                           is_svc ? rf_svc_lr :
+                           is_abt ? rf_abt_lr :
+                           is_und ? rf_und_lr :
+                           rf[14]) :
+         ((rm[3] == 1'b1) & (rm != 4'b1111) & is_fiq) ? rf_fiq[rm_fiq_idx] :
+         rf[rm];
+
+result = Rn_val & Rm_val;
+
+new_n = result[31];
+new_z = (result == 0);
+
+new_cpsr = {new_n, new_z, c_flag, v_flag, cpsr[27:0]};
+
+// Get current SPSR for Rd=15 case (restore CPSR from SPSR)
+var current_spsr[31:0];
+current_spsr = is_fiq ? spsr_fiq :
+               is_irq ? spsr_irq :
+               is_svc ? spsr_svc :
+               is_abt ? spsr_abt :
+               is_und ? spsr_und :
+               cpsr;  // User/System mode has no SPSR
+
+// TST only updates flags, no register write
+// When Rd=15 in privileged mode, CPSR is restored from SPSR
+var is_privileged[0:0];
+is_privileged = is_fiq | is_irq | is_svc | is_abt | is_und;
+var final_cpsr_value[31:0];
+final_cpsr_value = ((rd == 4'b1111) & is_privileged) ? current_spsr : new_cpsr;
+cpsr when (cond_pass) = final_cpsr_value;
+pc = pc + 4;

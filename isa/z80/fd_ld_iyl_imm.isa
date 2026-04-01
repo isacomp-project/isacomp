@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD 2E nn - LD IYL,n (undocumented)
+// IYL = n
+// Does not affect flags
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+isa_state IYL[7:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'h2EFD;
+
+IYL = mainmem[pc_plus_2];
+pc = pc_plus_2 + 1;

@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ITB Fault Handler - fires when ITB miss/ACV occurs regardless of instruction content
+//
+// When an ITB miss occurs in user mode, pc_pa falls back to the raw virtual
+// address, which reads garbage from memory. If no instruction opcode matches,
+// no instruction's fault handling code fires and the CPU hangs.
+//
+// This handler fires whenever itb_fault is set (via assume itb_fault == 1),
+// providing a fallback that always handles the exception.
+//
+// Uses intermediate variables for pc/exc_addr/pal_mode targets to avoid
+// graph_merger deduplication with identical writes in normal instructions.
+
+isa_state pc[63:0];
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+isa_state lock_flag[0:0];
+
+// ITB arrays (8 entries)
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+
+// Interrupt state
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+
+// ITB translation for instruction fetch
+aspect aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+// Only fire when ITB fault is active
+assume itb_fault == 1;
+
+// Use intermediate variables so the graph_merger doesn't deduplicate
+// these edges with identical writes from normal instruction files
+var fault_exc_addr[63:0];
+fault_exc_addr = pc;
+
+var fault_itb_miss_pc[63:0];
+fault_itb_miss_pc = itb_miss_entry;
+
+var fault_itb_acv_pc[63:0];
+fault_itb_acv_pc = itb_acv_entry;
+
+var fault_interrupt_pc[63:0];
+fault_interrupt_pc = interrupt_entry;
+
+// Save exception address (for both interrupt and ITB fault)
+exc_addr when (take_interrupt || itb_fault) = fault_exc_addr;
+
+// Interrupt handling (higher priority than ITB fault)
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = fault_interrupt_pc;
+
+// ITB fault handling (when no interrupt)
+va when (take_interrupt == 0 && itb_fault) = fault_exc_addr;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = fault_itb_miss_pc;
+pc when (take_interrupt == 0 && itb_acv) = fault_itb_acv_pc;

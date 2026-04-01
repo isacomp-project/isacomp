@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RCR r32, 1 (0xD1 /3 with mod=11)
+// Rotate through Carry Right by 1 bit
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var old_cf[0:0];
+var result[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xD1;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is RCR (reg_bits = 011)
+assume reg_bits == 0b011;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read destination value
+dst_val = xregs[rm_bits];
+
+// Save old carry flag
+old_cf = flag_CF;
+
+// Rotate through carry right by 1
+// CF becomes LSB of original value
+// Result = (old_cf << 31) | (dst_val >> 1)
+result = {old_cf, dst_val[31:1]};
+
+// Write result
+xregs[rm_bits] = result;
+
+// New CF is the LSB that was shifted out
+flag_CF = dst_val[0];
+
+// OF is XOR of two most significant bits of result (for count=1)
+flag_OF = result[31] ^ result[30];

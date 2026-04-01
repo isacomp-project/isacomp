@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER fsel - Floating Select (A-Form)
+// fsel FRT,FRA,FRC,FRB (Rc=0)
+// Primary opcode 63, XO=23
+// If (FRA) >= 0.0 then FRT <- (FRC) else FRT <- (FRB)
+// Note: Comparison is to +0.0, and -0.0 is considered >= +0.0
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[14:0];
+
+var frt[4:0];
+var fra[4:0];
+var frb[4:0];
+var frc[4:0];
+var fa[63:0];
+var fb[63:0];
+var fc[63:0];
+var sign_bit[0:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 63;     // Primary opcode 63
+assume instr[5:1] == 23;       // XO = 23 (fsel)
+assume instr[0] == 0;          // Rc = 0
+
+pc = pc + 4;
+
+frt = instr[25:21];
+fra = instr[20:16];
+frb = instr[15:11];
+frc = instr[10:6];
+
+fa = frf[fra];
+fb = frf[frb];
+fc = frf[frc];
+
+// Check sign bit of FRA (bit 63)
+// If sign bit is 0 (positive or +0), select FRC
+// If sign bit is 1 (negative), select FRB
+// Note: This treats -0 as negative, but per Power ISA, -0 >= +0 is true
+// A fully compliant implementation would check for -0 specially
+sign_bit = fa[63];
+
+// Select based on sign (simplified: negative selects FRB, else FRC)
+result = sign_bit ? fb : fc;
+
+frf[frt] when (~instr_trap_taken) = result;

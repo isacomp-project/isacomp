@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX TDIF - Tetra Difference (saturating subtract per 32-bit)
+// TDIF $X,$Y,$Z: each tetra of $X = max(0, tetra($Y) - tetra($Z))
+// Opcode: 0xD4
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var t0[31:0];
+var t1[31:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xD4;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+
+// Saturating tetra subtraction for each 32-bit word
+t0 = (y_val[31:0] > z_val[31:0]) ? (y_val[31:0] - z_val[31:0]) : 32'h0;
+t1 = (y_val[63:32] > z_val[63:32]) ? (y_val[63:32] - z_val[63:32]) : 32'h0;
+
+result = {t1, t0};
+
+rf[x] = result;
+pc = pc + 4;

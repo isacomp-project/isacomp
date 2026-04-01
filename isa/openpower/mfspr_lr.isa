@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mfspr LR - Move From Link Register
+// mflr RT  (mfspr RT,8)
+// Primary opcode 31, XO=339, SPR=8
+// RT <- LR
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state lr[63:0];
+
+var rt[4:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 31;
+assume instr[10:1] == 339;
+// SPR field for LR (SPR 8): spr_hi=0, spr_lo=8
+assume instr[15:11] == 0;
+assume instr[20:16] == 8;
+
+rt = instr[25:21];
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = lr;
+#else
+rf[rt] = lr;
+#endif
+
+pc = pc + 4;

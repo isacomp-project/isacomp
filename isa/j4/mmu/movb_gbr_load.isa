@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+isa_state gbr[31:0];
+
+var disp[7:0];
+var movb_gbr_load_addr[31:0];
+var data8[7:0];
+var sign_ext_data[31:0];
+
+// Register banking variables (unique to movb_gbr_load instruction)
+var movb_gbr_load_r0_lo[2:0];
+var movb_gbr_load_rb[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+isa_state t[0:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:8] == 0xC4;
+disp = instr[7:0];
+
+// Register banking setup for R0
+movb_gbr_load_r0_lo = 3'b000;
+movb_gbr_load_rb = sr[29];  // RB bit (bit 29 in SR)
+
+// MOV.B @(disp,GBR),R0: movb_gbr_load_addr = GBR + disp
+movb_gbr_load_addr = gbr + {24'b0, disp};
+
+var mmu_va[31:0];
+mmu_va = movb_gbr_load_addr;
+
+// Data MMU translation
+var is_write[0:0];
+is_write = 1'b0;
+#ifdef MMU
+#include "mmu_translate_data_inline.isa"
+#endif
+
+#ifdef MMU
+data8 = umem[addr_pa];
+#else
+data8 = umem[movb_gbr_load_addr];
+#endif
+sign_ext_data = {{24{data8[7]}}, data8};
+
+rf[0] when (~int_should_take & ~itlb_exc_actually_taken & ((movb_gbr_load_rb == 0) & data_tlb_no_exception)) = sign_ext_data;
+rf_bank[movb_gbr_load_r0_lo] when (~int_should_take & ~itlb_exc_actually_taken & (movb_gbr_load_rb & data_tlb_no_exception)) = sign_ext_data;
+pc = pc + 2;

@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER ldux - Load Doubleword with Update Indexed (X-Form)
+// ldux RT,RA,RB
+// Primary opcode 31, XO=53
+// EA <- (RA) + (RB)
+// RT <- MEM(EA, 8)
+// RA <- EA
+// Note: RA cannot be 0 or RT
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var rb[4:0];
+var ra_val[63:0];
+var rb_val[63:0];
+var ea[63:0];
+var dword_data[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 53
+assume instr[10:1] == 53;
+
+// Extract register fields
+rt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+// RA cannot be 0 for update forms
+assume ra != 0;
+// RA cannot equal RT (would overwrite source)
+
+ra_val = rf[ra];
+rb_val = rf[rb];
+
+// Calculate effective address
+ea = ra_val + rb_val;
+
+// Load doubleword from memory
+#ifdef VM
+aspect mmu_load.isa gates pc, msr, srr0, srr1, dar, dsisr;
+dword_data = umem[ea_pa];
+#else
+dword_data = umem[ea];
+#endif
+
+// Update RT and RA
+#ifdef VM
+rf[rt] when (~load_exception_taken & ~instr_trap_taken) = dword_data;
+#else
+rf[rt] = dword_data;
+#endif
+#ifdef VM
+rf[ra] when (~load_exception_taken & ~instr_trap_taken) = ea;
+#else
+rf[ra] = ea;
+#endif
+pc = pc + 4;

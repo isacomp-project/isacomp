@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vle16ff.v - Vector Load 16-bit Elements, Fault-Only-First
+// Encoding: vle16ff.v vd, (rs1), vm
+// Operation: Load 16-bit elements with fault-only-first behavior
+
+isa_state pc[31:0];
+isa_state xrf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vd[4:0];
+var vm[0:0];
+var base[31:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0000111;
+assume instr[14:12] == 0b101;
+assume instr[24:20] == 0b10000;
+assume instr[28:26] == 0b000;
+assume instr[31:29] == 0b000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vd = instr[11:7];
+vm = instr[25:25];
+
+base = xrf[rs1];
+
+res[15:0] = {umem[base + 1], umem[base]};
+res[31:16] = {umem[base + 3], umem[base + 2]};
+res[47:32] = {umem[base + 5], umem[base + 4]};
+res[63:48] = {umem[base + 7], umem[base + 6]};
+res[79:64] = {umem[base + 9], umem[base + 8]};
+res[95:80] = {umem[base + 11], umem[base + 10]};
+res[111:96] = {umem[base + 13], umem[base + 12]};
+res[127:112] = {umem[base + 15], umem[base + 14]};
+
+vrf[vd] = res;

@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 PUSH SS (0x16)
+// Push SS segment register onto stack at SS:[ESP]
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// Word register file: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];            // Stack segment register
+
+var offset_lo[31:0];             // 32-bit stack offset
+var offset_hi[31:0];             // 32-bit stack offset + 1
+var physical_addr_lo[31:0];      // 32-bit physical address
+var physical_addr_hi[31:0];      // 32-bit physical address
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x16;
+eip = eip + 1;
+
+// Decrement ESP by 2 (word size) - stack grows downward
+// ESP is xregs[4], so read and write to it directly
+xregs[4] = xregs[4] - 32'h00000002;
+
+// Calculate stack offsets (ESP and ESP+1)
+offset_lo = xregs[4];
+offset_hi = xregs[4] + 32'h00000001;
+
+// Calculate physical addresses using SS segment
+physical_addr_lo = (SS << 4) + offset_lo;
+physical_addr_hi = (SS << 4) + offset_hi;
+
+// Write SS to stack (little-endian: low byte at lower address)
+dmem[physical_addr_lo] = SS[7:0];
+dmem[physical_addr_hi] = SS[15:8];

@@ -1,0 +1,22 @@
+# ILAng and IMDb repositories (large external deps)
+ILAng/
+IMDb/
+
+# Build artifacts
+*.o
+*.a
+*.so
+export_aes
+validate_expr_tree
+full_ila_validator
+debug_pico
+export_pico
+export_piccolo
+export_rocket
+export_nibbler
+minimal_riscv_add
+super_minimal
+
+# Keep successful exports, ignore build artifacts
+test_data/riscv/*.o
+test_data/riscv/export_*

@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 VSHD instruction (32-bit variable shift double)
+// VSHD r1,r2,t - Variable Shift Double: concatenate r1[31:0] and r2[31:0],
+// shift right by SAR[4:0], take low 32 bits, zero-extend to 64.
+// Opcode: 0x34 (bits 31:26), sub: bits[12:10]=000
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state sar[5:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var t[4:0];
+var sa[4:0];
+var src1[63:0];
+var src2[63:0];
+var vshd_pair[63:0];
+var shifted[63:0];
+var res[63:0];
+var cond_eq[0:0];
+var cond_lt[0:0];
+var cond_od[0:0];
+var cond_base[0:0];
+var cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// VSHD / SHRPW-SAR encoding: opcode=0x34, bit[12]=0, bit[11]=0 (SAR), bit[10]=0, bit[9]=0 (32-bit)
+// 32-bit only: VSHD (PA1.x) and SHRPW SAR (PA2.0)
+// bit[9]=1 is handled by shrpd_v.isa (64-bit SHRPD SAR)
+assume instr[31:26] == 0b110100;
+assume instr[12] == 0b0;
+assume instr[11] == 0b0;
+assume instr[10] == 0b0;
+assume instr[9] == 0b0;
+
+// Extract fields
+r2 = instr[25:21];
+r1 = instr[20:16];
+t = instr[4:0];
+
+// Shift amount from SAR (only low 5 bits for 32-bit operation)
+sa = sar[4:0];
+
+// Read source registers
+src1 = (r1 == 0) ? 64'h0 : rf[r1];
+src2 = (r2 == 0) ? 64'h0 : rf[r2];
+
+// Concatenate low 32 bits: {src1[31:0], src2[31:0]}
+vshd_pair = {src1[31:0], src2[31:0]};
+
+// Shift right by SAR[4:0]
+shifted = vshd_pair >> sa;
+
+// Take low 32 bits, zero-extend to 64
+res = {32'h0, shifted[31:0]};
+
+// 3-bit conditional nullification (c=instr[15:13])
+cond_eq = (res == 0);
+cond_lt = res[63];
+cond_od = res[0];
+cond_base = (instr[13] & ~instr[14] & cond_eq) | (~instr[13] & instr[14] & cond_lt) | (instr[13] & instr[14] & cond_od);
+cond_met = cond_base ^ instr[15];
+psw when (cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC
+pc = pc + 4;

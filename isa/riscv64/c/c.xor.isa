@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64C C.XOR - Bitwise XOR (compressed regs, 64-bit)
+
+isa_state pc[63:0];
+var c_instr[15:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2_prime[2:0];
+var rs2[4:0];
+var rd_prime[2:0];
+var rd[4:0];
+var r1[63:0];
+var r2[63:0];
+var res[63:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.XOR format: CA-type
+// Encoding: 100011 rd'/rs1' 01 rs2' 01
+assume c_instr[1:0] == 0b01;
+assume c_instr[15:10] == 0b100011;
+assume c_instr[6:5] == 0b01;
+
+pc = pc + 2;
+
+// Compressed register encoding: x8-x15
+rd_prime = c_instr[9:7];
+rs2_prime = c_instr[4:2];
+rd = {2'b01, rd_prime};
+rs1 = {2'b01, rd_prime};  // same as rd
+rs2 = {2'b01, rs2_prime};
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+
+res = r1 ^ r2;
+
+// No guard needed - rd is always 8-15, never 0
+rf[rd] = res;

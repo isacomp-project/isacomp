@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 BTST Dn,(d8,An,Xn) - BTST bit in byte, brief indexed
+// Opcode: 0000 SSS 100 110 AAA + brief extension word
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var base_reg[2:0];
+var btix_ext[15:0];
+var idx_reg[2:0];
+var btix_idx_is_addr[0:0];
+var btix_idx_is_long[0:0];
+var btix_idx_scale[1:0];
+var btix_disp8[7:0];
+var btix_disp_ext[31:0];
+var btix_raw_idx[31:0];
+var btix_idx_val[31:0];
+var btix_scaled_idx[31:0];
+var btix_bit_num[31:0];
+var btix_byte_addr[31:0];
+var btix_bit_pos[2:0];
+var btix_dst_word[15:0];
+var btix_dst_byte[7:0];
+var btix_bit_val[0:0];
+
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0000;
+assume instr[8:6] == 0b100;
+assume instr[5:3] == 0b110;     // EA: (d8,An,Xn)
+pc when (~m68k_exc_taken) = pc + 2;
+
+src_reg = instr[11:9];
+base_reg = instr[2:0];
+
+btix_ext = dmem[pc + pc_pa_delta];
+assume btix_ext[8] == 0b0;  // Brief format
+pc when (~m68k_exc_taken) = pc + 2;
+
+idx_reg = btix_ext[14:12];
+btix_idx_is_addr = btix_ext[15];
+btix_idx_is_long = btix_ext[11];
+btix_idx_scale = btix_ext[10:9];
+btix_disp8 = btix_ext[7:0];
+btix_disp_ext = {{24{btix_disp8[7]}}, btix_disp8};
+
+btix_raw_idx = btix_idx_is_addr ? aregs[idx_reg] : dregs[idx_reg];
+btix_idx_val = btix_idx_is_long ? btix_raw_idx : {{16{btix_raw_idx[15]}}, btix_raw_idx[15:0]};
+btix_scaled_idx = btix_idx_scale == 2'b00 ? btix_idx_val :
+                     btix_idx_scale == 2'b01 ? (btix_idx_val << 1) :
+                     btix_idx_scale == 2'b10 ? (btix_idx_val << 2) :
+                                                    (btix_idx_val << 3);
+
+btix_bit_num = dregs[src_reg];
+btix_byte_addr = aregs[base_reg] + btix_disp_ext + btix_scaled_idx;
+btix_bit_pos = btix_bit_num[2:0];
+
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = {btix_byte_addr[31:1], 1'b0};
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+btix_dst_word = dmem[ea_pa];
+#else
+btix_dst_word = dmem[{btix_byte_addr[31:1], 1'b0}];
+#endif
+btix_dst_byte = btix_byte_addr[0] ? btix_dst_word[7:0] : btix_dst_word[15:8];
+
+btix_bit_val = (btix_dst_byte >> btix_bit_pos) & 1;
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = ~btix_bit_val;
+

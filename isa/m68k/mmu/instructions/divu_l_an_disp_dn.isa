@@ -1,0 +1,178 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 DIVU.L d(An),Dr:Dq - Unsigned Divide Long from d(An) (32/32->32r:32q)
+// Opcode: 0100 1100 01 101 AAA followed by extension word, then 16-bit displacement
+// Extension: 0 qqq x 0 0000000 rrr
+// Division by zero generates exception (vector 5, format 2)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+isa_state sr[15:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var base_reg[2:0];
+var divd_ext[15:0];
+var dq_reg[2:0];
+var dr_reg[2:0];
+var disp[15:0];
+var disp_ext[31:0];
+var eff_addr[31:0];
+var src_hi[15:0];
+var src_lo[15:0];
+var divisor[31:0];
+var dividend[31:0];
+var quotient[31:0];
+var remainder[31:0];
+
+// Divide-by-zero exception variables
+var divzero_detected[0:0];
+var divzero_instr_pc[31:0];
+var divzero_old_sr[15:0];
+var divzero_was_user[0:0];
+var divzero_base_sp[31:0];
+var divzero_new_sp[31:0];
+var divzero_vector_addr[31:0];
+var divzero_handler_hi[15:0];
+var divzero_handler_lo[15:0];
+var divzero_handler[31:0];
+var divzero_new_sr[15:0];
+var divzero_format_vec[15:0];
+var divzero_frame_w0[31:0];
+var divzero_frame_w1[31:0];
+var divzero_frame_w2[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Save instruction PC before fetch
+divzero_instr_pc = pc;
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100110001;  // DIVU.L/DIVS.L
+assume instr[5:3] == 0b101;          // EA mode: d(An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+base_reg = instr[2:0];
+
+// Fetch extension word (unique name)
+divd_ext = dmem[pc + pc_pa_delta];
+assume divd_ext[11] == 0b0;    // Unsigned (DIVU) - bit 11 distinguishes signed/unsigned
+assume divd_ext[10] == 0b0;    // 32-bit dividend
+pc when (~m68k_exc_taken) = pc + 2;
+
+dq_reg = divd_ext[14:12];
+dr_reg = divd_ext[2:0];
+
+// Fetch 16-bit displacement
+disp = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+disp_ext = {{16{disp[15]}}, disp};
+
+// Calculate effective address
+eff_addr = aregs[base_reg] + disp_ext;
+
+// Read 32-bit divisor from memory
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = eff_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+src_hi = dmem[ea_pa];
+#else
+src_hi = dmem[eff_addr];
+#endif
+#ifdef MMU
+src_lo = dmem[ea_pa + 2];
+#else
+src_lo = dmem[eff_addr + 2];
+#endif
+divisor = {src_hi, src_lo};
+
+// Execute divide
+dividend = dregs[dq_reg];
+
+// Check for divide by zero
+divzero_detected = (divisor == 0);
+
+quotient = divisor != 0 ? dividend / divisor : dividend;
+remainder = divisor != 0 ? dividend - (quotient * divisor) : 0;
+
+// Store results (guarded: no write on divide-by-zero)
+// When Dr==Dq, only quotient is stored (per M68K spec).
+// Write port 1 comes after port 0 in generated Verilog, so it wins on conflict.
+dregs[dq_reg] when (~divzero_detected & ~m68k_exc_taken) = quotient;
+dregs[dr_reg] when (~divzero_detected & ~m68k_exc_taken) = dr_reg != dq_reg ? remainder : quotient;
+
+// Update CCR (guarded: no flag change on divide-by-zero, X not affected)
+flag_N when (~divzero_detected & ~m68k_exc_taken) = quotient[31];
+flag_Z when (~divzero_detected & ~m68k_exc_taken) = quotient == 0;
+flag_V when (~divzero_detected & ~m68k_exc_taken) = 1'b0;
+flag_C when (~divzero_detected & ~m68k_exc_taken) = 1'b0;
+
+// Divide-by-zero exception (vector 5, format 2 frame = 12 bytes)
+divzero_old_sr = {sr[15:5], flag_X, flag_N, flag_Z, flag_V, flag_C};
+divzero_was_user = ~sr[13];
+usp when (divzero_detected & divzero_was_user & ~m68k_exc_taken) = aregs[7];
+
+divzero_base_sp = (divzero_detected & divzero_was_user) ? ssp : aregs[7];
+divzero_new_sp = divzero_base_sp - 32'd12;
+
+// Format 2 stack frame: SR, PC, format/vector, instruction address
+divzero_format_vec = {4'b0010, 12'h014};
+// Push Format 2 frame as three 32-bit writes to avoid dual-half collision
+divzero_frame_w0 = {divzero_old_sr, divzero_instr_pc[31:16]};
+divzero_frame_w1 = {divzero_instr_pc[15:0], divzero_format_vec};
+divzero_frame_w2 = {divzero_instr_pc[31:16], divzero_instr_pc[15:0]};
+dmem[divzero_new_sp] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w0;
+dmem[divzero_new_sp + 4] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w1;
+dmem[divzero_new_sp + 8] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w2;
+
+ssp when (divzero_detected & ~m68k_exc_taken) = divzero_new_sp;
+aregs[7] when (divzero_detected & ~m68k_exc_taken) = divzero_new_sp;
+
+// Enter supervisor mode, clear trace bits
+divzero_new_sr = {2'b00, 1'b1, divzero_old_sr[12:0]};
+sr when (divzero_detected & ~m68k_exc_taken) = divzero_new_sr;
+
+// Jump to handler
+divzero_vector_addr = vbr + 32'h14;
+divzero_handler_hi = dmem[divzero_vector_addr];
+divzero_handler_lo = dmem[divzero_vector_addr + 2];
+divzero_handler = {divzero_handler_hi, divzero_handler_lo};
+pc when (divzero_detected & ~m68k_exc_taken) = divzero_handler;

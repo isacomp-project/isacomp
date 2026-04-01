@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER addis - Add Immediate Shifted (D-Form)
+// addis RT,RA,SI
+// Primary opcode 15
+// if RA = 0 then RT <- EXTS(SI || 0x0000)
+// else RT <- (RA) + EXTS(SI || 0x0000)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var si[15:0];
+var ra_val[63:0];
+var shifted_si[31:0];
+var sign_ext_si[63:0];
+var ra_or_zero[63:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 15 in bits 31:26
+assume instr[31:26] == 15;
+
+// Extract fields
+rt = instr[25:21];
+ra = instr[20:16];
+si = instr[15:0];
+
+// Shift SI left by 16 bits, then sign-extend to 64 bits
+shifted_si = {si, 16'h0};
+sign_ext_si = {{32{shifted_si[31]}}, shifted_si};
+
+// If RA=0, use 0; otherwise use (RA)
+ra_val = rf[ra];
+ra_or_zero = ra == 0 ? 64'h0 : ra_val;
+
+result = ra_or_zero + sign_ext_si;
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

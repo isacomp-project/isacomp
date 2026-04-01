@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TRAPA #imm - Trap Always
+// Triggers a software exception with vector number 32 + imm
+// This is the SH-2 equivalent of a system call instruction
+//
+// Exception flow:
+// 1. Push SR to stack
+// 2. Push PC to stack
+// 3. Set MD=1, BL=1 in SR
+// 4. Jump to VBR + (32 + imm) * 4
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (declared in exception.isa but needed here too for merger)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var trapa_imm[7:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+instr = umem[pc];
+assume instr[15:8] == 0xC3;
+trapa_imm = instr[7:0];
+
+// TRAPA always triggers an exception
+// Vector = 32 + imm (trap vectors are 32-63 for TRAPA #0-31)
+exc_taken = 1'b1;
+exc_vector = 8'h20 + trapa_imm;
+
+// Note: No pc = pc + 2 here - exception.isa handles PC update
+// The saved PC will be the address of the TRAPA instruction
+// (RTE will return to re-execute or handler will adjust)

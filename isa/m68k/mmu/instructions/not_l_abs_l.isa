@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 NOT.L (xxx).L - Logical complement (one's complement) long in memory (absolute long)
+// Opcode: 0100 0110 10111 001 followed by 32-bit absolute address
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var mnlal_abs_hi[15:0];
+var mnlal_abs_lo[15:0];
+var mnlal_addr[31:0];
+var mnlal_src_hi[15:0];
+var mnlal_src_lo[15:0];
+var mnlal_src_val[31:0];
+var mnlal_result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:8] == 0b01000110;  // NOT opcode
+assume instr[7:6] == 0b10;         // Size: long
+assume instr[5:3] == 0b111;        // EA mode: absolute
+assume instr[2:0] == 0b001;        // absolute long
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Fetch 32-bit absolute address
+mnlal_abs_hi = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+mnlal_abs_lo = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+mnlal_addr = {mnlal_abs_hi, mnlal_abs_lo};
+
+// MMU translate
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = mnlal_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+// Read from memory (two 16-bit reads for 32-bit value, big-endian)
+#ifdef MMU
+mnlal_src_hi = dmem[ea_pa];
+#else
+mnlal_src_hi = dmem[mnlal_addr];
+#endif
+#ifdef MMU
+mnlal_src_lo = dmem[ea_pa + 2];
+#else
+mnlal_src_lo = dmem[mnlal_addr + 2];
+#endif
+mnlal_src_val = {mnlal_src_hi, mnlal_src_lo};
+
+// Execute: invert all bits
+mnlal_result = ~mnlal_src_val;
+
+// Write result back to memory
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = mnlal_result[31:16];
+#else
+dmem[mnlal_addr] when (~m68k_exc_taken & ~data_exc_taken) = mnlal_result[31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa + 2] when (~m68k_exc_taken & ~data_exc_taken) = mnlal_result[15:0];
+#else
+dmem[mnlal_addr + 2] when (~m68k_exc_taken & ~data_exc_taken) = mnlal_result[15:0];
+#endif
+
+// Update CCR (X not affected)
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = mnlal_result[31];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = mnlal_result == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

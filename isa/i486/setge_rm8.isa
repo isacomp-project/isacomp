@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SETGE r/m8 (0x0F 9D) - Set byte if greater or equal - ALL ADDRESSING MODES
+// Set destination byte to 1 if SF=OF, else 0
+// No flags affected
+// Supports all 16-bit addressing modes via ModR/M byte:
+//   mod=00: [BX+SI], [BX+DI], [BP+SI], [BP+DI], [SI], [DI], disp16, [BX]
+//   mod=01: Above with 8-bit displacement
+//   mod=10: Above with 16-bit displacement
+//   mod=11: Register direct (AL, CL, DL, BL, AH, CH, DH, BH)
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases for low/high bytes
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];   // AL,CL,DL,BL (idx 0-3)
+isa_state hregs[7:0][1:0] of xregs[0b1**][15:8];  // AH,CH,DH,BH (idx 4-7 -> 0-3)
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];            // Data segment register
+isa_state SS[15:0];            // Stack segment register
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var rm_bits[2:0];
+var result[7:0];
+
+// Address calculation variables
+var base_val[15:0];
+var index_val[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var physical_addr[19:0];
+var is_mem_dest[0:0];
+var use_ss[0:0];
+var seg_base[15:0];
+
+// Use a temporary for EIP calculation to avoid multiple writes
+var next_eip[31:0];
+var eip_after_modrm[31:0];
+var disp_size[31:0];
+
+// Fetch first opcode byte
+instr = imem[eip];
+assume instr == 0x0F;
+
+// Fetch second opcode byte
+instr2 = imem[eip + 1];
+assume instr2 == 0x9D;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 2];
+
+// EIP after fetching opcode + modrm (3 bytes)
+eip_after_modrm = eip + 3;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+rm_bits = modrm[2:0];
+
+// Read potential displacement bytes (always read, used conditionally)
+disp8 = imem[eip + 3];
+disp16_lo = imem[eip + 3];
+disp16_hi = imem[eip + 4];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+// Calculate base and index values based on rm_bits (16-bit addressing)
+// BX = xregs[3][15:0], SI = xregs[6][15:0], DI = xregs[7][15:0], BP = xregs[5][15:0]
+case (rm_bits) {
+    0b000: base_val = xregs[3][15:0];   // [BX+SI] - BX
+    0b001: base_val = xregs[3][15:0];   // [BX+DI] - BX
+    0b010: base_val = xregs[5][15:0];   // [BP+SI] - BP
+    0b011: base_val = xregs[5][15:0];   // [BP+DI] - BP
+    0b100: base_val = xregs[6][15:0];   // [SI]
+    0b101: base_val = xregs[7][15:0];   // [DI]
+    0b110: base_val = xregs[5][15:0];   // [BP] or disp16
+    0b111: base_val = xregs[3][15:0];   // [BX]
+}
+
+case (rm_bits) {
+    0b000: index_val = xregs[6][15:0];  // [BX+SI] - SI
+    0b001: index_val = xregs[7][15:0];  // [BX+DI] - DI
+    0b010: index_val = xregs[6][15:0];  // [BP+SI] - SI
+    0b011: index_val = xregs[7][15:0];  // [BP+DI] - DI
+    0b100: index_val = 16'h0000;        // [SI] - no index
+    0b101: index_val = 16'h0000;        // [DI] - no index
+    0b110: index_val = 16'h0000;        // [BP] - no index
+    0b111: index_val = 16'h0000;        // [BX] - no index
+}
+
+// Determine if BP-based (uses SS instead of DS)
+case (rm_bits) {
+    0b010: use_ss = 1'b1;   // [BP+SI]
+    0b011: use_ss = 1'b1;   // [BP+DI]
+    0b110: use_ss = 1'b1;   // [BP]
+}
+
+// Calculate offset based on addressing mode
+case (mod_bits) {
+    0b00: offset = (rm_bits == 3'b110) ? disp16 : (base_val + index_val);
+    0b01: offset = base_val + index_val + signed_disp8;
+    0b10: offset = base_val + index_val + disp16;
+    0b11: offset = 16'h0000;
+}
+
+// Determine if memory destination
+case (mod_bits) {
+    0b00: is_mem_dest = 1'b1;
+    0b01: is_mem_dest = 1'b1;
+    0b10: is_mem_dest = 1'b1;
+    0b11: is_mem_dest = 1'b0;
+}
+
+// Calculate displacement size in bytes
+case (mod_bits) {
+    0b00: disp_size = (rm_bits == 3'b110) ? 32'd2 : 32'd0;
+    0b01: disp_size = 32'd1;
+    0b10: disp_size = 32'd2;
+    0b11: disp_size = 32'd0;
+}
+
+// Select segment base
+case (use_ss) {
+    1'b1: seg_base = SS;
+    1'b0: seg_base = DS;
+}
+
+// Calculate physical address for memory modes
+physical_addr = (seg_base << 4) + offset;
+
+// Set result based on condition
+result = (flag_SF == flag_OF) ? 8'd1 : 8'd0;
+
+// Write result to destination (memory or register)
+// For register mode: rm 0-3 = low byte (AL,CL,DL,BL), rm 4-7 = high byte (AH,CH,DH,BH)
+var write_sel[1:0];
+var reg_idx[1:0];
+write_sel = {is_mem_dest, rm_bits[2]};
+reg_idx = rm_bits[1:0];
+case (write_sel) {
+    2'b00: xregs[reg_idx][7:0] = result;   // Register low byte (AL,CL,DL,BL)
+    2'b01: xregs[reg_idx][15:8] = result;  // Register high byte (AH,CH,DH,BH)
+    2'b10: dmem[physical_addr] = result;   // Memory
+    2'b11: dmem[physical_addr] = result;   // Memory (rm_bits[2] ignored for memory)
+}
+
+// Update EIP: base (3 bytes) + displacement size
+next_eip = eip_after_modrm + disp_size;
+eip = next_eip;
+
+// No flags modified

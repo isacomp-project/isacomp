@@ -1,0 +1,189 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 TLBR - TLB Read
+// Reads the TLB entry at Index into EntryHi, EntryLo0, EntryLo1
+// Encoding: 010000 1 0000000000000000000 000001
+//           COP0   CO                    TLBR
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0/TLB state
+#ifdef MMU
+aspect ../tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// TLBR encoding
+assume instr[31:26] == 6'b010000;  // COP0 opcode
+assume instr[25] == 1'b1;          // CO bit (coprocessor operation)
+assume instr[5:0] == 6'b000001;    // TLBR function
+
+// Get TLB index from Index register
+var tlb_idx[4:0];
+tlb_idx = cp0_index[4:0];
+
+// Read TLB entry at index
+// Note: This requires reading from the TLB arrays
+// We'll build a mux tree to select the correct entry
+
+// Read EntryHi
+var read_hi[31:0];
+var hi_mux_01[31:0]; var hi_mux_23[31:0]; var hi_mux_45[31:0]; var hi_mux_67[31:0];
+var hi_mux_89[31:0]; var hi_mux_ab[31:0]; var hi_mux_cd[31:0]; var hi_mux_ef[31:0];
+var hi_mux_1011[31:0]; var hi_mux_1213[31:0]; var hi_mux_1415[31:0]; var hi_mux_1617[31:0];
+var hi_mux_1819[31:0]; var hi_mux_1a1b[31:0]; var hi_mux_1c1d[31:0]; var hi_mux_1e1f[31:0];
+var hi_mux_0123[31:0]; var hi_mux_4567[31:0]; var hi_mux_89ab[31:0]; var hi_mux_cdef[31:0];
+var hi_mux_1013[31:0]; var hi_mux_1417[31:0]; var hi_mux_181b[31:0]; var hi_mux_1c1f[31:0];
+var hi_mux_07[31:0]; var hi_mux_8f[31:0]; var hi_mux_1017[31:0]; var hi_mux_181f[31:0];
+var hi_mux_0f[31:0]; var hi_mux_101f[31:0];
+
+hi_mux_01 = tlb_idx[0] ? tlb_hi[1] : tlb_hi[0];
+hi_mux_23 = tlb_idx[0] ? tlb_hi[3] : tlb_hi[2];
+hi_mux_45 = tlb_idx[0] ? tlb_hi[5] : tlb_hi[4];
+hi_mux_67 = tlb_idx[0] ? tlb_hi[7] : tlb_hi[6];
+hi_mux_89 = tlb_idx[0] ? tlb_hi[9] : tlb_hi[8];
+hi_mux_ab = tlb_idx[0] ? tlb_hi[11] : tlb_hi[10];
+hi_mux_cd = tlb_idx[0] ? tlb_hi[13] : tlb_hi[12];
+hi_mux_ef = tlb_idx[0] ? tlb_hi[15] : tlb_hi[14];
+hi_mux_1011 = tlb_idx[0] ? tlb_hi[17] : tlb_hi[16];
+hi_mux_1213 = tlb_idx[0] ? tlb_hi[19] : tlb_hi[18];
+hi_mux_1415 = tlb_idx[0] ? tlb_hi[21] : tlb_hi[20];
+hi_mux_1617 = tlb_idx[0] ? tlb_hi[23] : tlb_hi[22];
+hi_mux_1819 = tlb_idx[0] ? tlb_hi[25] : tlb_hi[24];
+hi_mux_1a1b = tlb_idx[0] ? tlb_hi[27] : tlb_hi[26];
+hi_mux_1c1d = tlb_idx[0] ? tlb_hi[29] : tlb_hi[28];
+hi_mux_1e1f = tlb_idx[0] ? tlb_hi[31] : tlb_hi[30];
+
+hi_mux_0123 = tlb_idx[1] ? hi_mux_23 : hi_mux_01;
+hi_mux_4567 = tlb_idx[1] ? hi_mux_67 : hi_mux_45;
+hi_mux_89ab = tlb_idx[1] ? hi_mux_ab : hi_mux_89;
+hi_mux_cdef = tlb_idx[1] ? hi_mux_ef : hi_mux_cd;
+hi_mux_1013 = tlb_idx[1] ? hi_mux_1213 : hi_mux_1011;
+hi_mux_1417 = tlb_idx[1] ? hi_mux_1617 : hi_mux_1415;
+hi_mux_181b = tlb_idx[1] ? hi_mux_1a1b : hi_mux_1819;
+hi_mux_1c1f = tlb_idx[1] ? hi_mux_1e1f : hi_mux_1c1d;
+
+hi_mux_07 = tlb_idx[2] ? hi_mux_4567 : hi_mux_0123;
+hi_mux_8f = tlb_idx[2] ? hi_mux_cdef : hi_mux_89ab;
+hi_mux_1017 = tlb_idx[2] ? hi_mux_1417 : hi_mux_1013;
+hi_mux_181f = tlb_idx[2] ? hi_mux_1c1f : hi_mux_181b;
+
+hi_mux_0f = tlb_idx[3] ? hi_mux_8f : hi_mux_07;
+hi_mux_101f = tlb_idx[3] ? hi_mux_181f : hi_mux_1017;
+
+read_hi = tlb_idx[4] ? hi_mux_101f : hi_mux_0f;
+
+// Read EntryLo0 (same mux structure)
+var read_lo0[31:0];
+var lo0_mux_01[31:0]; var lo0_mux_23[31:0]; var lo0_mux_45[31:0]; var lo0_mux_67[31:0];
+var lo0_mux_89[31:0]; var lo0_mux_ab[31:0]; var lo0_mux_cd[31:0]; var lo0_mux_ef[31:0];
+var lo0_mux_1011[31:0]; var lo0_mux_1213[31:0]; var lo0_mux_1415[31:0]; var lo0_mux_1617[31:0];
+var lo0_mux_1819[31:0]; var lo0_mux_1a1b[31:0]; var lo0_mux_1c1d[31:0]; var lo0_mux_1e1f[31:0];
+var lo0_mux_0123[31:0]; var lo0_mux_4567[31:0]; var lo0_mux_89ab[31:0]; var lo0_mux_cdef[31:0];
+var lo0_mux_1013[31:0]; var lo0_mux_1417[31:0]; var lo0_mux_181b[31:0]; var lo0_mux_1c1f[31:0];
+var lo0_mux_07[31:0]; var lo0_mux_8f[31:0]; var lo0_mux_1017[31:0]; var lo0_mux_181f[31:0];
+var lo0_mux_0f[31:0]; var lo0_mux_101f[31:0];
+
+lo0_mux_01 = tlb_idx[0] ? tlb_lo0[1] : tlb_lo0[0];
+lo0_mux_23 = tlb_idx[0] ? tlb_lo0[3] : tlb_lo0[2];
+lo0_mux_45 = tlb_idx[0] ? tlb_lo0[5] : tlb_lo0[4];
+lo0_mux_67 = tlb_idx[0] ? tlb_lo0[7] : tlb_lo0[6];
+lo0_mux_89 = tlb_idx[0] ? tlb_lo0[9] : tlb_lo0[8];
+lo0_mux_ab = tlb_idx[0] ? tlb_lo0[11] : tlb_lo0[10];
+lo0_mux_cd = tlb_idx[0] ? tlb_lo0[13] : tlb_lo0[12];
+lo0_mux_ef = tlb_idx[0] ? tlb_lo0[15] : tlb_lo0[14];
+lo0_mux_1011 = tlb_idx[0] ? tlb_lo0[17] : tlb_lo0[16];
+lo0_mux_1213 = tlb_idx[0] ? tlb_lo0[19] : tlb_lo0[18];
+lo0_mux_1415 = tlb_idx[0] ? tlb_lo0[21] : tlb_lo0[20];
+lo0_mux_1617 = tlb_idx[0] ? tlb_lo0[23] : tlb_lo0[22];
+lo0_mux_1819 = tlb_idx[0] ? tlb_lo0[25] : tlb_lo0[24];
+lo0_mux_1a1b = tlb_idx[0] ? tlb_lo0[27] : tlb_lo0[26];
+lo0_mux_1c1d = tlb_idx[0] ? tlb_lo0[29] : tlb_lo0[28];
+lo0_mux_1e1f = tlb_idx[0] ? tlb_lo0[31] : tlb_lo0[30];
+
+lo0_mux_0123 = tlb_idx[1] ? lo0_mux_23 : lo0_mux_01;
+lo0_mux_4567 = tlb_idx[1] ? lo0_mux_67 : lo0_mux_45;
+lo0_mux_89ab = tlb_idx[1] ? lo0_mux_ab : lo0_mux_89;
+lo0_mux_cdef = tlb_idx[1] ? lo0_mux_ef : lo0_mux_cd;
+lo0_mux_1013 = tlb_idx[1] ? lo0_mux_1213 : lo0_mux_1011;
+lo0_mux_1417 = tlb_idx[1] ? lo0_mux_1617 : lo0_mux_1415;
+lo0_mux_181b = tlb_idx[1] ? lo0_mux_1a1b : lo0_mux_1819;
+lo0_mux_1c1f = tlb_idx[1] ? lo0_mux_1e1f : lo0_mux_1c1d;
+
+lo0_mux_07 = tlb_idx[2] ? lo0_mux_4567 : lo0_mux_0123;
+lo0_mux_8f = tlb_idx[2] ? lo0_mux_cdef : lo0_mux_89ab;
+lo0_mux_1017 = tlb_idx[2] ? lo0_mux_1417 : lo0_mux_1013;
+lo0_mux_181f = tlb_idx[2] ? lo0_mux_1c1f : lo0_mux_181b;
+
+lo0_mux_0f = tlb_idx[3] ? lo0_mux_8f : lo0_mux_07;
+lo0_mux_101f = tlb_idx[3] ? lo0_mux_181f : lo0_mux_1017;
+
+read_lo0 = tlb_idx[4] ? lo0_mux_101f : lo0_mux_0f;
+
+// Read EntryLo1 (same mux structure)
+var read_lo1[31:0];
+var lo1_mux_01[31:0]; var lo1_mux_23[31:0]; var lo1_mux_45[31:0]; var lo1_mux_67[31:0];
+var lo1_mux_89[31:0]; var lo1_mux_ab[31:0]; var lo1_mux_cd[31:0]; var lo1_mux_ef[31:0];
+var lo1_mux_1011[31:0]; var lo1_mux_1213[31:0]; var lo1_mux_1415[31:0]; var lo1_mux_1617[31:0];
+var lo1_mux_1819[31:0]; var lo1_mux_1a1b[31:0]; var lo1_mux_1c1d[31:0]; var lo1_mux_1e1f[31:0];
+var lo1_mux_0123[31:0]; var lo1_mux_4567[31:0]; var lo1_mux_89ab[31:0]; var lo1_mux_cdef[31:0];
+var lo1_mux_1013[31:0]; var lo1_mux_1417[31:0]; var lo1_mux_181b[31:0]; var lo1_mux_1c1f[31:0];
+var lo1_mux_07[31:0]; var lo1_mux_8f[31:0]; var lo1_mux_1017[31:0]; var lo1_mux_181f[31:0];
+var lo1_mux_0f[31:0]; var lo1_mux_101f[31:0];
+
+lo1_mux_01 = tlb_idx[0] ? tlb_lo1[1] : tlb_lo1[0];
+lo1_mux_23 = tlb_idx[0] ? tlb_lo1[3] : tlb_lo1[2];
+lo1_mux_45 = tlb_idx[0] ? tlb_lo1[5] : tlb_lo1[4];
+lo1_mux_67 = tlb_idx[0] ? tlb_lo1[7] : tlb_lo1[6];
+lo1_mux_89 = tlb_idx[0] ? tlb_lo1[9] : tlb_lo1[8];
+lo1_mux_ab = tlb_idx[0] ? tlb_lo1[11] : tlb_lo1[10];
+lo1_mux_cd = tlb_idx[0] ? tlb_lo1[13] : tlb_lo1[12];
+lo1_mux_ef = tlb_idx[0] ? tlb_lo1[15] : tlb_lo1[14];
+lo1_mux_1011 = tlb_idx[0] ? tlb_lo1[17] : tlb_lo1[16];
+lo1_mux_1213 = tlb_idx[0] ? tlb_lo1[19] : tlb_lo1[18];
+lo1_mux_1415 = tlb_idx[0] ? tlb_lo1[21] : tlb_lo1[20];
+lo1_mux_1617 = tlb_idx[0] ? tlb_lo1[23] : tlb_lo1[22];
+lo1_mux_1819 = tlb_idx[0] ? tlb_lo1[25] : tlb_lo1[24];
+lo1_mux_1a1b = tlb_idx[0] ? tlb_lo1[27] : tlb_lo1[26];
+lo1_mux_1c1d = tlb_idx[0] ? tlb_lo1[29] : tlb_lo1[28];
+lo1_mux_1e1f = tlb_idx[0] ? tlb_lo1[31] : tlb_lo1[30];
+
+lo1_mux_0123 = tlb_idx[1] ? lo1_mux_23 : lo1_mux_01;
+lo1_mux_4567 = tlb_idx[1] ? lo1_mux_67 : lo1_mux_45;
+lo1_mux_89ab = tlb_idx[1] ? lo1_mux_ab : lo1_mux_89;
+lo1_mux_cdef = tlb_idx[1] ? lo1_mux_ef : lo1_mux_cd;
+lo1_mux_1013 = tlb_idx[1] ? lo1_mux_1213 : lo1_mux_1011;
+lo1_mux_1417 = tlb_idx[1] ? lo1_mux_1617 : lo1_mux_1415;
+lo1_mux_181b = tlb_idx[1] ? lo1_mux_1a1b : lo1_mux_1819;
+lo1_mux_1c1f = tlb_idx[1] ? lo1_mux_1e1f : lo1_mux_1c1d;
+
+lo1_mux_07 = tlb_idx[2] ? lo1_mux_4567 : lo1_mux_0123;
+lo1_mux_8f = tlb_idx[2] ? lo1_mux_cdef : lo1_mux_89ab;
+lo1_mux_1017 = tlb_idx[2] ? lo1_mux_1417 : lo1_mux_1013;
+lo1_mux_181f = tlb_idx[2] ? lo1_mux_1c1f : lo1_mux_181b;
+
+lo1_mux_0f = tlb_idx[3] ? lo1_mux_8f : lo1_mux_07;
+lo1_mux_101f = tlb_idx[3] ? lo1_mux_181f : lo1_mux_1017;
+
+read_lo1 = tlb_idx[4] ? lo1_mux_101f : lo1_mux_0f;
+
+// Write to CP0 registers
+cp0_entryhi = read_hi;
+cp0_entrylo0 = read_lo0;
+cp0_entrylo1 = read_lo1;
+
+// Update PC
+pc = pc + 4;

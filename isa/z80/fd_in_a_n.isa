@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD DB - FD prefix passthrough IN A,(n)
+// FD prefix consumed, IN A,(n) executes unchanged
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state A[7:0];
+isa_state io[7:0][7:0];
+mem mainmem[15:0];
+
+var fd_in_port[7:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'hDBFD;
+pc = pc + 2;
+
+fd_in_port = mainmem[pc];
+A = io[fd_in_port];
+pc = pc + 1;

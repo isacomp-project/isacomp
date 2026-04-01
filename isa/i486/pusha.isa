@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 PUSHA (0x60) - Push All General Registers (16-bit)
+// Pushes AX, CX, DX, BX, original SP, BP, SI, DI (in that order)
+// Uses SS segment for stack access in 16-bit mode
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];            // Stack segment register
+
+var orig_sp[15:0];
+var sp_val[31:0];
+var phys_addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x60;
+eip = eip + 1;
+
+// Save original SP value (16-bit)
+orig_sp = xregs[4][15:0];
+
+// Calculate final SP (decrement by 16 bytes total)
+sp_val = xregs[4] - 32'h00000010;
+
+// Update SP
+xregs[4][15:0] = sp_val[15:0];
+
+// Push DI (reg 7) at SP+0 (lowest address)
+phys_addr = (SS << 4) + sp_val;
+dmem[phys_addr] = xregs[7][7:0];
+dmem[phys_addr + 1] = xregs[7][15:8];
+
+// Push SI (reg 6) at SP+2
+phys_addr = (SS << 4) + sp_val + 2;
+dmem[phys_addr] = xregs[6][7:0];
+dmem[phys_addr + 1] = xregs[6][15:8];
+
+// Push BP (reg 5) at SP+4
+phys_addr = (SS << 4) + sp_val + 4;
+dmem[phys_addr] = xregs[5][7:0];
+dmem[phys_addr + 1] = xregs[5][15:8];
+
+// Push original SP at SP+6
+phys_addr = (SS << 4) + sp_val + 6;
+dmem[phys_addr] = orig_sp[7:0];
+dmem[phys_addr + 1] = orig_sp[15:8];
+
+// Push BX (reg 3) at SP+8
+phys_addr = (SS << 4) + sp_val + 8;
+dmem[phys_addr] = xregs[3][7:0];
+dmem[phys_addr + 1] = xregs[3][15:8];
+
+// Push DX (reg 2) at SP+10
+phys_addr = (SS << 4) + sp_val + 10;
+dmem[phys_addr] = xregs[2][7:0];
+dmem[phys_addr + 1] = xregs[2][15:8];
+
+// Push CX (reg 1) at SP+12
+phys_addr = (SS << 4) + sp_val + 12;
+dmem[phys_addr] = xregs[1][7:0];
+dmem[phys_addr + 1] = xregs[1][15:8];
+
+// Push AX (reg 0) at SP+14
+phys_addr = (SS << 4) + sp_val + 14;
+dmem[phys_addr] = xregs[0][7:0];
+dmem[phys_addr + 1] = xregs[0][15:8];
+
+// PUSHA does not affect flags

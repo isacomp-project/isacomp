@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Get Integer Builtin (0x80)
+//
+// Reads an integer from the external input.
+// This is an I/O operation that interfaces with the external world.
+// Takes no arguments, returns a primitive integer from io_in.
+//
+// External signals:
+//   io_in[31:0]     - Input value from external source
+//   io_in_ready[0:0] - Input is available
+
+// State declarations
+isa_state pc[31:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_args[31:0];
+isa_state csp[19:0];
+isa_state lsp[19:0];
+isa_state env_clo[31:0];
+mem imem[14:0];
+mem heap[19:0];
+mem cstack[19:0];
+
+// External input
+ext isa_state io_in[31:0];
+ext isa_state io_in_ready[0:0];
+
+// Read input value from external signal
+var input_val[31:0];
+input_val = io_in;
+
+// Set return value as primitive
+eval_reg = input_val;
+eval_tag = 1'b1;
+
+// Pop continuation and return
+aspect ../aspects/cont_pop.isa gates pc, csp, cstack, env_clo, env_args, lsp, eval_reg, eval_tag, heap;

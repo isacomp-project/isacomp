@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV64D - FSGNJX.D (Double-precision sign injection XOR)
+// Encoding: funct7=0010001, rs2, rs1, rm=010, rd, opcode=1010011
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var f1[63:0];
+var f2[63:0];
+var sgnjx_result[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;
+assume instr[31:27] == 0b00100;   // FSGNJ funct5
+assume instr[26:25] == 0b01;      // fmt = D
+assume instr[14:12] == 0b010;     // FSGNJX
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+
+f1 = frf[rs1];
+f2 = frf[rs2];
+
+// XOR of signs, magnitude of rs1
+sgnjx_result = {f1[63] ^ f2[63], f1[62:0]};
+
+frf[rd] = sgnjx_result;

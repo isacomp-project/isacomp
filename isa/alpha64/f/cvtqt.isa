@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 - CVTQT (Convert Quadword to T_floating)
+// Opcode: 0x16, Function: fphi << 5 | 0x3E
+// Format: CVTQT Fb, Fc (Fa ignored)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit)
+isa_state fpcr[63:0];          // FP control register
+mem umem[13:0];
+
+var fb[4:0];
+var fc[4:0];
+var fphi[4:0];
+var fplo[5:0];
+var f1[63:0];
+var rm[2:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:26] == 22;     // Opcode 0x16 = FP operate
+fphi = instr[15:11];
+fplo = instr[10:5];
+assume fplo == 6'b111110;      // CVTQT function code = 0x3E
+
+fb = instr[20:16];
+fc = instr[4:0];
+
+// Read quadword (integer in FP register)
+f1 = frf[fb];
+
+// Use round-to-nearest-even (RNE) as the default IEEE 754 mode
+// Alpha fphi[1:0]: 00=RTZ, 01=RDN, 10=RNE, 11=dynamic
+// Most Alpha code uses RNE (fphi[1:0]==10), so we default to that
+rm = 3'b000;   // RNE = canonical IEEE 754 round-to-nearest-even
+
+// Convert signed int64 to double
+result = fp_cvt_d_l(f1, rm);
+
+// Write result to FP register
+frf[fc] when (fc != 31) = result;
+pc = pc + 4;

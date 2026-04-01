@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX SFLOTUI - Short Float Unsigned Immediate
+// SFLOTUI $X,Z: $X = (short float)(unsigned)Z
+// Opcode: 0x17
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rA[63:0];
+mem umem[14:0];
+
+var x[7:0];
+var z[7:0];
+var z_ext[63:0];
+var rm[1:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x17;
+
+x = instr[23:16];
+z = instr[7:0];
+
+z_ext = {56'h0, z};
+rm = rA[17:16];
+
+result = uint_to_fp_s_extend_d(z_ext, {1'b0, rm});
+
+rf[x] = result;
+pc = pc + 4;

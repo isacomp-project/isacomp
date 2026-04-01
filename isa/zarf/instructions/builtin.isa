@@ -1,0 +1,553 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Builtin Instruction
+//
+// Opcode: 0x6 (binary 110)
+// Format: [31:29]=opcode, [28:19]=unused, [18:16]=000, [15:0]=builtin_index
+//
+// Executes a built-in primitive operation. The builtin instruction is reached
+// when a thunk containing a builtin function is entered. At that point:
+//   - env_args points to the argument area in the heap
+//   - Arguments are heap references that may be unevaluated thunks
+//
+// Two-path execution:
+//   EVAL PATH: If any argument is an unevaluated thunk (header[31]=0):
+//     - Push eval continuation (type 3: saves env_clo, env_args for re-entry)
+//     - Push update continuation (type 2: for memoization, PC = trampoline)
+//     - Enter the unevaluated thunk
+//     After the thunk evaluates: update cont memoizes result, PC = trampoline.
+//     Trampoline (return caseValue) pops eval cont, restores env, PC = builtin.
+//     Builtin re-executes with now-memoized argument.
+//
+//   COMPUTE PATH: If all arguments are memoized (header[31:30]=11):
+//     - Read values from heap[ref+1]
+//     - Compute ALU result
+//     - Set eval_reg/eval_tag
+//     - Inline cont_pop to return to caller
+
+// State declarations
+isa_state pc[31:0];
+isa_state fp[19:0];
+isa_state csp[19:0];
+isa_state lsp[19:0];
+isa_state lb[19:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_clo[31:0];
+isa_state env_args[31:0];
+isa_state ct[31:0];
+isa_state halted[0:0];
+isa_state error_code[7:0];
+ext isa_state io_in[31:0];
+ext isa_state io_in_ready[0:0];
+ext push isa_state io_out[31:0];
+isa_state io_out_valid[0:0];
+mem imem[14:0];
+mem cstack[19:0];
+mem heap[19:0];
+mem lstack[19:0];
+
+// Instruction decode
+var instr[31:0];
+var opcode[2:0];
+var builtin_index[15:0];
+
+// Fetch instruction
+instr = imem[pc];
+opcode = instr[31:29];
+
+// Verify this is a builtin instruction
+assume opcode == 3'b110;
+
+// Extract builtin index
+builtin_index = instr[15:0];
+
+// Determine if single-arg builtin (error=0, neg=18, getint=128)
+var is_single_arg[0:0];
+is_single_arg = (builtin_index == 16'h0000) ? 1'b1 :
+                (builtin_index == 16'h0012) ? 1'b1 :
+                (builtin_index == 16'h0080) ? 1'b1 :
+                (builtin_index == 16'h0082) ? 1'b1 :
+                (builtin_index == 16'h0083) ? 1'b1 :
+                (builtin_index == 16'h0084) ? 1'b1 : 1'b0;
+
+// ===================================================================
+// READS: All reads from original state (before any writes)
+// ===================================================================
+
+// Read argument references from heap
+var arg1_ref[31:0];
+var arg2_ref[31:0];
+arg1_ref = heap[env_args];
+arg2_ref = heap[env_args + 1];
+
+// Read argument headers (to check evaluation status)
+var arg1_header[31:0];
+var arg2_header[31:0];
+arg1_header = heap[arg1_ref];
+arg2_header = heap[arg2_ref];
+
+// Read argument values (for compute path — only valid when memoized)
+var arg1[31:0];
+var arg2[31:0];
+arg1 = heap[arg1_ref + 1];
+arg2 = heap[arg2_ref + 1];
+
+// Read continuation stack for pop (compute path)
+var pop_cont_word0[31:0];
+var pop_cont_word1[31:0];
+var pop_cont_word2[31:0];
+var pop_cont_word3[31:0];
+var pop_cont_word4[31:0];
+pop_cont_word0 = cstack[csp - 5];
+pop_cont_word1 = cstack[csp - 4];
+pop_cont_word2 = cstack[csp - 3];
+pop_cont_word3 = cstack[csp - 2];
+pop_cont_word4 = cstack[csp - 1];
+
+// ===================================================================
+// EVAL STATUS: Determine if arguments need evaluation
+// ===================================================================
+
+// Unevaluated thunk: header[31] = 0
+// Memoized thunk: header[31:30] = 11
+// Constructor: header[31:30] = 10 (already WHNF, treat as evaluated)
+var arg1_needs_eval[0:0];
+var arg2_needs_eval[0:0];
+arg1_needs_eval = ~arg1_header[31];
+arg2_needs_eval = ~arg2_header[31];
+
+// Memoized-with-heap-ref: header[31:30]=11, header[29]=0 (eval_tag=0)
+// The cached value is a heap ref, not a primitive. Need to redirect.
+var arg1_is_indirect[0:0];
+var arg2_is_indirect[0:0];
+arg1_is_indirect = arg1_header[31] & arg1_header[30] & (~arg1_header[29]);
+arg2_is_indirect = arg2_header[31] & arg2_header[30] & (~arg2_header[29]);
+
+// For single-arg builtins, only check arg1
+// For two-arg builtins, check both (arg1 first, then arg2)
+// Priority: eval (unevaluated thunk) > redirect (memoized heap ref) > compute
+var eval_arg1[0:0];
+var eval_arg2[0:0];
+var needs_arg_eval[0:0];
+eval_arg1 = arg1_needs_eval;
+eval_arg2 = (~arg1_needs_eval) & (~is_single_arg) & arg2_needs_eval;
+needs_arg_eval = eval_arg1 | eval_arg2;
+
+// Redirect check (only when no eval needed)
+var redirect_arg1[0:0];
+var redirect_arg2[0:0];
+var needs_redirect[0:0];
+redirect_arg1 = (~arg1_needs_eval) & arg1_is_indirect;
+redirect_arg2 = (~arg1_needs_eval) & (~arg1_is_indirect) & (~is_single_arg) & (~arg2_needs_eval) & arg2_is_indirect;
+needs_redirect = (~needs_arg_eval) & (redirect_arg1 | redirect_arg2);
+
+// Compute path condition
+var compute[0:0];
+compute = (~needs_arg_eval) & (~needs_redirect);
+
+// Select which argument to evaluate (prioritize arg1)
+var eval_target_ref[31:0];
+var eval_target_header[31:0];
+eval_target_ref = eval_arg1 ? arg1_ref : arg2_ref;
+eval_target_header = eval_arg1 ? arg1_header : arg2_header;
+
+// Thunk entry metadata (for eval path)
+// New header format: [31:30]=00, [29]=is_dynamic, [28:19]=n_args, [18:4]=func_addr, [3:0]=0
+var eval_target_func_addr[31:0];
+eval_target_func_addr = {{17{1'b0}}, eval_target_header[18:4]};
+
+var eval_target_info[31:0];
+eval_target_info = imem[eval_target_func_addr];
+
+var eval_target_nfree[7:0];
+eval_target_nfree = eval_target_info[19:12];
+
+var eval_freevar_base[31:0];
+var eval_args_base[31:0];
+eval_freevar_base = eval_target_ref + 1;
+eval_args_base = eval_target_ref + 1 + {{24{1'b0}}, eval_target_nfree};
+
+// Trampoline PC: the return instruction immediately after this builtin
+var trampoline_pc[31:0];
+trampoline_pc = pc + 1;
+
+// ===================================================================
+// DYNAMIC THUNK HANDLING (for eval path)
+// When eval target is a dynamic thunk (header[29]=1), merge its inner
+// function's data with the new args into a static thunk at fp, then
+// enter the inner function directly. The update continuation targets
+// the ORIGINAL dynamic thunk for correct memoization.
+// ===================================================================
+
+var eval_target_is_dynamic[0:0];
+eval_target_is_dynamic = eval_target_header[29];
+
+var eval_target_n_args[9:0];
+eval_target_n_args = eval_target_header[28:19];
+
+// Read inner function reference and header from dynamic thunk
+var dyn_func_ref[31:0];
+dyn_func_ref = heap[eval_target_ref + 1];
+
+var dyn_func_header[31:0];
+dyn_func_header = heap[dyn_func_ref];
+
+// Check if inner function reference is memoized (already evaluated)
+var inner_is_memoized[0:0];
+inner_is_memoized = dyn_func_header[31] & dyn_func_header[30];
+var inner_memo_needs_redirect[0:0];
+inner_memo_needs_redirect = inner_is_memoized & (~dyn_func_header[29]);
+
+// Follow memoized redirect to actual function
+var inner_memo_result[31:0];
+inner_memo_result = heap[dyn_func_ref + 1];
+var inner_actual_header[31:0];
+inner_actual_header = heap[inner_memo_result];
+
+// Effective inner function: follow redirect if memoized, else use direct
+var effective_inner_ref[31:0];
+effective_inner_ref = inner_memo_needs_redirect ? inner_memo_result : dyn_func_ref;
+var effective_inner_header[31:0];
+effective_inner_header = inner_memo_needs_redirect ? inner_actual_header : dyn_func_header;
+
+// Inner function is a resolved static thunk (after possible redirect)
+var inner_is_static[0:0];
+inner_is_static = (~effective_inner_header[31]) & (~effective_inner_header[29]);
+
+// Extract inner static thunk fields (from effective header after possible redirect)
+var inner_n_args[9:0];
+var inner_func_addr[14:0];
+inner_n_args = effective_inner_header[28:19];
+inner_func_addr = effective_inner_header[18:4];
+
+// Read inner function's info table
+var inner_info[31:0];
+inner_info = imem[inner_func_addr];
+var inner_nfree[7:0];
+inner_nfree = inner_info[19:12];
+var inner_arity[10:0];
+inner_arity = inner_info[30:20];
+
+// Check if inner func_ref needs evaluation before merge
+// When inner is unevaluated (bit 31=0) and NOT a PAP (undersaturated),
+// we must evaluate it first — the merge would be oversaturated otherwise
+var inner_n_actual[10:0];
+inner_n_actual = {1'b0, inner_n_args} - {3'b0, inner_nfree};
+var inner_is_pap[0:0];
+inner_is_pap = (inner_n_actual < inner_arity);
+var inner_needs_eval[0:0];
+inner_needs_eval = (~dyn_func_header[31]) & (~inner_is_pap);
+
+// Merged object total data slots
+var merged_total[9:0];
+merged_total = inner_n_args + eval_target_n_args;
+
+var merged_header[31:0];
+merged_header = {2'b00, 1'b0, merged_total, inner_func_addr, 4'b0};
+
+// PAP detection: undersaturated static thunks are WHNF, must not be entered
+var eval_target_arity[10:0];
+eval_target_arity = eval_target_info[30:20];
+var eval_target_n_actual[10:0];
+eval_target_n_actual = {1'b0, eval_target_header[28:19]} - {3'b0, eval_target_nfree};
+var eval_target_is_pap[0:0];
+eval_target_is_pap = (~eval_target_is_dynamic) & (eval_target_n_actual < eval_target_arity);
+
+// Condition flags for eval sub-paths
+var static_eval[0:0];
+static_eval = needs_arg_eval & (~eval_target_is_dynamic) & (~eval_target_is_pap);
+
+// Dynamic eval: split into "evaluate inner first" vs "merge-and-enter"
+var dynamic_eval_inner[0:0];
+dynamic_eval_inner = needs_arg_eval & eval_target_is_dynamic & inner_needs_eval;
+var dynamic_eval_merge[0:0];
+dynamic_eval_merge = needs_arg_eval & eval_target_is_dynamic & (~inner_needs_eval) & inner_is_static;
+
+// Effective eval: excludes PAPs and includes both dynamic sub-paths
+var effective_needs_eval[0:0];
+effective_needs_eval = static_eval | dynamic_eval_inner | dynamic_eval_merge;
+
+// Capture old fp before any updates
+var old_fp[31:0];
+old_fp = {{12{1'b0}}, fp};
+
+var dyn_merged_base[31:0];
+dyn_merged_base = old_fp + 1;
+
+// ===================================================================
+// DYNAMIC THUNK MERGE: Build merged static thunk at fp
+// ===================================================================
+
+// Write merged header (only for merge path, not inner-eval path)
+heap[fp] when (dynamic_eval_merge) = merged_header;
+
+// Read inner thunk's data (from effective_inner_ref after possible memo redirect)
+var inner_data_0[31:0];
+var inner_data_1[31:0];
+var inner_data_2[31:0];
+var inner_data_3[31:0];
+var inner_data_4[31:0];
+var inner_data_5[31:0];
+var inner_data_6[31:0];
+var inner_data_7[31:0];
+
+inner_data_0 = heap[effective_inner_ref + 1];
+inner_data_1 = heap[effective_inner_ref + 2];
+inner_data_2 = heap[effective_inner_ref + 3];
+inner_data_3 = heap[effective_inner_ref + 4];
+inner_data_4 = heap[effective_inner_ref + 5];
+inner_data_5 = heap[effective_inner_ref + 6];
+inner_data_6 = heap[effective_inner_ref + 7];
+inner_data_7 = heap[effective_inner_ref + 8];
+
+// Write inner data to merged object at fp+1..fp+inner_n_args
+heap[fp + 1] when (dynamic_eval_merge & (inner_n_args > 0)) = inner_data_0;
+heap[fp + 2] when (dynamic_eval_merge & (inner_n_args > 1)) = inner_data_1;
+heap[fp + 3] when (dynamic_eval_merge & (inner_n_args > 2)) = inner_data_2;
+heap[fp + 4] when (dynamic_eval_merge & (inner_n_args > 3)) = inner_data_3;
+heap[fp + 5] when (dynamic_eval_merge & (inner_n_args > 4)) = inner_data_4;
+heap[fp + 6] when (dynamic_eval_merge & (inner_n_args > 5)) = inner_data_5;
+heap[fp + 7] when (dynamic_eval_merge & (inner_n_args > 6)) = inner_data_6;
+heap[fp + 8] when (dynamic_eval_merge & (inner_n_args > 7)) = inner_data_7;
+
+// Read new args from dynamic thunk (at eval_target_ref + 2 + j)
+var new_arg_base[19:0];
+new_arg_base = fp + 1 + {{10{1'b0}}, inner_n_args};
+
+var new_arg_0[31:0];
+var new_arg_1[31:0];
+var new_arg_2[31:0];
+var new_arg_3[31:0];
+var new_arg_4[31:0];
+var new_arg_5[31:0];
+var new_arg_6[31:0];
+var new_arg_7[31:0];
+
+new_arg_0 = heap[eval_target_ref + 2];
+new_arg_1 = heap[eval_target_ref + 3];
+new_arg_2 = heap[eval_target_ref + 4];
+new_arg_3 = heap[eval_target_ref + 5];
+new_arg_4 = heap[eval_target_ref + 6];
+new_arg_5 = heap[eval_target_ref + 7];
+new_arg_6 = heap[eval_target_ref + 8];
+new_arg_7 = heap[eval_target_ref + 9];
+
+// Write new args to merged object
+heap[new_arg_base] when (dynamic_eval_merge & (eval_target_n_args > 0)) = new_arg_0;
+heap[new_arg_base + 1] when (dynamic_eval_merge & (eval_target_n_args > 1)) = new_arg_1;
+heap[new_arg_base + 2] when (dynamic_eval_merge & (eval_target_n_args > 2)) = new_arg_2;
+heap[new_arg_base + 3] when (dynamic_eval_merge & (eval_target_n_args > 3)) = new_arg_3;
+heap[new_arg_base + 4] when (dynamic_eval_merge & (eval_target_n_args > 4)) = new_arg_4;
+heap[new_arg_base + 5] when (dynamic_eval_merge & (eval_target_n_args > 5)) = new_arg_5;
+heap[new_arg_base + 6] when (dynamic_eval_merge & (eval_target_n_args > 6)) = new_arg_6;
+heap[new_arg_base + 7] when (dynamic_eval_merge & (eval_target_n_args > 7)) = new_arg_7;
+
+// Update fp for merged object allocation (only merge path)
+fp when (dynamic_eval_merge) = fp + 1 + {{10{1'b0}}, merged_total};
+
+// ===================================================================
+// COMPUTE PATH: ALU operations (computed unconditionally, used only when ~needs_arg_eval)
+// ===================================================================
+
+var add_result[31:0];
+var sub_result[31:0];
+var mult_result[31:0];
+var div_result[31:0];
+var eq_result[31:0];
+var leq_result[31:0];
+var and_result[31:0];
+var or_result[31:0];
+var nand_result[31:0];
+var nor_result[31:0];
+var xor_result[31:0];
+var sll_result[31:0];
+var srl_result[31:0];
+var sra_result[31:0];
+var lt_result[31:0];
+var neg_result[31:0];
+
+add_result = arg1 + arg2;
+sub_result = arg1 - arg2;
+mult_result = arg1 * arg2;
+div_result = arg1 / arg2;
+eq_result = (arg1 == arg2) ? 32'b1 : 32'b0;
+leq_result = (arg1 <=s arg2) ? 32'b1 : 32'b0;
+and_result = arg1 & arg2;
+or_result = arg1 | arg2;
+nand_result = ~(arg1 & arg2);
+nor_result = ~(arg1 | arg2);
+xor_result = arg1 ^ arg2;
+sll_result = arg1 << arg2[4:0];
+srl_result = arg1 >> arg2[4:0];
+sra_result = arg1 >>> arg2[4:0];
+lt_result = (arg1 <s arg2) ? 32'b1 : 32'b0;
+neg_result = ~arg1 + 32'b1;
+
+// Dispatch on builtin index
+var result[31:0];
+case (builtin_index) {
+    0: result = 32'b0;
+    1: result = add_result;
+    2: result = sub_result;
+    3: result = mult_result;
+    4: result = div_result;
+    5: result = eq_result;
+    6: result = leq_result;
+    7: result = and_result;
+    8: result = or_result;
+    9: result = nand_result;
+    10: result = nor_result;
+    11: result = xor_result;
+    12: result = sll_result;
+    13: result = srl_result;
+    14: result = sra_result;
+    15: result = lt_result;
+    18: result = neg_result;
+    128: result = io_in;
+    129: result = 32'b0;
+}
+
+// ===================================================================
+// CONT POP LOGIC (compute path — precomputed from reads above)
+// ===================================================================
+
+var pop_cont_type[1:0];
+var pop_saved_pc[29:0];
+pop_cont_type = pop_cont_word0[31:30];
+pop_saved_pc = pop_cont_word0[29:0];
+
+var pop_next_pc[31:0];
+pop_next_pc = {2'b00, pop_saved_pc};
+
+// Compute env_clo restore based on continuation type
+var pop_env_clo[31:0];
+case (pop_cont_type) {
+    0: pop_env_clo = pop_cont_word1;
+    1: pop_env_clo = {{12{1'b0}}, pop_cont_word1[19:0]};
+    2: pop_env_clo = pop_cont_word1;
+    3: pop_env_clo = pop_cont_word1;
+}
+
+// Compute env_args restore based on continuation type
+var pop_env_args[31:0];
+case (pop_cont_type) {
+    0: pop_env_args = pop_cont_word2;
+    1: pop_env_args = {{12{1'b0}}, pop_cont_word2[19:0]};
+    2: pop_env_args = pop_cont_word2;
+    3: pop_env_args = pop_cont_word2;
+}
+
+var pop_lsp[19:0];
+pop_lsp = pop_cont_word3[19:0];
+
+var pop_lb[19:0];
+pop_lb = pop_cont_word4[19:0];
+
+// ===================================================================
+// WRITES: All state updates, properly gated on needs_arg_eval
+// ===================================================================
+
+// --- EVAL PATH: Push eval continuation at csp[0..4] ---
+var eval_cont_word0[31:0];
+eval_cont_word0 = {2'b11, pc[29:0]};  // type 3 (eval), saved_pc = this builtin instruction
+
+cstack[csp] when (effective_needs_eval) = eval_cont_word0;
+cstack[csp + 1] when (effective_needs_eval) = env_clo;
+cstack[csp + 2] when (effective_needs_eval) = env_args;
+cstack[csp + 3] when (effective_needs_eval) = {{12{1'b0}}, lsp};
+cstack[csp + 4] when (effective_needs_eval) = {{12{1'b0}}, lb};
+
+// --- EVAL PATH: Push update continuation at csp[5..9] ---
+var update_cont_word0[31:0];
+update_cont_word0 = {2'b10, trampoline_pc[29:0]};  // type 2 (update), saved_pc = trampoline
+
+cstack[csp + 5] when (effective_needs_eval) = update_cont_word0;
+cstack[csp + 6] when (effective_needs_eval) = env_clo;
+cstack[csp + 7] when (effective_needs_eval) = env_args;
+// Pack thunk address into upper bits of word8/word9
+// For dynamic_eval_inner: memoize inner func_ref (dyn_func_ref)
+// For static_eval/dynamic_eval_merge: memoize eval_target_ref
+var update_thunk_ref[31:0];
+update_thunk_ref = dynamic_eval_inner ? dyn_func_ref : eval_target_ref;
+cstack[csp + 8] when (effective_needs_eval) = {update_thunk_ref[11:0], lsp};
+cstack[csp + 9] when (effective_needs_eval) = {4'b0, update_thunk_ref[19:12], lb};
+
+// --- EVAL PATH: Enter thunk ---
+// Static eval: enter static thunk directly
+env_clo when (static_eval) = eval_freevar_base;
+env_args when (static_eval) = eval_args_base;
+pc when (static_eval) = eval_target_func_addr + 1;
+
+// Dynamic eval (inner): enter inner func_ref thunk directly to evaluate it
+var inner_freevar_base[31:0];
+var inner_args_base[31:0];
+inner_freevar_base = dyn_func_ref + 1;
+inner_args_base = dyn_func_ref + 1 + {{24{1'b0}}, inner_nfree};
+env_clo when (dynamic_eval_inner) = inner_freevar_base;
+env_args when (dynamic_eval_inner) = inner_args_base;
+
+// Dynamic eval (merge): enter inner function with merged args at fp
+env_clo when (dynamic_eval_merge) = dyn_merged_base;
+env_args when (dynamic_eval_merge) = dyn_merged_base + {{24{1'b0}}, inner_nfree};
+
+// PC write for both dynamic eval sub-paths (combined to avoid graph merger
+// source deduplication bug — both write same expression to same target)
+var dynamic_eval_any[0:0];
+dynamic_eval_any = dynamic_eval_inner | dynamic_eval_merge;
+pc when (dynamic_eval_any) = {{17{1'b0}}, inner_func_addr} + 1;
+
+csp when (effective_needs_eval) = csp + 10;
+
+// --- REDIRECT PATH: Overwrite arg ref with cached value, re-enter ---
+// When an arg is memoized with eval_tag=0, its cached value (heap[ref+1])
+// is a heap address. We redirect: write the cached value into the arg slot
+// in the heap, then re-execute this instruction to process the new ref.
+heap[env_args] when (needs_redirect & redirect_arg1) = arg1;
+heap[env_args + 1] when (needs_redirect & redirect_arg2) = arg2;
+// PC stays at current value (re-enter same builtin instruction)
+// No other state changes needed for redirect path
+
+// --- COMPUTE PATH: Set result ---
+eval_reg when (compute) = result;
+eval_tag when (compute) = 1'b1;
+
+// Condition flags for conditional state updates
+var is_error[0:0];
+var is_putint[0:0];
+is_error = (builtin_index == 16'h0000) ? 1'b1 : 1'b0;
+is_putint = (builtin_index == 16'h0081) ? 1'b1 : 1'b0;
+
+var compute_and_error[0:0];
+var compute_and_putint[0:0];
+compute_and_error = compute & is_error;
+compute_and_putint = compute & is_putint;
+
+// Error/halt handling: builtin 0 = error
+halted when (compute_and_error) = 1'b1;
+error_code when (compute_and_error) = arg1[7:0];
+
+// I/O: builtin 129 = putint
+io_out when (compute_and_putint) = arg2;
+io_out_valid when (compute_and_putint) = 1'b1;
+
+// --- COMPUTE PATH: Inline cont_pop ---
+env_clo when (compute) = pop_env_clo;
+env_args when (compute) = pop_env_args;
+lsp when (compute) = pop_lsp;
+lb when (compute) = pop_lb;
+
+// Heap memoization for update continuations (type 2)
+var compute_and_update[0:0];
+compute_and_update = compute & (pop_cont_type == 2'b10);
+
+// Use 'result' and '1'b1' directly instead of eval_reg/eval_tag reads,
+// since the compute path writes those same cycle and reads would get stale register values
+// Thunk address is packed into upper bits of word3/word4:
+//   word3[31:20] = thunk_addr[11:0], word4[27:20] = thunk_addr[19:12]
+var pop_thunk_addr[31:0];
+pop_thunk_addr = {{12{1'b0}}, pop_cont_word4[27:20], pop_cont_word3[31:20]};
+heap[pop_thunk_addr] when (compute_and_update) = {2'b11, 1'b1, 13'b0, result[15:0]};
+heap[pop_thunk_addr + 1] when (compute_and_update) = result;
+
+csp when (compute) = csp - 5;
+pc when (compute) = pop_next_pc;

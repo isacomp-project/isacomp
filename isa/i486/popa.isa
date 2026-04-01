@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 POPA (0x61) - Pop All General Registers (16-bit)
+// Pops DI, SI, BP, (skip SP), BX, DX, CX, AX
+// Uses SS segment for stack access in 16-bit mode
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];            // Stack segment register
+
+var sp_val[31:0];
+var base_addr[31:0];
+
+// Addresses for each pop (unique variables for each)
+var addr_di_lo[31:0];
+var addr_di_hi[31:0];
+var addr_si_lo[31:0];
+var addr_si_hi[31:0];
+var addr_bp_lo[31:0];
+var addr_bp_hi[31:0];
+var addr_bx_lo[31:0];
+var addr_bx_hi[31:0];
+var addr_dx_lo[31:0];
+var addr_dx_hi[31:0];
+var addr_cx_lo[31:0];
+var addr_cx_hi[31:0];
+var addr_ax_lo[31:0];
+var addr_ax_hi[31:0];
+
+// Data bytes for each pop
+var di_lo[7:0];
+var di_hi[7:0];
+var si_lo[7:0];
+var si_hi[7:0];
+var bp_lo[7:0];
+var bp_hi[7:0];
+var bx_lo[7:0];
+var bx_hi[7:0];
+var dx_lo[7:0];
+var dx_hi[7:0];
+var cx_lo[7:0];
+var cx_hi[7:0];
+var ax_lo[7:0];
+var ax_hi[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x61;
+eip = eip + 1;
+
+// Current SP points to bottom of saved registers
+sp_val = xregs[4];
+
+// Calculate base physical address: SS * 16 + SP
+base_addr = {SS, 4'b0} + {16'b0, sp_val[15:0]};
+
+// Calculate all addresses
+addr_di_lo = base_addr;
+addr_di_hi = base_addr + 1;
+addr_si_lo = base_addr + 2;
+addr_si_hi = base_addr + 3;
+addr_bp_lo = base_addr + 4;
+addr_bp_hi = base_addr + 5;
+// SP at +6,+7 is skipped
+addr_bx_lo = base_addr + 8;
+addr_bx_hi = base_addr + 9;
+addr_dx_lo = base_addr + 10;
+addr_dx_hi = base_addr + 11;
+addr_cx_lo = base_addr + 12;
+addr_cx_hi = base_addr + 13;
+addr_ax_lo = base_addr + 14;
+addr_ax_hi = base_addr + 15;
+
+// Read all bytes from stack
+di_lo = dmem[addr_di_lo];
+di_hi = dmem[addr_di_hi];
+si_lo = dmem[addr_si_lo];
+si_hi = dmem[addr_si_hi];
+bp_lo = dmem[addr_bp_lo];
+bp_hi = dmem[addr_bp_hi];
+bx_lo = dmem[addr_bx_lo];
+bx_hi = dmem[addr_bx_hi];
+dx_lo = dmem[addr_dx_lo];
+dx_hi = dmem[addr_dx_hi];
+cx_lo = dmem[addr_cx_lo];
+cx_hi = dmem[addr_cx_hi];
+ax_lo = dmem[addr_ax_lo];
+ax_hi = dmem[addr_ax_hi];
+
+// Write to registers (little-endian: low byte at lower address)
+xregs[7][15:0] = {di_hi, di_lo};  // DI
+xregs[6][15:0] = {si_hi, si_lo};  // SI
+xregs[5][15:0] = {bp_hi, bp_lo};  // BP
+xregs[3][15:0] = {bx_hi, bx_lo};  // BX
+xregs[2][15:0] = {dx_hi, dx_lo};  // DX
+xregs[1][15:0] = {cx_hi, cx_lo};  // CX
+xregs[0][15:0] = {ax_hi, ax_lo};  // AX
+
+// Adjust SP (add 16 bytes)
+xregs[4][15:0] = sp_val[15:0] + 16'h0010;
+
+// POPA does not affect flags

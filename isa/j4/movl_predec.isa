@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+var addr[31:0];
+
+var store_addr[31:0];
+var store_size[1:0];
+var movl_pd_no_error[0:0];
+
+var movl_pd_rn_lo[2:0];
+var movl_pd_rm_lo[2:0];
+var movl_pd_rb[0:0];
+var movl_pd_rn_bk[0:0];
+var movl_pd_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+aspect exception.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+aspect addr_error_store.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+instr = umem[pc];
+assume instr[15:12] == 0x2;
+assume instr[3:0] == 0x6;
+rn = instr[11:8];
+rm = instr[7:4];
+
+movl_pd_rn_lo = rn[2:0];
+movl_pd_rm_lo = rm[2:0];
+movl_pd_rb = sr[29];  // RB bit (bit 29 in SR)
+movl_pd_rn_bk = (rn[3] == 1'b0) & movl_pd_rb;
+movl_pd_rm_bk = (rm[3] == 1'b0) & movl_pd_rb;
+
+Rn = movl_pd_rn_bk ? rf_bank[movl_pd_rn_lo] : rf[rn];
+Rm = movl_pd_rm_bk ? rf_bank[movl_pd_rm_lo] : rf[rm];
+
+// Pre-decrement: compute new address first
+addr = Rn - 4;
+
+store_addr = addr;
+store_size = 2'b11;
+
+movl_pd_no_error = (addr[1:0] == 2'b00);
+
+// Store Rm to decremented address
+umem[addr] when (movl_pd_no_error) = Rm;
+
+// Update Rn with decremented value
+rf[rn] when (movl_pd_no_error & (movl_pd_rn_bk == 0)) = addr;
+rf_bank[movl_pd_rn_lo] when (movl_pd_no_error & movl_pd_rn_bk) = addr;
+
+pc when (movl_pd_no_error) = pc + 2;

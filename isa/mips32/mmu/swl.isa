@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 SWL - Store Word Left
+// Stores the left (high-order) portion of a word to an unaligned address
+// Encoding: 101010 base rt offset
+//           SWL    rs   rt imm[15:0]
+// For little-endian: stores high bytes of rt to EA down to (EA & ~3)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rs[4:0];
+var rt[4:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var base[31:0];
+var rt_val[31:0];
+var word_addr[31:0];
+var byte_offset[1:0];
+var mem_word[31:0];
+var result[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// SWL encoding
+assume instr[31:26] == 6'b101010;
+
+rs = instr[25:21];
+rt = instr[20:16];
+imm = instr[15:0];
+
+base = rf[rs];
+sign_ext_imm = {{16{imm[15]}}, imm};
+addr = base + sign_ext_imm;
+
+// Get rt value to store
+rt_val = rf[rt];
+
+// Word-aligned address and byte offset
+word_addr = {addr[31:2], 2'b00};
+byte_offset = addr[1:0];
+
+// Load the aligned word from memory (for merging)
+mem_word = umem[word_addr];
+
+// For little-endian SWL:
+// byte_offset 0: result = {mem_word[31:8], rt_val[31:24]}
+// byte_offset 1: result = {mem_word[31:16], rt_val[31:16]}
+// byte_offset 2: result = {mem_word[31:24], rt_val[31:8]}
+// byte_offset 3: result = rt_val[31:0]
+
+var is_off0[0:0];
+var is_off1[0:0];
+var is_off2[0:0];
+var is_off3[0:0];
+
+is_off0 = (byte_offset == 0);
+is_off1 = (byte_offset == 1);
+is_off2 = (byte_offset == 2);
+is_off3 = (byte_offset == 3);
+
+var res0[31:0];
+var res1[31:0];
+var res2[31:0];
+var res3[31:0];
+
+res0 = {mem_word[31:8], rt_val[31:24]};
+res1 = {mem_word[31:16], rt_val[31:16]};
+res2 = {mem_word[31:24], rt_val[31:8]};
+res3 = rt_val;
+
+var mux1[31:0];
+var mux2[31:0];
+
+mux1 = is_off0 ? res0 : res1;
+mux2 = is_off2 ? res2 : res3;
+result = (is_off0 | is_off1) ? mux1 : mux2;
+
+umem[word_addr] = result;
+pc = pc + 4;

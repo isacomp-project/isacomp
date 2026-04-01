@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD D6 - FD prefix passthrough
+// FD prefix consumed, base opcode D6 executes unchanged
+
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_S[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_H[0:0];
+isa_state flag_PV[0:0];
+isa_state flag_N[0:0];
+isa_state flag_C[0:0];
+
+var imm[7:0];
+var result[8:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'hD6FD;
+pc = pc + 2;
+imm = mainmem[pc];
+pc = pc + 1;
+
+result = A - imm;
+
+// Flags
+flag_S = result[7];
+flag_Z = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_H = (A[3:0] < imm[3:0]) ? 1'b1 : 1'b0;
+// Overflow: operand signs different and result sign differs from A
+flag_PV = (A[7] != imm[7]) & (A[7] != result[7]) ? 1'b1 : 1'b0;
+flag_N = 1'b1;  // Subtract operation
+flag_C = A < imm ? 1'b1 : 1'b0;
+
+A = result[7:0];

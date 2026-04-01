@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha Interrupt Handling Aspect
+//
+// This aspect implements Alpha's interrupt handling mechanism.
+// Interrupts are checked at instruction boundaries and dispatched
+// to the PAL interrupt handler at pal_base + 0x0180 when enabled and pending.
+//
+// Alpha Interrupt Model:
+// - IPL (Interrupt Priority Level): 6 bits, 0-63
+// - Interrupts only taken when pending priority > current IPL
+// - All interrupts trap to PAL interrupt handler
+// - PALcode reads ISR to determine interrupt source
+//
+// Interrupt Sources (in ISR - Interrupt Summary Register):
+//   Bit 0:  Software interrupt 0
+//   Bit 1:  Software interrupt 1
+//   Bits 3:2: Reserved
+//   Bits 7:4: External device interrupts (I/O)
+//   Bits 11:8: Interprocessor interrupts
+//   Bit 14: Performance counter interrupt
+//   Bit 15: Correctable error interrupt
+//   Bits 31:16: Platform-specific
+//
+// Interrupt Priority (from ISR bit to IPL):
+//   The priority values MUST be <= 6 so that swpipl(7) (the kernel's
+//   local_irq_disable) masks ALL device interrupts. On real Alpha,
+//   IPL 7 masks everything except machine checks.
+//   ISR bits 0-1: IPL 1 (software interrupts)
+//   ISR bits 4-11: IPL 3 (device/timer/IPI interrupts)
+//   ISR bits 14-15: IPL 6 (performance counter, correctable error)
+
+// ============================================================================
+// Interrupt State (from ipr_defs.isa)
+// ============================================================================
+
+// isa_state ipl[5:0];      // Current interrupt priority level
+// isa_state isr[63:0];     // Interrupt summary register
+// isa_state hier[63:0];    // Hardware interrupt enable register
+// isa_state sirr[63:0];    // Software interrupt request register
+// isa_state astrr[63:0];   // AST request register
+// isa_state aster[63:0];   // AST enable register
+
+isa_state lock_flag[0:0];
+
+// ============================================================================
+// Interrupt Check Logic
+// ============================================================================
+
+// Variables for interrupt detection
+var interrupt_pending[0:0];
+var interrupt_masked[0:0];
+var take_interrupt[0:0];
+var highest_pending_ipl[5:0];
+
+// Combine all interrupt sources
+var combined_interrupts[63:0];
+combined_interrupts = isr & hier;  // Only enabled interrupts
+
+// Check if any interrupt is pending
+interrupt_pending = (combined_interrupts != 0);
+
+// Determine highest pending interrupt priority
+// This is a simplified priority encoder
+// In practice, would need full priority decode logic
+var has_high_priority[0:0];
+var has_device_interrupt[0:0];
+var has_software_interrupt[0:0];
+
+has_high_priority = (combined_interrupts[15:14] != 0);     // IPL 6
+has_device_interrupt = (combined_interrupts[11:4] != 0);   // IPL 3
+has_software_interrupt = (combined_interrupts[1:0] != 0);  // IPL 1
+
+highest_pending_ipl = has_high_priority ? 6'd6 :
+                      has_device_interrupt ? 6'd3 :
+                      has_software_interrupt ? 6'd1 : 6'd0;
+
+// Check if interrupt is masked by current IPL
+interrupt_masked = (highest_pending_ipl <= ipl);
+
+// Take interrupt if pending, not masked, and not in PAL mode
+// Interrupts are disabled in PAL mode until explicitly re-enabled
+take_interrupt = interrupt_pending & (interrupt_masked == 0) & (pal_mode == 0);
+
+// ============================================================================
+// Interrupt Dispatch
+// ============================================================================
+
+// PAL interrupt entry point
+var interrupt_entry[63:0];
+interrupt_entry = pal_base + 64'h0180;  // Offset 0x180 for interrupts (EV5: 0x80 spacing)
+
+// On interrupt:
+// 1. Save PC to exc_addr (next instruction to execute)
+// 2. Enter PAL mode (blocks further interrupts)
+// 3. Jump to interrupt handler
+// Note: IPL is NOT raised here. PAL mode blocks interrupts
+// (take_interrupt checks pal_mode == 0). PALcode reads the old IPL,
+// saves it in the exception frame (PS[7:4]), then raises IPL to 7
+// before hw_rei to the kernel handler. This ensures rti can restore
+// the pre-interrupt IPL correctly.
+
+exc_addr when (take_interrupt) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+
+// ============================================================================
+// Software Interrupt Request
+// ============================================================================
+
+// Software interrupts are requested by writing to SIRR
+// They appear in ISR bits 0-1 and can be cleared by PALcode
+
+// ============================================================================
+// AST (Asynchronous System Trap) Handling
+// ============================================================================
+
+// ASTs are a form of software interrupt for user-mode signal delivery
+// They are requested via ASTRR and enabled via ASTER
+// When pending and returning to user mode, an AST is delivered
+
+var ast_pending[0:0];
+var ast_enabled[0:0];
+var returning_to_user[0:0];
+var take_ast[0:0];
+
+ast_pending = (astrr != 0);
+ast_enabled = (aster != 0);
+// returning_to_user would be set by HW_REI when restoring user mode PS
+// take_ast = ast_pending & ast_enabled & returning_to_user;
+
+// AST delivery is handled by PALcode during return-to-user path

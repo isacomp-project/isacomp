@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STQ with Virtual Memory Support
+//
+// This example shows how to integrate the DTB aspect for
+// address translation in store instructions.
+//
+// STQ: Mem[Rb + SEXT(disp)] = Ra
+// Opcode: 0x2D
+
+// ============================================================================
+// State Declarations
+// ============================================================================
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state imem[31:0][63:0];
+mem dmem[63:0];
+
+// PAL/MMU state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+isa_state mm_stat[63:0];
+
+// DTB arrays
+isa_state dtb_pte[63:0][4:0];
+isa_state dtb_tag[63:0][4:0];
+isa_state dtb_valid[0:0][4:0];
+
+// ============================================================================
+// Instruction Decode
+// ============================================================================
+
+var ra[4:0];
+var rb[4:0];
+var Ra[63:0];
+var Rb[63:0];
+var disp[63:0];
+var addr[63:0];
+
+instr = imem[pc];
+assume instr[31:26] == 45;  // STQ opcode
+
+ra = instr[25:21];
+Ra = rf[ra];
+rb = instr[20:16];
+Rb = rf[rb];
+disp = {{48{instr[15]}}, instr[15:0]};
+
+// Calculate virtual address
+addr = Rb + disp;
+
+// ============================================================================
+// DTB Translation (inline version of dtb_store.isa aspect)
+// ============================================================================
+
+var store_addr_pa[63:0];
+var dtb_store_exception[0:0];
+var dtb_store_miss[0:0];
+var dtb_store_fault[0:0];
+
+// Extract address components
+var store_addr_vpn[29:0];
+var store_addr_offset[12:0];
+store_addr_vpn = addr[42:13];
+store_addr_offset = addr[12:0];
+
+// TLB lookup
+var dtb_store_hit_any[0:0];
+var dtb_store_hit_pte[63:0];
+
+var shit0[0:0];
+var shit1[0:0];
+var shit2[0:0];
+var shit3[0:0];
+
+shit0 = dtb_valid[0] & (dtb_tag[0][29:0] == store_addr_vpn);
+shit1 = dtb_valid[1] & (dtb_tag[1][29:0] == store_addr_vpn);
+shit2 = dtb_valid[2] & (dtb_tag[2][29:0] == store_addr_vpn);
+shit3 = dtb_valid[3] & (dtb_tag[3][29:0] == store_addr_vpn);
+
+dtb_store_hit_any = shit0 | shit1 | shit2 | shit3;
+
+var ssel_pte[63:0];
+ssel_pte = shit0 ? dtb_pte[0] :
+           shit1 ? dtb_pte[1] :
+           shit2 ? dtb_pte[2] :
+           shit3 ? dtb_pte[3] : 64'b0;
+
+dtb_store_hit_pte = ssel_pte;
+
+// Extract PTE fields
+var spte_pfn[31:0];
+var spte_valid[0:0];
+var spte_kwe[0:0];
+var spte_uwe[0:0];
+
+spte_pfn = dtb_store_hit_pte[63:32];
+spte_valid = dtb_store_hit_pte[0];
+spte_kwe = dtb_store_hit_pte[11];
+spte_uwe = dtb_store_hit_pte[15];
+
+// Check permissions
+var store_is_user_mode[0:0];
+var has_write_permission[0:0];
+var store_vm_enabled[0:0];
+
+store_is_user_mode = ps[3];
+has_write_permission = store_is_user_mode ? spte_uwe : spte_kwe;
+store_vm_enabled = (pal_mode == 0);
+
+dtb_store_miss = store_vm_enabled & (dtb_store_hit_any == 0);
+dtb_store_fault = store_vm_enabled & dtb_store_hit_any & ((spte_valid == 0) | (has_write_permission == 0));
+dtb_store_exception = dtb_store_miss | dtb_store_fault;
+
+// PAL entry points
+var dtb_store_miss_entry[63:0];
+var dtb_store_fault_entry[63:0];
+dtb_store_miss_entry = pal_base + 64'h200;
+dtb_store_fault_entry = pal_base + 64'h280;
+
+// Exception handling
+exc_addr when (dtb_store_exception) = pc;
+va when (dtb_store_exception) = addr;
+mm_stat when (dtb_store_exception) = 64'h1;  // Write access
+pal_mode when (dtb_store_exception) = 1;
+
+// Compute physical address
+var store_addr_translated[63:0];
+store_addr_translated = {spte_pfn, store_addr_offset};
+
+store_addr_pa = pal_mode ? addr :
+                dtb_store_hit_any ? store_addr_translated :
+                addr;
+
+// ============================================================================
+// Memory Access
+// ============================================================================
+
+// Store to physical address (only if no exception)
+dmem[store_addr_pa] when (dtb_store_exception == 0) = Ra;
+
+// PC update
+pc when (dtb_store_miss) = dtb_store_miss_entry;
+pc when (dtb_store_fault & (dtb_store_miss == 0)) = dtb_store_fault_entry;
+pc when (dtb_store_exception == 0) = pc + 4;

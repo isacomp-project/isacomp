@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 FTEST instruction
+// FTEST - Test FP status condition and may nullify next instruction
+// Tests the FP condition flag(s) from FPSR and optionally sets PSW.N
+// Opcode: 0x0C (bits 31:26), sub-bits identify FTEST variant
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+isa_state fpsr[63:0];           // FP status register
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+
+instr = umem[pc_pa];
+
+// FTEST encoding: opcode=0x0C, instr[25:21]=00000, instr[20:16]=00000
+assume instr[31:26] == 0b001100;
+assume instr[12:9] == 0b0001;
+
+// Extract the condition to test from instruction
+var test_cond[4:0]; test_cond = instr[4:0];
+
+// Read FP condition bit from FPSR (bit 5 set by FCMP)
+var fp_cond[0:0]; fp_cond = fpsr[5];
+
+// The FTEST instruction tests the FP condition:
+// If test_cond[0] is set, test passes when fp_cond is true
+// FTEST nullifies the next instruction when the condition is NOT met
+var cond_met[0:0];
+cond_met = (test_cond == 5'b00001) ? fp_cond :
+           (test_cond == 5'b00000) ? ~fp_cond :
+           fp_cond;
+
+// If condition not met, set PSW.N to nullify next instruction
+var new_psw[63:0];
+new_psw = ~cond_met ? (psw | 64'h0000000000200000) : psw;
+psw when (~instr_trap_taken & ~in_nullified) = new_psw;
+
+// Advance PC by 4
+pc = pc + 4;

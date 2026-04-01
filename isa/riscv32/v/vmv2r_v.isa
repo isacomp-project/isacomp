@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmv2r.v - Whole Register Move (2 registers)
+// Encoding: vmv2r.v vd, vs2
+// Operation: vd, vd+1 = vs2, vs2+1 (move 2 registers)
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs2[4:0];
+var vd[4:0];
+var v2_0[127:0];
+var v2_1[127:0];
+var vs2_1[4:0];
+var vd_1[4:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b011;
+assume instr[31:26] == 0b100111;
+assume instr[19:15] == 0b00001;
+
+pc = pc + 4;
+
+vs2 = instr[24:20];
+vd = instr[11:7];
+vs2_1 = vs2 + 1;
+vd_1 = vd + 1;
+
+v2_0 = vrf[vs2];
+v2_1 = vrf[vs2_1];
+
+vrf[vd] = v2_0;
+vrf[vd_1] = v2_1;

@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 CALL NZ,nn (0xC4) - Call subroutine if Zero flag not set
+// if Z=0: Push PC+3, PC = nn; else PC = PC + 3
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state sp[15:0];
+mem mainmem[15:0];
+isa_state flag_Z[0:0];
+
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var pc_plus_3[15:0];
+var addr_lo[7:0];
+var addr_hi[7:0];
+var target[15:0];
+var return_addr[15:0];
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+var take_call[0:0];
+
+instr = mainmem[pc];
+assume instr == 0xC4;
+
+// Use intermediate variables for address calculation
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+pc_plus_3 = pc_plus_2 + 1;
+
+addr_lo = mainmem[pc_plus_1];
+addr_hi = mainmem[pc_plus_2];
+
+target = {addr_hi, addr_lo};
+return_addr = pc_plus_3;
+take_call = flag_Z ^ 1'b1;
+
+sp_minus_1 = sp - 1;
+sp_minus_2 = sp_minus_1 - 1;
+
+mainmem[sp_minus_1] when (take_call) = return_addr[15:8];
+mainmem[sp_minus_2] when (take_call) = return_addr[7:0];
+
+sp = take_call ? sp_minus_2 : sp;
+
+// Single write to PC with conditional target
+pc = take_call ? target : pc_plus_3;

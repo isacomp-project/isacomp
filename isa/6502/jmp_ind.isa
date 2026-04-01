@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 JMP Indirect (0x6C) - Jump Indirect
+// Jumps to address stored at given address (function pointer)
+// Note: Has famous 6502 bug - doesn't cross page boundaries correctly
+// For simplicity, this implementation doesn't replicate the bug
+// Instruction format: JMP ($hhll) (3 bytes)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state mainmem[7:0][15:0];
+
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var ind_addr_lo[7:0];
+var ind_addr_hi[7:0];
+var ind_addr[15:0];
+var target_lo[7:0];
+var target_hi[7:0];
+var target_addr[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x6C;
+
+// Read indirect address using offset variables (safer for resource graph)
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+
+ind_addr_lo = mainmem[pc_plus_1];
+ind_addr_hi = mainmem[pc_plus_2];
+
+ind_addr = {ind_addr_hi, ind_addr_lo};
+
+// Read target address from indirect address
+target_lo = mainmem[ind_addr];
+target_hi = mainmem[ind_addr + 1];
+
+target_addr = {target_hi, target_lo};
+
+// Jump to target
+pc = target_addr;

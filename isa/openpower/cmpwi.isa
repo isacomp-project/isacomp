@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER cmpwi - Compare Word Immediate (D-Form)
+// cmpwi BF,RA,SI  (L=0 for word compare)
+// Primary opcode 11
+// Compares (RA)[32:63] with EXTS(SI) as signed integers
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state cr[31:0];
+
+var bf[2:0];
+var ra[4:0];
+var si[15:0];
+var ra_val[31:0];
+var sign_ext_si[31:0];
+var lt[0:0];
+var gt[0:0];
+var eq[0:0];
+var cr_field[3:0];
+var cr_shift[4:0];
+var cr_mask[31:0];
+var new_cr[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 11
+assume instr[31:26] == 11;
+// L = 0 (word compare)
+assume instr[21] == 0;
+
+// Extract fields
+bf = instr[25:23];
+ra = instr[20:16];
+si = instr[15:0];
+
+// Get word value and sign-extend immediate
+ra_val = rf[ra][31:0];
+sign_ext_si = {{16{si[15]}}, si};
+
+// Signed comparison
+lt = ra_val <s sign_ext_si;
+gt = ra_val >s sign_ext_si;
+eq = ra_val == sign_ext_si;
+
+// Build CR field: LT, GT, EQ, SO
+cr_field = {lt, gt, eq, 1'b0};
+
+// Calculate shift and mask
+cr_shift = (7 - bf) << 2;
+cr_mask = ~(32'hF << cr_shift);
+
+// Update CR field (widen cr_field to 32 bits before shift)
+new_cr = (cr & cr_mask) | ({28'b0, cr_field} << cr_shift);
+cr = new_cr;
+
+pc = pc + 4;

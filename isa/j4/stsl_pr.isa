@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STS.L PR,@-Rn - Store PR to stack (pre-decrement)
+// Rn = Rn - 4; (Rn) = PR
+// Encoding: 0100nnnn00100010 (0x4n22)
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state pr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var Rn[31:0];
+var new_rn[31:0];
+var stsl_pr_rn_lo[2:0];
+var stsl_pr_rb[0:0];
+var stsl_pr_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x22;
+rn = instr[11:8];
+
+stsl_pr_rn_lo = rn[2:0];
+stsl_pr_rb = sr[29];  // RB bit (bit 29 in SR)
+stsl_pr_rn_bk = (rn[3] == 1'b0) & stsl_pr_rb;
+
+Rn = stsl_pr_rn_bk ? rf_bank[stsl_pr_rn_lo] : rf[rn];
+new_rn = Rn - 4;
+
+// Store PR to memory at new address
+umem[new_rn] = pr;
+
+// Update register with decremented value
+rf[rn] when (stsl_pr_rn_bk == 0) = new_rn;
+rf_bank[stsl_pr_rn_lo] when (stsl_pr_rn_bk) = new_rn;
+
+pc = pc + 2;

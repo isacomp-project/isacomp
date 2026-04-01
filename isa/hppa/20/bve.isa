@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 BVE instruction (64-bit) - NEW in PA-RISC 2.0
+// BVE (b) - Branch Vectored External: branches to address in register b
+// Opcode: 0x3A (bits 31:26), bits[15:13]=110
+// b=instr[25:21], no displacement
+// 64-bit replacement for BV; does not save return address
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var b[4:0];
+var target[63:0];
+
+instr = umem[pc_pa];
+
+// BVE encoding: opcode=0x3A, bits[15:13]=110, bit[12]=1
+// bit[12] distinguishes BVE (bit[12]=1) from BV (bit[12]=0)
+assume instr[31:26] == 0b111010;
+assume instr[15:13] == 0b110;
+assume instr[12] == 1'b1;
+
+// Extract base register
+b = instr[25:21];
+
+// Read base register (r0 reads as 0) - this is the 64-bit branch target
+target = (b == 0) ? 64'h0 : rf[b];
+
+// Branch target
+branch_target when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+
+// BVE (n=0): enter delay slot normally
+delay_slot when (~instr[1] & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+
+// BVE,n (n=1): unconditional + nullify = delay slot ALWAYS skipped.
+// Skip delay slot entirely to avoid stalling on data in delay slot.
+var n_skip[0:0];
+n_skip = instr[1] & ~in_delay_slot & ~instr_trap_taken & ~in_nullified;
+pc = (n_skip == 1) ? target : (pc + 4);

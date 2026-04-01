@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// HPPA PA-RISC 1.1 Nullification Aspect
+// =============================================================================
+//
+// This aspect handles the PA-RISC nullification mechanism (PSW.N bit).
+// It follows the same pattern as J2's delay_slot.isa aspect.
+//
+// NULLIFICATION SEMANTICS:
+// When PSW.N=1, the current instruction is nullified:
+//   - The instruction is fetched but NOT executed (no side effects)
+//   - PSW.N is cleared to 0
+//   - PC advances by 4 (to the next instruction)
+//
+// Nullification is used for:
+//   1. Branch delay slot annulment (branch,n variants)
+//   2. Conditional execution patterns (skip-if-taken, skip-if-not-taken)
+//
+// USAGE: Every instruction file includes this aspect:
+//   aspect nullify.isa gates pc, psw;
+//
+// PROVIDES:
+//   in_nullified[0:0] - 1 if this instruction is nullified (gate all effects)
+//
+// PATTERN (like J2 delay_slot.isa):
+//   Branch instructions set PSW.N=1 when they want to nullify the next insn.
+//   The next instruction's nullify.isa aspect captures PSW.N, clears it,
+//   and overrides PC to pc+4.
+//
+// INTERACTION WITH INTERRUPTS:
+//   Like J2's delay_slot pattern, interrupts should NOT be taken during
+//   a nullified instruction. The interruption.isa aspect checks in_nullified
+//   and suppresses interrupt delivery when true.
+//
+// =============================================================================
+
+// Capture nullification state at instruction start
+// (before this instruction potentially sets it for the NEXT instruction)
+var in_nullified[0:0];
+in_nullified = psw[21];  // PSW.N = bit 21 (PSW_N = 0x00200000)
+
+// Clear N bit if it was set
+// (This instruction is the nullified one; the next won't be unless set again)
+var psw_n_cleared[31:0];
+psw_n_cleared = psw & 32'hFFDFFFFF;  // Clear bit 21 (N)
+psw when (in_nullified == 1) = psw_n_cleared;
+
+// Override PC to advance past the nullified instruction
+// This takes precedence over any PC update the instruction does
+pc when (in_nullified == 1) = pc + 4;

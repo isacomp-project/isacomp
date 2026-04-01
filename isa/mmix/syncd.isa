@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX SYNCD - Synchronize Data
+// SYNCD X,$Y,$Z: ensure X+1 bytes at $Y+$Z are written to memory
+// Opcode: 0xB8
+// Note: No-op in simple model (cache sync)
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xB8;
+
+pc = pc + 4;

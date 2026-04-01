@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX PREGO - Preload for GO
+// PREGO X,$Y,$Z: hint to preload instructions at $Y+$Z
+// Opcode: 0x9C
+// Note: No-op in simple model (cache hint)
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x9C;
+
+pc = pc + 4;

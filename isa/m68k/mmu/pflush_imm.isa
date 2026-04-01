@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030 PFLUSH #fc,#mask - Flush ATC entries by immediate FC and mask
+// Opcode: 1111 000 000 000 000 (F000) followed by extension
+// Extension: 001 1 xx FC3 MASK3 xxxxx
+// bit 12=1 distinguishes from PFLUSHA (bit 12=0)
+// Invalidates all ATC entries (simplified — no per-entry FC matching)
+// Privileged instruction
+
+isa_state pc[31:0];
+var instr[15:0];
+var pflim_extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+mem dmem[23:0];
+
+isa_state sr[15:0];
+
+// ATC entries
+isa_state atc_v[0:0][4:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+
+instr = imem[pc_pa];
+assume instr == 16'hF000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+pflim_extw = imem[pc_pa];
+assume pflim_extw[15:13] == 3'b001;  // PFLUSH family
+assume pflim_extw[12] == 1'b1;       // PFLUSH (not PFLUSHA)
+assume pflim_extw[11] == 1'b0;       // Exclude pflush_fc encoding (extw[15:11]==00111)
+pc when (~m68k_exc_taken) = pc + 2;
+
+assume sr[13] == 1'b1;
+
+// Invalidate all ATC entries (simplified flush)
+atc_v[0] when (~m68k_exc_taken) = 1'b0;
+atc_v[1] when (~m68k_exc_taken) = 1'b0;
+atc_v[2] when (~m68k_exc_taken) = 1'b0;
+atc_v[3] when (~m68k_exc_taken) = 1'b0;
+atc_v[4] when (~m68k_exc_taken) = 1'b0;
+atc_v[5] when (~m68k_exc_taken) = 1'b0;
+atc_v[6] when (~m68k_exc_taken) = 1'b0;
+atc_v[7] when (~m68k_exc_taken) = 1'b0;
+atc_v[8] when (~m68k_exc_taken) = 1'b0;
+atc_v[9] when (~m68k_exc_taken) = 1'b0;
+atc_v[10] when (~m68k_exc_taken) = 1'b0;
+atc_v[11] when (~m68k_exc_taken) = 1'b0;
+atc_v[12] when (~m68k_exc_taken) = 1'b0;
+atc_v[13] when (~m68k_exc_taken) = 1'b0;
+atc_v[14] when (~m68k_exc_taken) = 1'b0;
+atc_v[15] when (~m68k_exc_taken) = 1'b0;
+atc_v[16] when (~m68k_exc_taken) = 1'b0;
+atc_v[17] when (~m68k_exc_taken) = 1'b0;
+atc_v[18] when (~m68k_exc_taken) = 1'b0;
+atc_v[19] when (~m68k_exc_taken) = 1'b0;
+atc_v[20] when (~m68k_exc_taken) = 1'b0;
+atc_v[21] when (~m68k_exc_taken) = 1'b0;

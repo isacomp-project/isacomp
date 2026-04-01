@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vlse16.v - Vector Strided Load 16-bit Elements
+// Encoding: vlse16.v vd, (rs1), rs2, vm
+// Operation: Load 16-bit elements with stride from memory
+
+isa_state pc[31:0];
+isa_state xrf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var rs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var base[31:0];
+var stride[31:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0000111;
+assume instr[14:12] == 0b101;
+assume instr[28:26] == 0b010;
+assume instr[31:29] == 0b000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+base = xrf[rs1];
+stride = xrf[rs2];
+
+res[15:0] = {umem[base + 1], umem[base]};
+res[31:16] = {umem[base + stride + 1], umem[base + stride]};
+res[47:32] = {umem[base + stride * 2 + 1], umem[base + stride * 2]};
+res[63:48] = {umem[base + stride * 3 + 1], umem[base + stride * 3]};
+res[79:64] = {umem[base + stride * 4 + 1], umem[base + stride * 4]};
+res[95:80] = {umem[base + stride * 5 + 1], umem[base + stride * 5]};
+res[111:96] = {umem[base + stride * 6 + 1], umem[base + stride * 6]};
+res[127:112] = {umem[base + stride * 7 + 1], umem[base + stride * 7]};
+
+vrf[vd] = res;

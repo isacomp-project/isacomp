@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Push Apply Continuation Aspect
+//
+// Pushes an apply continuation frame onto the continuation stack.
+// Apply continuations are used for over-saturated applications where
+// we have more arguments than the function's arity.
+//
+// Continuation frame format (5 words):
+//   Word 0: [31:30]=type(01), [29:0]=saved_pc
+//   Word 1: excess_args_addr (heap address of excess arguments)
+//   Word 2: excess_args_count
+//   Word 3: [19:0]=saved_lsp
+//   Word 4: [19:0]=saved_lb
+//
+// Requires before inclusion:
+//   apply_excess_addr[31:0] - Address of excess arguments on heap
+//   apply_excess_count[12:0] - Number of excess arguments
+//
+// Gates: pc, lsp, lb, csp, cstack, apply_excess_addr, apply_excess_count
+
+var apply_cont_type[1:0];
+apply_cont_type = 2'b01;  // Apply continuation = type 1
+
+// Build continuation frame
+var apply_cont_word0[31:0];
+apply_cont_word0 = {apply_cont_type, pc[29:0]};
+
+// Push frame to continuation stack
+cstack[csp] = apply_cont_word0;
+cstack[csp + 1] = apply_excess_addr;
+cstack[csp + 2] = {{19{1'b0}}, apply_excess_count};
+cstack[csp + 3] = {{12{1'b0}}, lsp};
+cstack[csp + 4] = {{12{1'b0}}, lb};
+
+// Advance stack pointer
+csp = csp + 5;

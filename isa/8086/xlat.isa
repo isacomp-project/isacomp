@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 XLAT (0xD7) - WITH PROPER SEGMENTATION
+// Table lookup translation - reads byte from DS:[BX+AL]
+// Uses DS segment for table access
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state AX[15:0];
+isa_state AL[7:0] of AX[7:0];
+isa_state BX[15:0];
+
+var table_offset[15:0];               // 16-bit offset: BX + AL
+var physical_addr[19:0];              // 20-bit physical address
+
+instr = imem[ip];
+assume instr == 0xD7;
+ip = ip + 1;
+
+// Calculate table offset: BX + zero-extended AL
+table_offset = BX + {8'h00, AL};
+
+// Calculate physical address: DS:table_offset
+physical_addr = (DS << 4) + table_offset;
+
+// Load byte from table into AL
+AL = dmem[physical_addr];

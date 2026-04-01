@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 BREAK - Breakpoint Exception
+// Generates a breakpoint exception (ExcCode = 9)
+// Encoding: 000000 code[19:0] 001101
+//           SPECIAL              BREAK
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect ../tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// BREAK encoding
+assume instr[31:26] == 6'b000000;  // SPECIAL opcode
+assume instr[5:0] == 6'b001101;    // BREAK function
+
+// Exception code for BREAK is 9
+var exc_code[4:0];
+exc_code = 9;
+
+// Get current Status register values
+var status_exl[0:0];
+var not_status_exl[0:0];
+var status_bev[0:0];
+
+status_exl = cp0_status[1];
+not_status_exl = ~status_exl;
+status_bev = cp0_status[22];
+
+// Exception vector selection
+var exc_vector[31:0];
+exc_vector = status_bev ? 32'hBFC00380 : 32'h80000180;
+
+// Save PC to EPC (only if not already in exception)
+cp0_epc when (not_status_exl) = pc;
+
+// Set Cause.ExcCode
+var new_cause[31:0];
+new_cause = {cp0_cause[31:7], exc_code, cp0_cause[1:0]};
+cp0_cause = new_cause;
+
+// Set Status.EXL (Exception Level)
+var new_status[31:0];
+new_status = cp0_status | 32'h2;  // Set bit 1 (EXL)
+cp0_status = new_status;
+
+// Jump to exception handler
+pc = exc_vector;

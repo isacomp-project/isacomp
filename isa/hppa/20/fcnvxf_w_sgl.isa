@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 FCNVXF,W,SGL instruction
+// FCNVXF,W,SGL fr,ft - Convert 32-bit integer to single-precision FP
+// ft(sgl) = float(fr(w))
+// Opcode: 0x0C (bits 31:26), sub-bits[12:9]=1110, src_fmt[5:4]=00 (word), dst_fmt[7:6]=00 (single)
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var fr[4:0];
+var ft[4:0];
+
+instr = umem[pc_pa];
+
+// FCNVXF,W,SGL encoding: opcode=0x0C, sub[12:9]=1110, src_fmt[5:4]=00, dst_fmt[7:6]=00
+assume instr[31:26] == 0b001100;
+assume instr[12:9] == 0b1110;   // FCNVXF sub-opcode
+assume instr[5:4] == 0b00;      // Source: W (word)
+assume instr[7:6] == 0b00;      // Dest: SGL
+
+// Extract register fields
+fr = instr[25:21];
+ft = instr[4:0];
+
+// Read source FP register (lower 32 bits contain a 32-bit signed integer)
+var src[31:0]; src = frf[fr][31:0];
+
+// Convert 32-bit signed integer to single-precision FP using built-in
+var res[31:0]; res = fp_cvt_s_w(src, 3'b000);
+
+// Write result to target FP register (lower 32 bits, upper 32 bits zeroed)
+frf[ft] when (~instr_trap_taken & ~in_nullified) = {32'h0, res};
+
+// Advance PC by 4
+pc = pc + 4;

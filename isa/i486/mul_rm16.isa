@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MUL r/m16 (0xF7 /4) - CONSOLIDATED ALL ADDRESSING MODES
+// Unsigned multiply: AX * rm16 -> DX:AX
+
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var src_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var physical_addr_lo[31:0];
+var physical_addr_hi[31:0];
+var src_mem_val[15:0];
+var src_reg_val[15:0];
+var src_val[15:0];
+var ax_val[15:0];
+var result[31:0];
+var is_mem_src[0:0];
+
+instr = imem[eip];
+assume instr == 0xF7;
+
+modrm = imem[eip + 1];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b100;  // MUL
+
+src_reg_idx = rm_bits;
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+base_offset = xregs[addr_reg_idx];
+
+disp8 = imem[eip + 2];
+disp16_lo = imem[eip + 2];
+disp16_hi = imem[eip + 3];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+case (mod_bits) {
+  0b00: is_mem_src = 1'b1;
+  0b01: is_mem_src = 1'b1;
+  0b10: is_mem_src = 1'b1;
+  0b11: is_mem_src = 1'b0;
+}
+
+case (mod_bits) {
+  0b00: eip = eip + 2;
+  0b01: eip = eip + 3;
+  0b10: eip = eip + 4;
+  0b11: eip = eip + 2;
+}
+
+physical_addr_lo = (DS << 4) + offset;
+physical_addr_hi = (DS << 4) + offset + 16'h0001;
+
+var src_mem_val_lo[7:0];
+var src_mem_val_hi[7:0];
+src_mem_val_lo = dmem[physical_addr_lo];
+src_mem_val_hi = dmem[physical_addr_hi];
+src_mem_val = {src_mem_val_hi, src_mem_val_lo};
+src_reg_val = xregs[src_reg_idx];
+
+case (is_mem_src) {
+  1'b1: src_val = src_mem_val;
+  1'b0: src_val = src_reg_val;
+}
+
+ax_val = xregs[0];  // AX is register 0
+result = ax_val * src_val;  // 16-bit * 16-bit = 32-bit result
+
+// CF and OF are set if upper half (DX) is non-zero
+flag_CF = (result[31:16] != 16'h0000);
+flag_OF = (result[31:16] != 16'h0000);
+
+// Write result to DX:AX - preserve upper 16 bits of EAX and EDX
+xregs[0] = {xregs[0][31:16], result[15:0]};   // AX gets low 16 bits
+xregs[2] = {xregs[2][31:16], result[31:16]};  // DX gets high 16 bits

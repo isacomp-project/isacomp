@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// LDTLB - Load UTLB Entry from PTEH/PTEL
+// Encoding: 0000000000111000 (0x0038)
+// Privileged instruction
+//
+// This instruction loads a TLB entry from the PTEH and PTEL registers
+// into the UTLB at the index specified by MMUCR.URC (UTLB Replace Counter).
+//
+// PTEH provides: VPN[31:10], ASID[7:0]
+// PTEL provides: PPN[28:10], V, SZ, PR, C, D, SH, WT
+//
+// After LDTLB, software should increment URC or use random replacement.
+
+isa_state pc[31:0];
+var instr[15:0];
+mem umem[23:0];
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+isa_state t[0:0];
+
+// MMU registers (mmucr kept for mmu_translate_instr_cam aspect which reads mmucr[0])
+isa_state mmucr[31:0];
+
+// UTLB arrays - using CAM for VPN lookup
+isa_state cam utlb_vpn[21:0]@[5:0][];   // 64-entry CAM, VPN[31:10] (22 bits)
+isa_state utlb_asid[7:0][5:0];           // 64 entries, ASID (8 bits)
+isa_state utlb_v[0:0][5:0];              // 64 entries, Valid bit
+isa_state utlb_ppn[18:0][5:0];           // 64 entries, PPN[28:10] (19 bits)
+isa_state utlb_sz[2:0][5:0];             // 64 entries, Page size
+isa_state utlb_pr[1:0][5:0];             // 64 entries, Protection {PR1,PR0}
+isa_state utlb_c[0:0][5:0];              // 64 entries, Cacheable
+isa_state utlb_d[0:0][5:0];              // 64 entries, Dirty
+isa_state utlb_sh[0:0][5:0];             // 64 entries, Shared
+isa_state utlb_wt[0:0][5:0];             // 64 entries, Write-through
+
+// Branch delay slot handling
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+// Variables for reading PTEH/PTEL/MMUCR from umem at P4-mapped addresses
+// (kernel writes these via P4 stores, not via custom LDC instructions)
+var ldtlb_pteh_addr[31:0];
+var ldtlb_ptel_addr[31:0];
+var ldtlb_mmucr_addr[31:0];
+var ldtlb_pteh_val[31:0];
+var ldtlb_ptel_val[31:0];
+var ldtlb_mmucr_val[31:0];
+
+var urc[5:0];           // UTLB Replace Counter from MMUCR[23:18]
+var new_vpn[21:0];      // VPN from PTEH
+var new_asid[7:0];      // ASID from PTEH
+var new_ppn[18:0];      // PPN from PTEL
+var new_v[0:0];         // Valid from PTEL
+var new_sz[2:0];        // Page size from PTEL
+var new_pr[1:0];        // Protection from PTEL
+var new_c[0:0];         // Cacheable from PTEL
+var new_d[0:0];         // Dirty from PTEL
+var new_sh[0:0];        // Shared from PTEL
+var new_wt[0:0];        // Write-through from PTEL
+
+// Privilege check
+var is_privileged[0:0];
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr == 16'h0038;
+
+// Read PTEH/PTEL/MMUCR from umem at P4-mapped byte addresses
+// (ISA compiler converts to word index via addr[31:2] automatically)
+ldtlb_pteh_addr = 32'h03FF0000;   // PTEH: P4 0xFF000000 -> byte 0x03FF0000
+ldtlb_ptel_addr = 32'h03FF0004;   // PTEL: P4 0xFF000004 -> byte 0x03FF0004
+ldtlb_mmucr_addr = 32'h03FF0010;  // MMUCR: P4 0xFF000010 -> byte 0x03FF0010
+ldtlb_pteh_val = umem[ldtlb_pteh_addr];
+ldtlb_ptel_val = umem[ldtlb_ptel_addr];
+ldtlb_mmucr_val = umem[ldtlb_mmucr_addr];
+
+// Extract MMUCR.URC (bits 15:10, mask 0x0000FC00, shift 10)
+// SH4 MMUCR layout: URB=bits[23:18], URC=bits[15:10], AT=bit[0]
+urc = ldtlb_mmucr_val[15:10];
+
+// Check privilege (SR.MD must be 1)
+is_privileged = sr[30];
+
+// Extract fields from PTEH - mask to 4KB page VPN (bits 31:12)
+// Kernel already clears bits 11:10, but be defensive
+new_vpn = {ldtlb_pteh_val[31:12], 2'b00};
+new_asid = ldtlb_pteh_val[7:0];
+
+// Extract fields from PTEL (matches Linux kernel PTE format)
+// Linux PTE layout (arch/sh/include/asm/pgtable_32.h):
+//   Bits 28:10 = PPN[28:10]
+//   Bit 8  = V (PRESENT)
+//   Bit 7  = SZ1 (page size bit 1)
+//   Bit 6  = PR1 (USER)
+//   Bit 5  = PR0 (RW)
+//   Bit 4  = SZ0 (page size bit 0)
+//   Bit 3  = C (CACHABLE)
+//   Bit 2  = D (DIRTY)
+//   Bit 1  = SH (HW_SHARED)
+//   Bit 0  = WT (write-through)
+new_ppn = ldtlb_ptel_val[28:10];
+new_v = ldtlb_ptel_val[8];
+new_sz = {1'b0, ldtlb_ptel_val[7], ldtlb_ptel_val[4]};  // {0, SZ1, SZ0}
+new_pr = {ldtlb_ptel_val[6], ldtlb_ptel_val[5]};  // {PR1=USER, PR0=RW}
+new_c = ldtlb_ptel_val[3];
+new_d = ldtlb_ptel_val[2];
+new_sh = ldtlb_ptel_val[1];
+new_wt = ldtlb_ptel_val[0];
+
+// Write to UTLB entry at index URC (only if privileged)
+utlb_vpn[urc] when (~int_should_take & ~itlb_exc_actually_taken & is_privileged) = new_vpn;
+utlb_asid[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_asid;
+utlb_v[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_v;
+utlb_ppn[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_ppn;
+utlb_sz[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_sz;
+utlb_pr[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_pr;
+utlb_c[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_c;
+utlb_d[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_d;
+utlb_sh[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_sh;
+utlb_wt[urc] when (~int_should_take & ~itlb_exc_actually_taken & (is_privileged)) = new_wt;
+
+// Auto-increment MMUCR.URC (bits 15:10) for round-robin TLB replacement
+// SH4 hardware increments URC on UTLB access; we increment on LDTLB
+// which is sufficient for Linux's software TLB refill.
+var new_urc[5:0];
+new_urc = urc + 6'b000001;
+var new_mmucr_val[31:0];
+new_mmucr_val = {ldtlb_mmucr_val[31:16], new_urc, ldtlb_mmucr_val[9:0]};
+umem[ldtlb_mmucr_addr] when (~int_should_take & ~itlb_exc_actually_taken & is_privileged) = new_mmucr_val;
+
+pc = pc + 2;

@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DEC HL (0x2B) - Decrement HL register pair
+// HL = HL - 1
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state H[7:0];
+isa_state L[7:0];
+mem mainmem[15:0];
+
+var hl[15:0];
+var hl_minus_1[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x2B;
+pc = pc + 1;
+
+hl = {H, L};
+hl_minus_1 = hl - 1;
+
+H = hl_minus_1[15:8];
+L = hl_minus_1[7:0];

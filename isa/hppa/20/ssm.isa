@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 SSM instruction (64-bit)
+// SSM im5,t - Set System Mask
+// Opcode: 0x00 (bits 31:26), sub=0x6B (bits 12:5)
+// t = psw; psw = psw | zero_ext(im5)
+// Privileged instruction - sets bits in PSW.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var t[4:0];
+var im10[9:0];
+var mask[63:0];
+var old_psw[63:0];
+
+instr = umem[pc_pa];
+
+// SSM encoding: opcode=0x00, sub=0x6B
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b01101011;
+
+// Extract fields: im10 in bits 25:16, target register in bits 4:0
+im10 = instr[25:16];
+t = instr[4:0];
+
+// Map im10 compact encoding to architectural PSW bit positions
+// im10[4:0] → PSW[4:0] (I,D,P,Q,R - same positions)
+// im10[5] → PSW[19] (B), im10[6] → PSW[18] (C), im10[7] → PSW[16] (M)
+// im10[8] → PSW[26] (E), im10[9] → PSW[27] (W)
+mask = {36'b0, im10[9], im10[8], 6'b0, im10[5], im10[6], 1'b0, im10[7], 11'b0, im10[4:0]};
+
+old_psw = psw;
+
+// Set bits: psw = psw | mask
+psw when (~instr_trap_taken & ~in_nullified) = psw | mask;
+
+// Save old PSW to target register
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = old_psw;
+
+// Advance PC
+pc = pc + 4;

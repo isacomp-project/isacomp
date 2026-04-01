@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 STA — Store Accumulator (all addressing modes via orthogon)
+//
+// Opcodes covered (NO immediate mode):
+//   0x85 (zp), 0x95 (zp,x), 0x8D (abs), 0x9D (abs,x),
+//   0x99 (abs,y), 0x81 (ind,x), 0x91 (ind,y), 0x92 (zp_ind)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state X[7:0];
+isa_state Y[7:0];
+isa_state mainmem[7:0][15:0];
+
+// Fetch and decode
+instr = mainmem[pc];
+assume instr == 0x85 | instr == 0x95 | instr == 0x8D |
+       instr == 0x9D | instr == 0x99 | instr == 0x81 |
+       instr == 0x91 | instr == 0x92;
+pc = pc + 1;
+
+// Map opcode to addressing mode selector.
+// For 6502 group 1 (cc=01), bits [4:2] encode addressing mode:
+// STA has no immediate mode (bbb=010 is not valid).
+//   000 -> (ind,x)  = sel 6
+//   001 -> zp       = sel 1
+//   011 -> abs      = sel 2
+//   100 -> (ind),y  = sel 7  (or zp_ind = sel 8 for 0x92)
+//   101 -> zp,x     = sel 3
+//   110 -> abs,y    = sel 5
+//   111 -> abs,x    = sel 4
+var addr_sel[3:0];
+addr_sel = instr[4:2] == 3'b000 ? 4'd6 :
+           instr[4:2] == 3'b001 ? 4'd1 :
+           instr[4:2] == 3'b011 ? 4'd2 :
+           instr[4:2] == 3'b100 ? (instr == 0x92 ? 4'd8 : 4'd7) :
+           instr[4:2] == 3'b101 ? 4'd3 :
+           instr[4:2] == 3'b110 ? 4'd5 :
+                                  4'd4 ;
+
+// Invoke addressing mode orthogon — data[7:0] and eff_addr[15:0] now in scope
+use addr_mode(addr_sel);
+
+// === STA computation ===
+// Store A to the effective address. No flags are modified.
+mainmem[eff_addr] = A;

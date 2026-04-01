@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LEA r32, m (0x8D)
+// Load Effective Address - computes address but does NOT access memory
+// No flags affected
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var disp_b0[7:0];
+var disp_b1[7:0];
+var disp_b2[7:0];
+var disp_b3[7:0];
+var disp32[31:0];
+var base_addr[31:0];
+var effective_addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x8D;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// For LEA, mod must NOT be 11 (register direct)
+// Example: mod=10 (register + disp32)
+assume mod_bits == 0b10;
+
+// Read base register
+base_addr = xregs[rm_bits];
+
+// Read displacement (offset-based)
+disp_b0 = imem[eip + 2];
+disp_b1 = imem[eip + 3];
+disp_b2 = imem[eip + 4];
+disp_b3 = imem[eip + 5];
+
+// Update EIP to point after instruction
+eip = eip + 32'h00000006;
+
+disp32 = {disp_b3, disp_b2, disp_b1, disp_b0};
+
+// Compute effective address (base + disp32)
+effective_addr = base_addr + disp32;
+
+// Store effective address in destination register
+xregs[reg_bits] = effective_addr;
+
+// LEA does not affect any flags

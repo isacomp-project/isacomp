@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 TEST AX,BX (0x85 with modrm 0xD8)
+// Logical AND - affects flags only, does not store result
+// Clears CF and OF, affects SF, ZF, PF
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state BX[15:0] of xregs[3][15:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var result[16:0];
+
+instr = imem[eip];
+assume instr == 0x85;
+eip = eip + 1;
+
+modrm = imem[eip];
+assume modrm == 0xD8;
+eip = eip + 1;
+
+// Perform AND operation
+result = AX & BX;
+
+// Update flags (result is NOT stored)
+flag_CF = 1'b0;  // TEST clears CF
+flag_OF = 1'b0;  // TEST clears OF
+flag_ZF = result == 0 ? 1'b1 : 1'b0;
+flag_SF = result[15];
+flag_PF = result[0];

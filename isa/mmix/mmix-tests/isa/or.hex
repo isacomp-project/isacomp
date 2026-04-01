@@ -1,0 +1,23 @@
+// MMIX OR instruction test
+// Test: OR $3,$1,$2 where $1=0xF0, $2=0x0F, expect $3=0xFF
+
+// Address 0x00: SETL $1, 0xF0    (E3 01 00 F0)
+E30100F0
+// Address 0x04: SETL $2, 0x0F    (E3 02 00 0F)
+E302000F
+// Address 0x08: OR $3,$1,$2      (C0 03 01 02)
+C0030102
+// Address 0x0C: SETL $4, 0xFF    (E3 04 00 FF) - expected result
+E30400FF
+// Address 0x10: SUB $5,$3,$4     (24 05 03 04)
+24050304
+// Address 0x14: BZ $5, +2        (42 05 00 02)
+42050002
+// Address 0x18: JMP +2           (F0 00 00 02)
+F0000002
+// Address 0x1C: JMP +1           (F0 00 00 01)
+F0000001
+// Address 0x20: pass
+F0000000
+// Address 0x24: fail
+F0000000

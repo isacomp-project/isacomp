@@ -1,0 +1,185 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 INTO (0xCE)
+// Opcode: 0xCE
+// Interrupt on overflow - if OF=1, same as INT 4, otherwise NOP
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state ESP[31:0] of xregs[4];
+
+// Segment registers
+isa_state CS[15:0];
+isa_state SS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+// Flags
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_DF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_IF[0:0];
+isa_state flag_TF[0:0];
+
+var eflags[31:0];
+var return_eip[31:0];
+var new_esp[31:0];
+var vector_addr[31:0];
+var new_eip[31:0];
+var new_cs[15:0];
+var do_interrupt[0:0];
+
+// Stack address variables
+var stack_addr0[31:0];
+var stack_addr1[31:0];
+var stack_addr2[31:0];
+var stack_addr3[31:0];
+var esp_after_eflags[31:0];
+var esp_after_cs[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is INTO instruction
+assume instr == 0xCE;
+
+// Move to next instruction (this will be return address if we interrupt)
+eip = eip + 1;
+
+// Determine if we should interrupt (OF=1)
+do_interrupt = flag_OF;
+
+// Save return address (after INTO)
+return_eip = eip;
+
+// Build EFLAGS register from individual flags
+// EFLAGS format: bit 11:OF, 10:DF, 9:IF, 8:TF, 7:SF, 6:ZF, 4:AF, 2:PF, 1:1, 0:CF
+eflags = {20'b0, flag_OF, flag_DF, flag_IF, flag_TF, flag_SF, flag_ZF, 1'b0, flag_AF, 1'b0, flag_PF, 1'b1, flag_CF};
+
+// Calculate stack addresses for pushing EFLAGS
+new_esp = ESP - 4;
+stack_addr0 = (SS << 4) + new_esp;
+stack_addr1 = stack_addr0 + 1;
+stack_addr2 = stack_addr0 + 2;
+stack_addr3 = stack_addr0 + 3;
+
+// Push EFLAGS if OF=1
+case (do_interrupt) {
+    1'b1: dmem[stack_addr0] = eflags[7:0];
+}
+case (do_interrupt) {
+    1'b1: dmem[stack_addr1] = eflags[15:8];
+}
+case (do_interrupt) {
+    1'b1: dmem[stack_addr2] = eflags[23:16];
+}
+case (do_interrupt) {
+    1'b1: dmem[stack_addr3] = eflags[31:24];
+}
+
+// Update ESP after EFLAGS push
+case (do_interrupt) {
+    1'b1: ESP = new_esp;
+}
+
+// Calculate stack addresses for pushing CS
+esp_after_eflags = new_esp - 4;
+var cs_addr0[31:0];
+var cs_addr1[31:0];
+var cs_addr2[31:0];
+var cs_addr3[31:0];
+cs_addr0 = (SS << 4) + esp_after_eflags;
+cs_addr1 = cs_addr0 + 1;
+cs_addr2 = cs_addr0 + 2;
+cs_addr3 = cs_addr0 + 3;
+
+// Push CS (4 bytes, zero-extended)
+case (do_interrupt) {
+    1'b1: dmem[cs_addr0] = CS[7:0];
+}
+case (do_interrupt) {
+    1'b1: dmem[cs_addr1] = CS[15:8];
+}
+case (do_interrupt) {
+    1'b1: dmem[cs_addr2] = 8'b0;
+}
+case (do_interrupt) {
+    1'b1: dmem[cs_addr3] = 8'b0;
+}
+case (do_interrupt) {
+    1'b1: ESP = esp_after_eflags;
+}
+
+// Calculate stack addresses for pushing return EIP
+esp_after_cs = esp_after_eflags - 4;
+var eip_addr0[31:0];
+var eip_addr1[31:0];
+var eip_addr2[31:0];
+var eip_addr3[31:0];
+eip_addr0 = (SS << 4) + esp_after_cs;
+eip_addr1 = eip_addr0 + 1;
+eip_addr2 = eip_addr0 + 2;
+eip_addr3 = eip_addr0 + 3;
+
+// Push return EIP (4 bytes)
+case (do_interrupt) {
+    1'b1: dmem[eip_addr0] = return_eip[7:0];
+}
+case (do_interrupt) {
+    1'b1: dmem[eip_addr1] = return_eip[15:8];
+}
+case (do_interrupt) {
+    1'b1: dmem[eip_addr2] = return_eip[23:16];
+}
+case (do_interrupt) {
+    1'b1: dmem[eip_addr3] = return_eip[31:24];
+}
+case (do_interrupt) {
+    1'b1: ESP = esp_after_cs;
+}
+
+// Read interrupt vector 4 from IDT (simplified real mode)
+// In real mode: vector_addr = 4 * 4 = 16
+vector_addr = 16;
+
+// Read new EIP (offset) from vector table (4 bytes, little-endian)
+var vec_addr1[31:0];
+var vec_addr2[31:0];
+var vec_addr3[31:0];
+var vec_addr4[31:0];
+var vec_addr5[31:0];
+vec_addr1 = vector_addr + 1;
+vec_addr2 = vector_addr + 2;
+vec_addr3 = vector_addr + 3;
+vec_addr4 = vector_addr + 4;
+vec_addr5 = vector_addr + 5;
+
+new_eip = {dmem[vec_addr3], dmem[vec_addr2], dmem[vec_addr1], dmem[vector_addr]};
+
+// Read new CS (segment) from vector table (2 bytes, little-endian)
+new_cs = {dmem[vec_addr5], dmem[vec_addr4]};
+
+// Jump to interrupt handler if OF=1
+case (do_interrupt) {
+    1'b1: eip = new_eip;
+}
+case (do_interrupt) {
+    1'b1: CS = new_cs;
+}
+
+// Clear IF and TF flags (disable interrupts and trap) if OF=1
+case (do_interrupt) {
+    1'b1: flag_IF = 1'b0;
+}
+case (do_interrupt) {
+    1'b1: flag_TF = 1'b0;
+}
+
+// If OF=0, instruction acts as NOP (eip already incremented, ESP unchanged)

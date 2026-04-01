@@ -1,0 +1,34 @@
+[submodule "frontends/sail/sail-riscv"]
+	path = frontends/sail/sail-riscv
+	url = https://github.com/riscv/sail-riscv.git
+[submodule "isa/8086/tests"]
+	path = isa/8086/tests
+	url = https://github.com/SingleStepTests/8086.git
+[submodule "riscv-tests"]
+	path = isa/riscv32/riscv-tests
+	url = https://github.com/Jbalkind/riscv-tests.git
+	branch = isacomp
+[submodule "isa/m68k/tests"]
+	path = isa/m68k/tests
+	url = https://github.com/SingleStepTests/m68000.git
+[submodule "isa/i486/tests"]
+	path = isa/i486/tests
+	url = https://github.com/SingleStepTests/80386.git
+[submodule "isa/6502/6502_65C02_functional_tests"]
+	path = isa/6502/6502_65C02_functional_tests
+	url = https://github.com/Klaus2m5/6502_65C02_functional_tests.git
+[submodule "isa/z80/singlestep-tests"]
+	path = isa/z80/singlestep-tests
+	url = https://github.com/SingleStepTests/z80.git
+[submodule "vendor/cvfpu"]
+	path = vendor/cvfpu
+	url = https://github.com/openhwgroup/cvfpu.git
+[submodule "vendor/common_cells"]
+	path = vendor/common_cells
+	url = https://github.com/pulp-platform/common_cells.git
+[submodule "vendor/fpu_div_sqrt_mvp"]
+	path = vendor/fpu_div_sqrt_mvp
+	url = https://github.com/pulp-platform/fpu_div_sqrt_mvp.git
+[submodule "opensbi"]
+	path = isa/riscv32/platform/opensbi
+	url = https://github.com/riscv-software-src/opensbi.git

@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var movw_store_rn_lo[2:0];
+var movw_store_rm_lo[2:0];
+var Rn[31:0];
+var Rm[31:0];
+
+// Register banking flags (unique to movw_store instruction)
+var movw_store_rb[0:0];
+var movw_store_rn_bk[0:0];
+var movw_store_rm_bk[0:0];
+
+// Address error checking variables
+var store_addr[31:0];
+var store_size[1:0];
+var movw_store_no_error[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include address error detection for stores
+aspect addr_error_store.isa gates pc, sr, vbr, rf, umem, exc_taken:2, exc_vector:2;
+
+instr = umem[pc];
+assume instr[15:12] == 0x2;
+assume instr[3:0] == 0x1;
+rn = instr[11:8];
+rm = instr[7:4];
+movw_store_rn_lo = rn[2:0];
+movw_store_rm_lo = rm[2:0];
+
+// Banking: R0-R7 use rf_bank when SR.RB=1
+movw_store_rb = sr[28];
+movw_store_rn_bk = (rn[3] == 1'b0) & movw_store_rb;
+movw_store_rm_bk = (rm[3] == 1'b0) & movw_store_rb;
+
+Rn = movw_store_rn_bk ? rf_bank[movw_store_rn_lo] : rf[rn];
+Rm = movw_store_rm_bk ? rf_bank[movw_store_rm_lo] : rf[rm];
+
+// Set up address error checking
+store_addr = Rn;
+store_size = 2'b10;  // Word access (16-bit)
+
+// Compute the no-error condition
+movw_store_no_error = (Rn[0] == 1'b0);
+
+// MOV.W Rm, @Rn: store low 16 bits of Rm to address in Rn
+// Only store if no address error
+umem[Rn] when (movw_store_no_error) = Rm[15:0];
+
+// Only advance PC if no address error (exception handles PC if error)
+pc when (movw_store_no_error) = pc + 2;

@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 MOV [SI], DS (0x8C /r)
+// Store DS segment register to memory at DS:[SI]
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state xregs[15:0][7:0];    // General purpose registers (xregs[6] is SI)
+
+var modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var offset[15:0];
+var offset_hi[15:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+
+instr = imem[ip];
+assume instr == 0x8C;
+ip = ip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[ip];
+ip = ip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Assume indirect mode (mod=00), DS (reg=011), [SI] (rm=100)
+assume mod_bits == 0b00;
+assume reg_bits == 0b011;  // DS
+assume rm_bits == 0b100;   // [SI]
+
+// Get offset from SI
+offset = xregs[6];
+offset_hi = offset + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: DS:offset
+physical_addr_lo = (DS << 4) + offset;
+physical_addr_hi = (DS << 4) + offset_hi;
+
+// Write DS to memory (little-endian)
+dmem[physical_addr_lo] = DS[7:0];
+dmem[physical_addr_hi] = DS[15:8];

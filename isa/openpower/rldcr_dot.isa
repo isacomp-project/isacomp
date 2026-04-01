@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER rldcr. - Rotate Left Doubleword then Clear Right (Record Form)
+// rldcr. rA, rS, rB, me
+// Primary opcode 30, MDS-form (XO bits 4:1 = 1001), Rc=1
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state cr[31:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var rb[4:0];
+var me[5:0];
+var rs_val[63:0];
+var rb_val[63:0];
+var sh[5:0];
+var rotated[63:0];
+var clear_bits[5:0];
+var result[63:0];
+var lt[0:0];
+var gt[0:0];
+var eq[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 30;
+assume instr[4:1] == 9;
+assume instr[0] == 1;
+
+rs = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+me = {instr[5], instr[10:6]};
+
+rs_val = rf[rs];
+rb_val = rf[rb];
+sh = rb_val[5:0];
+rotated = sh[5:0] == 0 ? rs_val : ((rs_val << sh) | (rs_val >> (64 - sh)));
+clear_bits = 63 - me;
+result = (rotated >> clear_bits) << clear_bits;
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+
+lt = result[63];
+gt = ~result[63] & (result != 0);
+eq = (result == 0);
+cr = {lt, gt, eq, 1'b0, cr[27:0]};
+
+pc = pc + 4;

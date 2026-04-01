@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CALL rel32 with 66 prefix (0x66 0xE8)
+// Near call with 32-bit relative displacement (66 prefix in real mode)
+// Pushes return address onto stack
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Stack pointer alias
+isa_state ESP[31:0] of xregs[4];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var off_b0[7:0];
+var off_b1[7:0];
+var off_b2[7:0];
+var off_b3[7:0];
+var offset[31:0];
+var return_addr[31:0];
+var target_addr[31:0];
+var new_esp[31:0];
+
+// Fetch 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0xE8;
+
+// Read 32-bit displacement (little-endian)
+off_b0 = imem[eip + 2];
+off_b1 = imem[eip + 3];
+off_b2 = imem[eip + 4];
+off_b3 = imem[eip + 5];
+
+offset = {off_b3, off_b2, off_b1, off_b0};
+
+// Save return address (address after the CALL instruction)
+return_addr = eip + 6;
+
+// Calculate target address (return address + offset)
+target_addr = return_addr + offset;
+
+// Push return address onto stack
+new_esp = ESP - 4;
+ESP = new_esp;
+dmem[new_esp] = return_addr[7:0];
+dmem[new_esp + 1] = return_addr[15:8];
+dmem[new_esp + 2] = return_addr[23:16];
+dmem[new_esp + 3] = return_addr[31:24];
+
+// Jump to target
+eip = target_addr;
+
+// CALL does not affect flags

@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX PUT - Put to Special Register
+// PUT rX,$Z: special register X = $Z
+// Opcode: 0xF6
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rA[63:0];
+isa_state rB[63:0];
+isa_state rC[63:0];
+isa_state rD[63:0];
+isa_state rE[63:0];
+isa_state rF[63:0];
+isa_state rG[63:0];
+isa_state rH[63:0];
+isa_state rI[63:0];
+isa_state rJ[63:0];
+isa_state rK[63:0];
+isa_state rL[63:0];
+isa_state rM[63:0];
+isa_state rN[63:0];
+isa_state rO[63:0];
+isa_state rP[63:0];
+isa_state rQ[63:0];
+isa_state rR[63:0];
+isa_state rS[63:0];
+isa_state rT[63:0];
+isa_state rU[63:0];
+isa_state rV[63:0];
+mem umem[14:0];
+
+var x[7:0];
+var z[7:0];
+var z_val[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xF6;
+assume instr[15:8] == 8'h0;  // Y field must be 0
+
+x = instr[23:16];
+z = instr[7:0];
+
+z_val = rf[z];
+
+// Update the appropriate special register
+// Only certain registers are writable
+rA = (x == 8'd7) ? z_val : rA;
+rG = (x == 8'd9) ? z_val : rG;
+rL = (x == 8'd10) ? z_val : rL;
+rM = (x == 8'd5) ? z_val : rM;
+
+pc = pc + 4;

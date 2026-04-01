@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REP STOSB (0xF3 0xAA)
+// Repeat STOSB: store AL, decrement ECX (simplified - execute once)
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state EDI[31:0] of xregs[7];
+isa_state ECX[31:0] of xregs[1];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+
+var new_edi[31:0];
+
+// Fetch REP prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+eip = eip + 1;
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xAA;
+eip = eip + 1;
+
+// Simplified: assume ECX > 0, execute once
+assume xregs[1] != 32'h00000000;
+
+// Store AL to [EDI]
+dmem[EDI] = AL;
+
+// Adjust EDI based on direction flag
+new_edi = flag_DF == 1'b0 ? EDI + 1 : EDI - 1;
+EDI = new_edi;
+
+// Decrement ECX
+ECX = ECX - 1;

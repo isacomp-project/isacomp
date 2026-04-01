@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 Read-Modify-Write Addressing Mode Orthogon
+//
+// Factored-out addressing mode logic for RMW instructions that operate
+// on memory (ASL, LSR, ROL, ROR, INC, DEC). These instructions use a
+// subset of addressing modes — no immediate (that is accumulator mode,
+// handled separately) and no Y-indexed modes.
+//
+// Selector encoding:
+//   0 -> Zero Page
+//   1 -> Absolute
+//   2 -> Zero Page,X
+//   3 -> Absolute,X
+//
+// provides:
+//   data[7:0]      — the fetched operand value from memory
+//   eff_addr[15:0] — the effective address (needed for writeback)
+//
+// writes:
+//   pc[15:0]       — advanced past operand bytes
+//
+// uses:
+//   mainmem, X     — architectural state read during address computation
+
+orthogon rmw_addr_mode {
+
+    selector sel[1:0];
+
+    uses {
+        isa_state mainmem[7:0][15:0];
+        isa_state X[7:0];
+    }
+
+    provides {
+        data[7:0];
+        eff_addr[15:0];
+    }
+
+    writes {
+        isa_state pc[15:0];
+    }
+
+    // --- sel == 0: Zero Page ---
+    // 1-byte address in zero page ($00xx).
+    variant zp : sel == 2'd0 {
+        var zp_addr[7:0];
+        zp_addr = mainmem[pc];
+        pc = pc + 1;
+        eff_addr = {8'h00, zp_addr};
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 1: Absolute ---
+    // 2-byte little-endian absolute address.
+    variant abs : sel == 2'd1 {
+        var lo[7:0];
+        var hi[7:0];
+        lo = mainmem[pc];
+        pc = pc + 1;
+        hi = mainmem[pc];
+        pc = pc + 1;
+        eff_addr = {hi, lo};
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 2: Zero Page, X ---
+    // Zero-page address + X register (wraps within zero page).
+    variant zp_x : sel == 2'd2 {
+        var zp_base[7:0];
+        zp_base = mainmem[pc];
+        pc = pc + 1;
+        eff_addr = {8'h00, zp_base + X};
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 3: Absolute, X ---
+    // 2-byte absolute address + X register.
+    variant abs_x : sel == 2'd3 {
+        var lo[7:0];
+        var hi[7:0];
+        lo = mainmem[pc];
+        pc = pc + 1;
+        hi = mainmem[pc];
+        pc = pc + 1;
+        eff_addr = {hi, lo} + X;
+        data = mainmem[eff_addr];
+    }
+}

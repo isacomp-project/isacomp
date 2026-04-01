@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Thumb ADD (immediate) - Add 8-bit immediate to register
+// Encoding: 001|10|Rd|imm8 (Format 3)
+// ADD Rd, #imm8
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+mem umem[13:0];
+
+var rd[2:0];
+var imm8[7:0];
+var Rd_val[31:0];
+var imm_val[31:0];
+var result[31:0];
+
+var new_n[0:0];
+var new_z[0:0];
+var new_c[0:0];
+var new_v[0:0];
+var new_cpsr[31:0];
+
+instr = umem[pc];
+
+assume instr[15:11] == 0b00110;
+
+rd = instr[10:8];
+imm8 = instr[7:0];
+
+Rd_val = rf[{1'b0, rd}];
+imm_val = {24'b0, imm8};
+
+result = Rd_val + imm_val;
+
+new_n = result[31];
+new_z = (result == 0);
+new_c = ((Rd_val[31] & imm_val[31]) | ((Rd_val[31] | imm_val[31]) & ~result[31]));
+new_v = ((Rd_val[31] == imm_val[31]) & (result[31] != Rd_val[31]));
+
+new_cpsr = {new_n, new_z, new_c, new_v, cpsr[27:0]};
+
+rf[{1'b0, rd}] = result;
+cpsr = new_cpsr;
+pc = pc + 2;

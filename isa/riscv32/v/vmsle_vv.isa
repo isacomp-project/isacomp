@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmsle.vv - Vector Mask Set if Less/Equal Signed
+// Encoding: vmsle.vv vd, vs2, vs1, vm
+// Operation: vd.mask[i] = (vs2[i] <= vs1[i]) signed
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v1[127:0];
+var v2[127:0];
+var mask[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b000;
+// funct6 = 011101 (vmsle)
+assume instr[31:26] == 0b011101;
+
+pc = pc + 4;
+
+vs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v1 = vrf[vs1];
+v2 = vrf[vs2];
+
+mask[0:0] = (v2[31:0] <=s v1[31:0]) ? 1 : 0;
+mask[1:1] = (v2[63:32] <=s v1[63:32]) ? 1 : 0;
+mask[2:2] = (v2[95:64] <=s v1[95:64]) ? 1 : 0;
+mask[3:3] = (v2[127:96] <=s v1[127:96]) ? 1 : 0;
+mask[127:4] = 0;
+
+vrf[vd] = mask;

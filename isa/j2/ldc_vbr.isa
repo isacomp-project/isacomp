@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// LDC Rm, VBR - Load Control Register (Vector Base Register)
+// Copies Rm to VBR (note: Rm is encoded in bits 11:8 per SH-2 convention)
+// This is a privileged instruction - causes illegal instruction exception in user mode
+//
+// Opcode: 0100mmmm00101110 (0x4m2E)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var rn[3:0];
+var ldc_vbr_Rn[31:0];
+var ldc_vbr_is_privileged[0:0];
+var ldc_vbr_rb[0:0];
+var ldc_vbr_rn_lo[2:0];
+var ldc_vbr_rn_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+// Must include exc_taken and exc_vector with priority for proper merging
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception aspect for privilege violation
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x2E;
+rn = instr[11:8];
+
+ldc_vbr_rn_lo = rn[2:0];
+ldc_vbr_rb = sr[28];
+ldc_vbr_rn_bk = (rn[3] == 1'b0) & ldc_vbr_rb;
+
+ldc_vbr_Rn = ldc_vbr_rn_bk ? rf_bank[ldc_vbr_rn_lo] : rf[rn];
+
+// Note: SH-2 does not have privilege mode checking for LDC VBR
+// (MD bit and privilege mode are SH-2A extensions)
+// On J2/SH-2, this instruction always succeeds
+// Interrupts are handled by interrupt.isa aspect (exc_taken controlled there)
+
+// Update VBR unconditionally
+vbr = ldc_vbr_Rn;
+
+// Advance PC
+pc = pc + 2;

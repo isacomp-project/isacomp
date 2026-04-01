@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 EOR - Exclusive OR, Absolute addressing (0x4D)
+// A = A XOR mainmem[{addr_hi, addr_lo}]
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state mainmem[7:0][15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+
+var data[7:0];
+var result[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x4D;
+pc = pc + 1;
+
+// Read 16-bit address (little-endian)
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+
+data = mainmem[{addr_hi, addr_lo}];
+
+// XOR with A
+result = A ^ data;
+
+// Store result
+A = result;
+
+// Update flags
+flag_N = result[7];
+flag_Z = result == 0 ? 1'b1 : 1'b0;

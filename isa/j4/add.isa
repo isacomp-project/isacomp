@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var add_rn_lo[2:0];
+var add_rm_lo[2:0];
+var Rn[31:0];
+var Rm[31:0];
+var res[31:0];
+
+// Register banking flags (unique to add instruction)
+var add_rb[0:0];
+var add_rn_bk[0:0];
+var add_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x3;
+assume instr[3:0] == 0xC;
+rn = instr[11:8];
+rm = instr[7:4];
+add_rn_lo = rn[2:0];
+add_rm_lo = rm[2:0];
+
+// Banking: R0-R7 use rf_bank when SR.RB=1
+add_rb = sr[29];  // RB bit (bit 29 in SR)
+add_rn_bk = (rn[3] == 1'b0) & add_rb;
+add_rm_bk = (rm[3] == 1'b0) & add_rb;
+
+Rn = add_rn_bk ? rf_bank[add_rn_lo] : rf[rn];
+Rm = add_rm_bk ? rf_bank[add_rm_lo] : rf[rm];
+
+res = Rn + Rm;
+
+rf[rn] when (add_rn_bk == 0) = res;
+rf_bank[add_rn_lo] when (add_rn_bk) = res;
+pc = pc + 2;

@@ -1,0 +1,66 @@
+name: SMT Verification
+
+on:
+  push:
+    branches: [ main, claude/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  verify-mips32:
+    name: Verify MIPS32 ISA
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Z3 Solver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y z3
+
+      - name: Verify Z3 Installation
+        run: z3 --version
+
+      - name: Run MIPS32 Comprehensive Verification
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          python3 verif/smt/mips32_generated/test_mips32_smt_comprehensive.py
+
+
+  verify-riscv32:
+    name: Verify RISC-V32 ISA
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Z3 Solver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y z3
+
+      - name: Run RISC-V32 Comprehensive Verification
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          python3 verif/smt/riscv32/test_riscv32_smt_comprehensive.py
+
+  verify-negative-tests:
+    name: Verify Bug Detection (Negative Tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install Z3 Solver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y z3
+
+      - name: Run Negative Tests
+        run: |
+          export PYTHONPATH="${PYTHONPATH}:${PWD}"
+          python3 verif/smt/mips32/test_bogus_instruction.py

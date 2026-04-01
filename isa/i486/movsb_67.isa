@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOVSB with 67 prefix (0x67 0xA4) - 32-bit addressing mode
+// Move byte from [ESI] to [EDI] with 32-bit addressing
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state DS[15:0];
+isa_state ES[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+
+var byte_val[7:0];
+var src_addr[31:0];
+var dst_addr[31:0];
+
+// Fetch prefix and instruction
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xA4;
+
+// Calculate source address: DS:ESI (full 32-bit ESI)
+src_addr = (DS << 4) + xregs[6];
+
+// Calculate destination address: ES:EDI (full 32-bit EDI)
+dst_addr = (ES << 4) + xregs[7];
+
+// Load byte from source
+byte_val = dmem[src_addr];
+
+// Store byte to destination
+dmem[dst_addr] = byte_val;
+
+// Adjust ESI and EDI based on direction flag (full 32-bit)
+case (flag_DF) {
+  1'b0: xregs[6] = xregs[6] + 32'h00000001;
+  1'b1: xregs[6] = xregs[6] - 32'h00000001;
+}
+
+case (flag_DF) {
+  1'b0: xregs[7] = xregs[7] + 32'h00000001;
+  1'b1: xregs[7] = xregs[7] - 32'h00000001;
+}
+
+// Update EIP (2 bytes: prefix + opcode)
+eip = eip + 2;

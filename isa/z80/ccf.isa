@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 CCF (0x3F) - Complement Carry Flag
+// C = ~C
+// Affects: H=old_C, N=0, C
+
+isa_state pc[15:0];
+var instr[7:0];
+mem mainmem[15:0];
+isa_state flag_H[0:0];
+isa_state flag_N[0:0];
+isa_state flag_C[0:0];
+
+var old_c[0:0];
+
+instr = mainmem[pc];
+assume instr == 0x3F;
+pc = pc + 1;
+
+old_c = flag_C;
+flag_C = flag_C ^ 1'b1;
+flag_H = old_c;
+flag_N = 1'b0;

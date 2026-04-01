@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V LWU (Load Word Unsigned) instruction - RV64I only
+// Loads a 32-bit word and zero-extends to 64 bits
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var r1[63:0];
+var imm[11:0];
+var sign_ext_imm[63:0];
+var addr[63:0];
+var lwu_word_data[31:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0000011;
+assume instr[14:12] == 0x6;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+
+r1 = rf[rs1];
+
+imm = instr[31:20];
+sign_ext_imm = {{52{imm[11]}}, imm};
+
+addr = r1 + sign_ext_imm;
+lwu_word_data = umem[addr];
+
+// Zero-extend word to 64 bits
+rf[rd] when (rd != 0) = {32'b0, lwu_word_data};
+pc = pc + 4;

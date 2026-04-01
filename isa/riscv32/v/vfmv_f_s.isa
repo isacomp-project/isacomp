@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vfmv.f.s - Move FP Vector Element to Scalar FP Register
+// Encoding: vfmv.f.s rd, vs2
+// Operation: f[rd] = vs2[0]
+
+isa_state pc[31:0];
+isa_state frf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs2[4:0];
+var rd[4:0];
+var v2[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b001;
+// funct6 = 010000 (vfmv.f.s)
+assume instr[31:26] == 0b010000;
+// vs1 = 00000
+assume instr[19:15] == 0b00000;
+
+pc = pc + 4;
+
+vs2 = instr[24:20];
+rd = instr[11:7];
+
+v2 = vrf[vs2];
+
+frf[rd] = v2[31:0];

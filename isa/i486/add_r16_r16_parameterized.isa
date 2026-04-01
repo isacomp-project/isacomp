@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ADD r16,r16 - Parameterized version
+// Opcode: 0x01 + ModR/M byte
+// Handles all word register combinations via ModR/M decoding
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// Word register file (8 registers: AX, CX, DX, BX, SP, BP, SI, DI)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+// Flags
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var reg_idx[2:0];        // Source register index [5:3]
+var rm_idx[2:0];         // Destination register index [2:0]
+var mod_bits[1:0];       // Mod field [7:6]
+
+var src_val[15:0];
+var dst_val[15:0];
+var result[16:0];
+
+// Fetch instruction and ModR/M byte
+instr = imem[eip];
+assume instr == 0x01;  // ADD word opcode
+eip = eip + 1;
+
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M byte
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_idx = modrm[2:0];
+
+// For register-to-register mode
+assume mod_bits == 0b11;
+
+// Read source and destination - directly indexed!
+src_val = xregs[reg_idx];
+dst_val = xregs[rm_idx];
+
+// Perform addition
+result = dst_val + src_val;
+
+// Write back to destination
+xregs[rm_idx] = result[15:0];
+
+// Update flags
+flag_CF = result[16];
+flag_ZF = result[15:0] == 0 ? 1'b1 : 1'b0;
+flag_SF = result[15];
+flag_OF = dst_val[15] & src_val[15] & ~result[15] | ~dst_val[15] & ~src_val[15] & result[15];
+flag_PF = result[0];
+flag_AF = dst_val[3] & src_val[3] | src_val[3] & ~result[3] | ~result[3] & dst_val[3];

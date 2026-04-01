@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Thumb B (conditional branch) - Branch with condition
+// Encoding: 1101|cond|offset8 (Format 16)
+// B{cond} label
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+mem umem[13:0];
+
+var cond[3:0];
+var offset[7:0];
+var sign_ext_offset[31:0];
+var target[31:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+
+instr = umem[pc];
+
+assume instr[15:12] == 0b1101;
+assume instr[11:8] != 0b1111;  // Not SWI
+assume instr[11:8] != 0b1110;  // Not undefined
+
+cond = instr[11:8];
+offset = instr[7:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |                             // AL (shouldn't happen in this format)
+            ((cond == 0b0000) & z_flag) |                  // EQ
+            ((cond == 0b0001) & ~z_flag) |                 // NE
+            ((cond == 0b0010) & c_flag) |                  // CS/HS
+            ((cond == 0b0011) & ~c_flag) |                 // CC/LO
+            ((cond == 0b0100) & n_flag) |                  // MI
+            ((cond == 0b0101) & ~n_flag) |                 // PL
+            ((cond == 0b0110) & v_flag) |                  // VS
+            ((cond == 0b0111) & ~v_flag) |                 // VC
+            ((cond == 0b1000) & c_flag & ~z_flag) |        // HI
+            ((cond == 0b1001) & (~c_flag | z_flag)) |      // LS
+            ((cond == 0b1010) & (n_flag == v_flag)) |      // GE
+            ((cond == 0b1011) & (n_flag != v_flag)) |      // LT
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) | // GT
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag))); // LE
+
+// Sign-extend offset and shift left by 1
+sign_ext_offset = {{23{offset[7]}}, offset, 1'b0};
+
+// Target = PC + 4 + sign_ext_offset (Thumb: PC + 4 due to prefetch)
+target = pc + 4 + sign_ext_offset;
+
+pc = cond_pass ? target : (pc + 2);

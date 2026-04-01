@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 DEC r32 (0x48-0x4F) - Parameterized
+// Opcodes: 0x48 (EAX), 0x49 (ECX), 0x4A (EDX), 0x4B (EBX),
+//          0x4C (ESP), 0x4D (EBP), 0x4E (ESI), 0x4F (EDI)
+// Decrement register by 1
+// Affects: OF, SF, ZF, AF, PF (NOT CF)
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var reg_idx[2:0];
+var old_val[31:0];
+var result[32:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is a DEC r32 instruction (0x48-0x4F)
+assume instr[7:3] == 0b01001;  // Upper 5 bits must be 01001
+
+eip = eip + 1;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read old value
+old_val = xregs[reg_idx];
+
+// Decrement by 1
+result = old_val - 1;
+
+// Write back
+xregs[reg_idx] = result[31:0];
+
+// Update flags (CF is NOT affected by DEC)
+flag_ZF = result[31:0] == 0 ? 1'b1 : 1'b0;
+flag_SF = result[31];
+flag_OF = (old_val[31] == 1'b1) & (result[31] == 1'b0) & (old_val == 32'h80000000);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_AF = (old_val[3:0] == 4'h0);  // AF set if borrow from bit 4

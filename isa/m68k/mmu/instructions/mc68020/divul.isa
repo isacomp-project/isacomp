@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 DIVU.L - Unsigned Long Divide
+// Opcode: 0100 1100 01 mmm rrr (4C40-4C7F) followed by extension word
+// Extension: 0 DDD 0 s 00 0000 0 QQQ
+//   DDD = Dr (remainder register, or high dividend for 64-bit)
+//   s = size (0 = 32/32, 1 = 64/32)
+//   QQQ = Dq (quotient register, or low dividend for 64-bit)
+// 32-bit: Dq / <ea> -> Dq (quotient), Dr (remainder)
+// 64-bit: Dr:Dq / <ea> -> Dq (quotient), Dr (remainder)
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+#ifdef MMU
+// MMU state for ATC instruction fetch translation
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state cam atc_va[19:0]@[4:0][];
+isa_state atc_fc[2:0][4:0];
+isa_state atc_v[0:0][4:0];
+isa_state atc_pa[19:0][4:0];
+isa_state atc_wp[0:0][4:0];
+isa_state atc_m[0:0][4:0];
+isa_state atc_u[0:0][4:0];
+isa_state atc_s[0:0][4:0];
+isa_state atc_next[4:0];
+#endif
+mem dmem[23:0];
+
+// Status Register
+isa_state sr[15:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_mode[2:0];
+var ea_reg[2:0];
+var dq_reg[2:0];
+var dr_reg[2:0];
+var size_64[0:0];
+
+var divisor[31:0];
+var dividend_lo[31:0];
+var dividend_hi[31:0];
+
+var quotient[31:0];
+var remainder[31:0];
+var overflow[0:0];
+var divide_by_zero[0:0];
+
+// Fetch instruction
+#ifdef MMU
+aspect ../mmu/atc_translate_instr.isa gates pc, atc_va, atc_fc, atc_v, atc_pa, atc_wp, atc_m, atc_u, atc_s, atc_next, dmem;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#endif
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+instr = imem[pc_pa];
+assume instr[15:6] == 10'b0100110001;  // DIVU.L opcode
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode EA
+ea_mode = instr[5:3];
+ea_reg = instr[2:0];
+
+// Fetch extension word
+extw = imem[pc + pc_pa_delta];
+assume extw[15] == 1'b0;        // Must be 0
+assume extw[11] == 1'b0;        // Unsigned divide
+assume extw[9:4] == 6'b000000;  // Reserved bits
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode extension
+dr_reg = extw[14:12];
+size_64 = extw[10];
+dq_reg = extw[2:0];
+
+// Get divisor from EA (this variant: Dn)
+assume instr[5:3] == 3'b000;
+divisor = dregs[ea_reg];
+
+// Get dividend
+dividend_lo = dregs[dq_reg];
+dividend_hi = size_64 ? dregs[dr_reg] : 32'b0;
+
+// Check for divide by zero (would cause trap vector 5)
+divide_by_zero = (divisor == 0);
+
+// Check for overflow before division
+// Overflow if dividend_hi >= divisor (quotient won't fit in 32 bits)
+overflow = (dividend_hi >= divisor);
+
+// Perform unsigned 64/32 division
+// For 32-bit case (size_64=0), dividend_hi is zero
+quotient = dividend_lo / divisor;
+remainder = dividend_lo - (quotient * divisor);
+
+// Store results (only if no overflow and no divide by zero)
+dregs[dq_reg] when (~overflow & ~divide_by_zero & ~m68k_exc_taken) = quotient;
+dregs[dr_reg] when (~overflow & ~divide_by_zero & ~m68k_exc_taken) = remainder;
+
+// Update CCR
+flag_N when (~m68k_exc_taken) = quotient[31];
+flag_Z when (~m68k_exc_taken) = (quotient == 0);
+flag_V when (~m68k_exc_taken) = overflow;
+flag_C when (~m68k_exc_taken) = 1'b0;
+// X not affected

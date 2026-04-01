@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: CRET (context return from kernel)
+// One-parcel encoding: opcode 0x0B, subcode 0x5, 2 bytes
+// Restore SP, MSP, PC, and PSW from interrupt stack; refill stack cache
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state isp[31:0];
+isa_state msp[31:0];
+isa_state psw[31:0];
+isa_state shad[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var new_sp[31:0];
+var new_msp[31:0];
+var new_pc[31:0];
+var new_psw[31:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+assume instr[14:10] == 0x0B;
+assume instr[9:7] == 0b101;
+
+// Pop event block from interrupt stack
+new_sp = umem[isp];           // R0: new SP
+new_msp = umem[isp + 4];      // R4: new MSP
+new_pc = umem[isp + 8];       // R8: return PC
+new_psw = umem[isp + 12];     // R12: saved PSW
+
+// Restore state
+sp = new_sp;
+msp = new_msp;
+isp = isp + 16;
+
+// SHAD tracks CSP
+shad = (new_psw[9] == 0) ? isp : new_sp;
+
+psw = new_psw;
+pc = new_pc;

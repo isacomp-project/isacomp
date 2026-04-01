@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32r2 INS - Insert Bit Field
+// rt = (rt & ~(mask << pos)) | ((rs & mask) << pos)
+// Encoding: 011111 rs rt msb lsb 000100
+//           SPECIAL3        INS
+// msb = pos + size - 1, lsb = pos
+// size = msb - lsb + 1, pos = lsb
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rs[4:0];
+var rt[4:0];
+var msb[4:0];
+var lsb[4:0];
+var rs_val[31:0];
+var rt_val[31:0];
+var size[5:0];
+var pos[4:0];
+var mask[31:0];
+var shifted_mask[31:0];
+var insert_val[31:0];
+var result[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// INS encoding
+assume instr[31:26] == 6'b011111;  // SPECIAL3 opcode
+assume instr[5:0] == 6'b000100;    // INS function
+
+rs = instr[25:21];
+rt = instr[20:16];
+msb = instr[15:11];
+lsb = instr[10:6];
+
+rs_val = rf[rs];
+rt_val = rf[rt];
+size = {1'b0, msb} - {1'b0, lsb} + 1;
+pos = lsb;
+
+// Create mask of 'size' ones
+// Use: mask = 0xFFFFFFFF >> (32 - size)
+var inv_size[5:0];
+var s0[0:0]; var s1[0:0]; var s2[0:0]; var s3[0:0]; var s4[0:0]; var s5[0:0];
+var m0[31:0]; var m1[31:0]; var m2[31:0]; var m3[31:0]; var m4[31:0];
+
+// inv_size = 32 - size
+inv_size = 32 - size;
+
+// Extract bits of inv_size
+s0 = (inv_size & 6'b000001) != 0;
+s1 = (inv_size & 6'b000010) != 0;
+s2 = (inv_size & 6'b000100) != 0;
+s3 = (inv_size & 6'b001000) != 0;
+s4 = (inv_size & 6'b010000) != 0;
+s5 = (inv_size & 6'b100000) != 0;
+
+// Cascade right shifts: 0xFFFFFFFF >> inv_size
+m0 = s0 ? 32'h7FFFFFFF : 32'hFFFFFFFF;
+m1 = s1 ? (m0 >> 2) : m0;
+m2 = s2 ? (m1 >> 4) : m1;
+m3 = s3 ? (m2 >> 8) : m2;
+m4 = s4 ? (m3 >> 16) : m3;
+mask = s5 ? 32'h00000000 : m4;
+
+// Shift mask to position
+shifted_mask = mask << pos;
+
+// Extract bits from rs, shift to position
+insert_val = (rs_val & mask) << pos;
+
+// Clear field in rt, then insert
+result = (rt_val & ~shifted_mask) | insert_val;
+
+rf[rt] = result;
+
+pc = pc + 4;

@@ -1,0 +1,170 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 Group 1 Addressing Mode Orthogon
+//
+// Shared addressing mode logic for the 6502 "group 1" ALU instructions:
+//   ADC, SBC, AND, ORA, EOR, CMP, LDA, STA
+//
+// These eight instructions share the same nine addressing modes.  This
+// orthogon factors out the operand-fetch / address-computation logic so
+// that each instruction file needs only a single `use addr_mode(sel);`
+// instead of duplicating the addressing code nine times.
+//
+// Selector values are assigned sequentially (not tied to the hardware
+// bbb encoding) so that the mapping from opcode bits to selector value
+// is done at the use site.
+//
+// provides:
+//   data[7:0]      -- the fetched operand value
+//   eff_addr[15:0] -- the effective address (used by stores and RMW)
+//
+// writes:
+//   pc[15:0]       -- advanced past operand bytes
+//
+// uses:
+//   mainmem[7:0][15:0] -- main memory (byte-addressable, 64K)
+//   X[7:0]             -- X index register
+//   Y[7:0]             -- Y index register
+
+orthogon addr_mode {
+
+    selector sel[3:0];
+
+    uses {
+        isa_state mainmem[7:0][15:0];
+        isa_state X[7:0];
+        isa_state Y[7:0];
+    }
+
+    provides {
+        data[7:0];
+        eff_addr[15:0];
+    }
+
+    writes {
+        isa_state pc[15:0];
+    }
+
+    // --- sel == 0: Immediate ---
+    // Operand is the byte at PC; effective address is unused (set to 0).
+    variant imm : sel == 4'd0 {
+        var imm_val[7:0];
+        imm_val = mainmem[pc];
+        pc = pc + 1;
+        data = imm_val;
+        eff_addr = 16'h0000;
+    }
+
+    // --- sel == 1: Zero Page ---
+    // 1-byte zero-page address ($00xx).
+    variant zp : sel == 4'd1 {
+        var zp_addr[7:0];
+        zp_addr = mainmem[pc];
+        pc = pc + 1;
+        eff_addr = {8'h00, zp_addr};
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 2: Absolute ---
+    // 2-byte little-endian absolute address.
+    variant abs : sel == 4'd2 {
+        var lo[7:0];
+        var hi[7:0];
+        lo = mainmem[pc];
+        pc = pc + 1;
+        hi = mainmem[pc];
+        pc = pc + 1;
+        eff_addr = {hi, lo};
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 3: Zero Page, X ---
+    // Zero-page base + X (wraps within zero page).
+    variant zp_x : sel == 4'd3 {
+        var zp_base[7:0];
+        var zp_x_addr[7:0];
+        zp_base = mainmem[pc];
+        pc = pc + 1;
+        zp_x_addr = zp_base + X;
+        eff_addr = {8'h00, zp_x_addr};
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 4: Absolute, X ---
+    // 2-byte absolute address + X register (full 16-bit addition).
+    variant abs_x : sel == 4'd4 {
+        var lo[7:0];
+        var hi[7:0];
+        lo = mainmem[pc];
+        pc = pc + 1;
+        hi = mainmem[pc];
+        pc = pc + 1;
+        eff_addr = {hi, lo} + X;
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 5: Absolute, Y ---
+    // 2-byte absolute address + Y register (full 16-bit addition).
+    variant abs_y : sel == 4'd5 {
+        var lo[7:0];
+        var hi[7:0];
+        lo = mainmem[pc];
+        pc = pc + 1;
+        hi = mainmem[pc];
+        pc = pc + 1;
+        eff_addr = {hi, lo} + Y;
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 6: (Indirect, X) ---
+    // Zero-page pointer indexed by X, then 16-bit indirect fetch.
+    // High-byte pointer wraps within zero page.
+    variant ind_x : sel == 4'd6 {
+        var zp_base[7:0];
+        var zp_ptr[7:0];
+        var zp_ptr_next[7:0];
+        var tgt_lo[7:0];
+        var tgt_hi[7:0];
+        zp_base = mainmem[pc];
+        pc = pc + 1;
+        zp_ptr = zp_base + X;
+        zp_ptr_next = zp_ptr + 1;
+        tgt_lo = mainmem[zp_ptr];
+        tgt_hi = mainmem[zp_ptr_next];
+        eff_addr = {tgt_hi, tgt_lo};
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 7: (Indirect), Y ---
+    // Zero-page pointer, 16-bit indirect fetch, then + Y.
+    // High-byte pointer wraps within zero page.
+    variant ind_y : sel == 4'd7 {
+        var zp_addr[7:0];
+        var zp_addr_next[7:0];
+        var base_lo[7:0];
+        var base_hi[7:0];
+        zp_addr = mainmem[pc];
+        pc = pc + 1;
+        zp_addr_next = zp_addr + 1;
+        base_lo = mainmem[zp_addr];
+        base_hi = mainmem[zp_addr_next];
+        eff_addr = {base_hi, base_lo} + Y;
+        data = mainmem[eff_addr];
+    }
+
+    // --- sel == 8: (Zero Page) [65C02 only] ---
+    // Zero-page indirect with no index register.
+    // High-byte pointer wraps within zero page.
+    variant zp_ind : sel == 4'd8 {
+        var zp_addr[7:0];
+        var zp_addr_next[7:0];
+        var tgt_lo[7:0];
+        var tgt_hi[7:0];
+        zp_addr = mainmem[pc];
+        pc = pc + 1;
+        zp_addr_next = zp_addr + 1;
+        tgt_lo = mainmem[zp_addr];
+        tgt_hi = mainmem[zp_addr_next];
+        eff_addr = {tgt_hi, tgt_lo};
+        data = mainmem[eff_addr];
+    }
+}

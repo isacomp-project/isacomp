@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CMPSW (0xA7) - WITH PROPER SEGMENTATION
+// Compare word at DS:[SI] with ES:[DI]
+// Uses DS segment for source, ES segment for destination
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment (source)
+isa_state ES[15:0];            // Extra segment (destination)
+isa_state xregs[31:0][2:0];
+isa_state SI[15:0] of xregs[6][15:0];
+isa_state DI[15:0] of xregs[7][15:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_PF[0:0];
+
+var si_offset_lo[15:0];
+var si_offset_hi[15:0];
+var di_offset_lo[15:0];
+var di_offset_hi[15:0];
+var physical_addr_src_lo[31:0];
+var physical_addr_src_hi[31:0];
+var physical_addr_dst_lo[31:0];
+var physical_addr_dst_hi[31:0];
+var word1_low[7:0];
+var word1_high[7:0];
+var word2_low[7:0];
+var word2_high[7:0];
+var word1[15:0];
+var word2[15:0];
+var result[16:0];
+
+instr = imem[eip];
+assume instr == 0xA7;
+
+// Calculate source offsets with wraparound
+si_offset_lo = SI;
+si_offset_hi = SI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate destination offsets with wraparound
+di_offset_lo = DI;
+di_offset_hi = DI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using both segments
+physical_addr_src_lo = (DS << 4) + si_offset_lo;  // DS:SI
+physical_addr_src_hi = (DS << 4) + si_offset_hi;  // DS:(SI+1)
+physical_addr_dst_lo = (ES << 4) + di_offset_lo;  // ES:DI
+physical_addr_dst_hi = (ES << 4) + di_offset_hi;  // ES:(DI+1)
+
+// Compare word at DS:[SI] with ES:[DI] (little-endian)
+word1_low = dmem[physical_addr_src_lo];
+word1_high = dmem[physical_addr_src_hi];
+word2_low = dmem[physical_addr_dst_lo];
+word2_high = dmem[physical_addr_dst_hi];
+word1 = {word1_high, word1_low};
+word2 = {word2_high, word2_low};
+result = word1 - word2;
+
+// Set flags based on result
+flag_CF = word1 < word2 ? 1'b1 : 1'b0;
+flag_ZF = result[15:0] == 16'h0000 ? 1'b1 : 1'b0;
+flag_SF = result[15];
+flag_PF = result[0];
+flag_OF = ((word1[15] != word2[15]) & (result[15] != word1[15])) ? 1'b1 : 1'b0;
+
+// Increment or decrement SI and DI by 2 based on direction flag
+SI = flag_DF == 1'b0 ? (SI + 16'h0002) : (SI - 16'h0002);
+DI = flag_DF == 1'b0 ? (DI + 16'h0002) : (DI - 16'h0002);
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

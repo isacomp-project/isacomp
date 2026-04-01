@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 EOR.W Dn,Dm - Exclusive OR word, data register to data register
+// Opcode: 1011 SSS1 01000 DDD where SSS=src reg, DDD=dest reg
+// Note: For EOR, the source is in bits 11:9 and destination is the EA
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+// Word sub-registers using 'of' keyword
+isa_state dregs_w[15:0][2:0] of dregs[0b***][15:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_val[15:0];
+var dst_val[15:0];
+var result[15:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b1011;  // EOR opcode
+assume instr[8:6] == 0b101;     // Opmode: word
+assume instr[5:3] == 0b000;     // EA mode: Data Register Direct
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+src_reg = instr[11:9];
+dst_reg = instr[2:0];
+
+// Execute using word sub-registers
+src_val = dregs_w[src_reg];
+dst_val = dregs_w[dst_reg];
+result = dst_val ^ src_val;
+
+// Write back low word only (preserves upper word via 'of' mapping)
+dregs_w[dst_reg] when (~m68k_exc_taken) = result;
+
+// Update CCR (X not affected)
+flag_N when (~m68k_exc_taken) = result[15];
+flag_Z when (~m68k_exc_taken) = result == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

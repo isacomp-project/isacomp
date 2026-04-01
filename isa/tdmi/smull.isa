@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TDMI SMULL - Signed Multiply Long
+// Encoding: cond|0000|1|S|10|RdHi|RdLo|Rs|1001|Rm
+// SMULL{S}{cond} RdLo, RdHi, Rm, Rs  (RdHi:RdLo = Rm * Rs signed)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+
+// Banked registers for FIQ mode (R8-R14)
+isa_state rf_fiq[31:0][2:0];       // R8_fiq(0) - R14_fiq(6)
+
+// Banked SP/LR for other privileged modes
+isa_state rf_irq_sp[31:0];
+isa_state rf_irq_lr[31:0];
+isa_state rf_svc_sp[31:0];
+isa_state rf_svc_lr[31:0];
+isa_state rf_abt_sp[31:0];
+isa_state rf_abt_lr[31:0];
+isa_state rf_und_sp[31:0];
+isa_state rf_und_lr[31:0];
+
+// Saved Program Status Registers
+isa_state spsr_fiq[31:0];
+isa_state spsr_irq[31:0];
+isa_state spsr_svc[31:0];
+isa_state spsr_abt[31:0];
+isa_state spsr_und[31:0];
+mem umem[21:0];
+
+var cond[3:0];
+var s_bit[0:0];
+var rdhi[3:0];
+var rdlo[3:0];
+var rs[3:0];
+var rm[3:0];
+var Rm_val[31:0];
+var Rs_val[31:0];
+var Rm_ext[63:0];
+var Rs_ext[63:0];
+var result[63:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+
+// Mode detection
+var mode[4:0];
+var is_fiq[0:0];
+var is_irq[0:0];
+var is_svc[0:0];
+var is_abt[0:0];
+var is_und[0:0];
+
+var new_n[0:0];
+var new_z[0:0];
+var new_cpsr[31:0];
+
+instr = umem[pc];
+
+assume instr[27:23] == 0b00001;
+assume instr[22:21] == 0b10;    // SMULL
+assume instr[7:4] == 0b1001;
+
+cond = instr[31:28];
+s_bit = instr[20];
+rdhi = instr[19:16];
+rdlo = instr[15:12];
+rs = instr[11:8];
+rm = instr[3:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |
+            ((cond == 0b0000) & z_flag) |
+            ((cond == 0b0001) & ~z_flag) |
+            ((cond == 0b0010) & c_flag) |
+            ((cond == 0b0011) & ~c_flag) |
+            ((cond == 0b0100) & n_flag) |
+            ((cond == 0b0101) & ~n_flag) |
+            ((cond == 0b0110) & v_flag) |
+            ((cond == 0b0111) & ~v_flag) |
+            ((cond == 0b1000) & c_flag & ~z_flag) |
+            ((cond == 0b1001) & (~c_flag | z_flag)) |
+            ((cond == 0b1010) & (n_flag == v_flag)) |
+            ((cond == 0b1011) & (n_flag != v_flag)) |
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) |
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag)));
+
+// Detect current processor mode
+mode = cpsr[4:0];
+is_fiq = (mode == 5'b10001);
+is_irq = (mode == 5'b10010);
+is_svc = (mode == 5'b10011);
+is_abt = (mode == 5'b10111);
+is_und = (mode == 5'b11011);
+
+Rm_val = rf[rm];
+Rs_val = rf[rs];
+
+// Sign extend to 64 bits
+Rm_ext = {{32{Rm_val[31]}}, Rm_val};
+Rs_ext = {{32{Rs_val[31]}}, Rs_val};
+
+// Signed 32x32 -> 64 bit multiply
+result = Rm_ext * Rs_ext;
+
+new_n = result[63];
+new_z = (result == 0);
+
+new_cpsr = {new_n, new_z, c_flag, v_flag, cpsr[27:0]};
+
+rf[rdlo] when (cond_pass & (rdlo != 0b1111)) = result[31:0];
+rf[rdhi] when (cond_pass & (rdhi != 0b1111)) = result[63:32];
+
+// For SMULL, when S=1 the CPSR condition flags are updated from the result.
+// Writes involving R15 are architecturally UNPREDICTABLE and are not modeled here.
+cpsr when (cond_pass & s_bit) = new_cpsr;
+pc = pc + 4;

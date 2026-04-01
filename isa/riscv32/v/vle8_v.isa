@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vle8.v - Vector Load 8-bit Elements
+// Encoding: vle8.v vd, (rs1), vm
+// Operation: vd[i] = mem[rs1 + i]
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+mem dmem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vd[4:0];
+var vm[0:0];
+var addr[31:0];
+var data[127:0];
+
+instr = umem[pc];
+// Opcode: 0000111 (LOAD-FP, vector load)
+assume instr[6:0] == 0b0000111;
+// width = 000 (8-bit)
+assume instr[14:12] == 0b000;
+// mop = 00 (unit-stride)
+assume instr[27:26] == 0b00;
+// nf = 000 (single field)
+assume instr[31:29] == 0b000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vd = instr[11:7];
+vm = instr[25:25];
+
+addr = rf[rs1];
+
+// Load 16 bytes (128 bits) for 8-bit elements
+data[7:0] = dmem[addr];
+data[15:8] = dmem[addr + 1];
+data[23:16] = dmem[addr + 2];
+data[31:24] = dmem[addr + 3];
+data[39:32] = dmem[addr + 4];
+data[47:40] = dmem[addr + 5];
+data[55:48] = dmem[addr + 6];
+data[63:56] = dmem[addr + 7];
+data[71:64] = dmem[addr + 8];
+data[79:72] = dmem[addr + 9];
+data[87:80] = dmem[addr + 10];
+data[95:88] = dmem[addr + 11];
+data[103:96] = dmem[addr + 12];
+data[111:104] = dmem[addr + 13];
+data[119:112] = dmem[addr + 14];
+data[127:120] = dmem[addr + 15];
+
+vrf[vd] = data;

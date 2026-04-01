@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER ftsqrt - Floating Test for Software Square Root (X-Form)
+// ftsqrt BF,FRB
+// Primary opcode 63, XO=160
+// Tests if sqrt can be performed without special handling
+// Sets CR[BF] based on operand analysis
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+isa_state cr[31:0];
+mem umem[14:0];
+
+var bf[2:0];
+var frb[4:0];
+var fb[63:0];
+var fb_sign[0:0];
+var fb_exp[10:0];
+var fb_mant[51:0];
+var fb_is_inf[0:0];
+var fb_is_zero[0:0];
+var fb_is_nan[0:0];
+var fb_is_denorm[0:0];
+var fb_is_negative[0:0];
+var fe[0:0];
+var fg[0:0];
+var fl[0:0];
+var fu[0:0];
+var cr_field[3:0];
+var cr_shift[4:0];
+var cr_mask[31:0];
+var new_cr[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 63;     // Primary opcode 63
+assume instr[10:1] == 160;     // XO = 160 (ftsqrt)
+
+pc = pc + 4;
+
+bf = instr[25:23];
+frb = instr[15:11];
+
+fb = frf[frb];
+
+// Extract sign, exponent, and mantissa for double precision
+fb_sign = fb[63];
+fb_exp = fb[62:52];
+fb_mant = fb[51:0];
+
+// Check for special values
+fb_is_inf = (fb_exp == 11'h7FF) && (fb_mant == 0);
+fb_is_zero = (fb_exp == 0) && (fb_mant == 0);
+fb_is_nan = (fb_exp == 11'h7FF) && (fb_mant != 0);
+fb_is_denorm = (fb_exp == 0) && (fb_mant != 0);
+fb_is_negative = fb_sign && !fb_is_zero;  // -0 is ok for sqrt
+
+// FE (estimated) - set if operand is denormal (slow path)
+fe = fb_is_denorm;
+
+// FG - set if denormal
+fg = fb_is_denorm;
+
+// FL - same as FE
+fl = fe;
+
+// FU (unordered) - set if NaN, negative, or infinity
+fu = fb_is_nan || fb_is_negative || fb_is_inf;
+
+// Build CR field
+cr_field = {fe, fg, fl, fu};
+
+// Update CR
+cr_shift = (7 - bf) << 2;
+cr_mask = ~(32'hF << cr_shift);
+new_cr = (cr & cr_mask) | ({28'b0, cr_field} << cr_shift);
+cr = new_cr;

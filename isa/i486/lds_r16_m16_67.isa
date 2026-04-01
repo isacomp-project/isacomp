@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 67-prefix LDS r16, m16:16 (0x67 0xC5)
+// Load DS = [mem+2], reg = [mem]
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var addr_reg_idx[2:0];
+var base_val[31:0];
+var phys_addr[19:0];
+var offset_lo[7:0];
+var offset_hi[7:0];
+var seg_lo[7:0];
+var seg_hi[7:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xC5;
+
+modrm = imem[eip + 6];
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Memory addressing only (mod != 11)
+assume mod_bits == 0b00;
+
+// Get address register
+// 32-bit addressing mode: rm_bits directly selects base register
+
+base_val = xregs[rm_bits][15:0];
+phys_addr = (DS << 4) + base_val;
+
+// Read offset (2 bytes)
+offset_lo = dmem[phys_addr];
+offset_hi = dmem[phys_addr + 1];
+
+// Read segment (2 bytes)
+seg_lo = dmem[phys_addr + 2];
+seg_hi = dmem[phys_addr + 3];
+
+// Store results
+xregs[reg_idx][15:0] = {offset_hi, offset_lo};
+DS = {seg_hi, seg_lo};
+
+// Update EIP
+eip = eip + 8;

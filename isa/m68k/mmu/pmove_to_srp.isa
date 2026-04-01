@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030/68851 PMOVE to SRP - Move to Supervisor Root Pointer
+// Opcode: 1111 000 000 mmm rrr followed by extension word
+// Extension: 010 010 0 0 0000 0000 (4800) - PMOVE <ea>,SRP (write to SRP, no flush)
+// Loads 64-bit SRP from memory
+
+isa_state pc[31:0];
+var instr[15:0];
+var psrp_extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+mem dmem[23:0];
+
+isa_state sr[15:0];
+isa_state srp[63:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var psrp_ea_reg[2:0];
+var psrp_addr[31:0];
+var psrp_w0[15:0];
+var psrp_w1[15:0];
+var psrp_w2[15:0];
+var psrp_w3[15:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+
+instr = imem[pc_pa];
+assume instr[15:6] == 10'b1111000000;
+assume instr[5:3] == 3'b010;
+pc when (~m68k_exc_taken) = pc + 2;
+
+psrp_ea_reg = instr[2:0];
+
+psrp_extw = imem[pc_pa];
+assume psrp_extw == 16'h4800;  // PMOVE to SRP (write to SRP)
+pc when (~m68k_exc_taken) = pc + 2;
+
+assume sr[13] == 1'b1;
+
+psrp_addr = aregs[psrp_ea_reg];
+
+// Read 64-bit SRP (big-endian)
+psrp_w0 = dmem[psrp_addr];
+psrp_w1 = dmem[psrp_addr + 32'd2];
+psrp_w2 = dmem[psrp_addr + 32'd4];
+psrp_w3 = dmem[psrp_addr + 32'd6];
+srp when (~m68k_exc_taken) = {psrp_w0, psrp_w1, psrp_w2, psrp_w3};

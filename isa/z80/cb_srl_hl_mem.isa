@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 CB 3E - SRL (HL) (Shift Right Logical)
+// Affects S, Z, H=0, P/V=parity, N=0, C
+
+isa_state pc[15:0];
+var cb_instr[15:0];
+var pc_plus_1[15:0];
+isa_state H[7:0];
+isa_state L[7:0];
+isa_state flag_S;
+isa_state flag_Z;
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+isa_state flag_C;
+mem mainmem[15:0];
+var addr[15:0];
+var value[7:0];
+var result[7:0];
+var new_carry[0:0];
+var parity[0:0];
+
+pc_plus_1 = pc + 1;
+cb_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume cb_instr == 0x3ECB;
+pc = pc_plus_1 + 1;
+
+addr = {H, L};
+value = mainmem[addr];
+
+// Shift Right Logical
+new_carry = value[0];
+result = {1'b0, value[7:1]};
+
+mainmem[addr] = result;
+
+// Parity: XOR all bits (0 = even parity)
+parity = result[7] ^ result[6] ^ result[5] ^ result[4] ^ result[3] ^ result[2] ^ result[1] ^ result[0];
+
+flag_C = new_carry;
+flag_S = result[7];
+flag_Z = (result == 8'h00) ? 1'b1 : 1'b0;
+flag_H = 1'b0;
+flag_N = 1'b0;
+flag_PV = (parity == 1'b0) ? 1'b1 : 1'b0;

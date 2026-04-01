@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC lf.mul.s - FP Single-Precision Multiply
+// Format: lf.mul.s rD, rA, rB
+// Action: rD = rA * rB (IEEE 754 single-precision)
+// Opcode: 0x32, Function: 0x02
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state fpcsr[31:0];
+
+var rD[4:0];
+var rA[4:0];
+var rB[4:0];
+var r1[31:0];
+var r2[31:0];
+
+// Read rounding mode from FPCSR and convert to IEEE encoding
+var or1k_rm[1:0];
+var rm[2:0];
+or1k_rm = fpcsr[2:1];
+rm = {1'b0, or1k_rm[1], or1k_rm[0] ^ or1k_rm[1]};
+
+instr = imem[pc];
+assume instr[31:26] == 0x32;
+assume instr[7:0] == 0x02;
+rD = instr[25:21];
+rA = instr[20:16];
+rB = instr[15:11];
+
+r1 = rf[rA];
+r2 = rf[rB];
+
+var fp_result[36:0];
+fp_result = fp_mul(r1, r2, rm);
+
+var res[31:0];
+var flags[4:0];
+res = fp_result[31:0];
+flags = fp_result[36:32];
+
+rf[rD] = res;
+
+// Update FPCSR exception flags (accumulate, don't clear)
+var new_fpcsr[31:0];
+new_fpcsr = fpcsr;
+new_fpcsr[8] = fpcsr[8] | flags[0];    // IXF |= NX
+new_fpcsr[4] = fpcsr[4] | flags[1];    // UNF |= UF
+new_fpcsr[3] = fpcsr[3] | flags[2];    // OVF |= OF
+new_fpcsr[11] = fpcsr[11] | flags[3];  // DZF |= DZ
+new_fpcsr[9] = fpcsr[9] | flags[4];    // IVF |= NV
+fpcsr = new_fpcsr;
+
+pc = pc + 4;

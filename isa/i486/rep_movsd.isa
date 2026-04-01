@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REP MOVSD (0xF3 0xA5)
+// Repeat MOVSD: move dword, decrement ECX (simplified - execute once)
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state ESI[31:0] of xregs[6];
+isa_state EDI[31:0] of xregs[7];
+isa_state ECX[31:0] of xregs[1];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+
+var dword_b0[7:0];
+var dword_b1[7:0];
+var dword_b2[7:0];
+var dword_b3[7:0];
+var new_esi[31:0];
+var new_edi[31:0];
+
+// Fetch REP prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+eip = eip + 1;
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xA5;
+eip = eip + 1;
+
+// Simplified: assume ECX > 0, execute once
+assume xregs[1] != 32'h00000000;
+
+// Load dword from [ESI] (little-endian)
+dword_b0 = dmem[ESI];
+dword_b1 = dmem[ESI + 1];
+dword_b2 = dmem[ESI + 2];
+dword_b3 = dmem[ESI + 3];
+
+// Store dword to [EDI] (little-endian)
+dmem[EDI] = dword_b0;
+dmem[EDI + 1] = dword_b1;
+dmem[EDI + 2] = dword_b2;
+dmem[EDI + 3] = dword_b3;
+
+// Adjust ESI and EDI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 4 : ESI - 4;
+new_edi = flag_DF == 1'b0 ? EDI + 4 : EDI - 4;
+
+ESI = new_esi;
+EDI = new_edi;
+
+// Decrement ECX
+ECX = ECX - 1;

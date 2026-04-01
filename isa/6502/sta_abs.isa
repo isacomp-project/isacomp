@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 STA Absolute (0x8D) - Store Accumulator Absolute
+// Stores the 8-bit accumulator value to a 16-bit absolute address
+// Does not affect any flags
+// Instruction format: STA $hhll (3 bytes, little-endian address)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state mainmem[7:0][15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+
+
+instr = mainmem[pc];
+assume instr == 0x8D;
+pc = pc + 1;
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+
+
+mainmem[{addr_hi, addr_lo}] = A;

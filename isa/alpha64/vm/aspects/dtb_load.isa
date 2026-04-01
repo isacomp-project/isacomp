@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 DTB (Data TLB) Translation Aspect for Load Operations
+//
+// This aspect provides virtual-to-physical address translation for
+// data loads. In PAL mode, addresses are used directly (physical).
+// In user/kernel mode, DTB lookup is performed.
+//
+// Requires: addr variable must be defined before including this aspect
+//
+// Provides:
+//   addr_pa    - Physical address for data access
+//   dtb_miss   - Set if DTB miss occurs (triggers PAL exception)
+//
+// Requires gates: addr, pal_mode, pal_base
+
+// Physical address output
+var addr_pa[63:0];
+var dtb_miss[0:0];
+
+// Extract virtual page number and offset from address
+var addr_vpn[29:0];
+var addr_offset[12:0];
+addr_vpn = addr[42:13];
+addr_offset = addr[12:0];
+
+// DTB lookup (8 entries) - check tag matches
+var dtag_match0[0:0];
+var dtag_match1[0:0];
+var dtag_match2[0:0];
+var dtag_match3[0:0];
+var dtag_match4[0:0];
+var dtag_match5[0:0];
+var dtag_match6[0:0];
+var dtag_match7[0:0];
+dtag_match0 = (dtb_tag[0][29:0] == addr_vpn);
+dtag_match1 = (dtb_tag[1][29:0] == addr_vpn);
+dtag_match2 = (dtb_tag[2][29:0] == addr_vpn);
+dtag_match3 = (dtb_tag[3][29:0] == addr_vpn);
+dtag_match4 = (dtb_tag[4][29:0] == addr_vpn);
+dtag_match5 = (dtb_tag[5][29:0] == addr_vpn);
+dtag_match6 = (dtb_tag[6][29:0] == addr_vpn);
+dtag_match7 = (dtb_tag[7][29:0] == addr_vpn);
+
+// Combine valid and match for each entry
+var dhit0[0:0];
+var dhit1[0:0];
+var dhit2[0:0];
+var dhit3[0:0];
+var dhit4[0:0];
+var dhit5[0:0];
+var dhit6[0:0];
+var dhit7[0:0];
+var dasn0[0:0];
+dasn0 = dtb_pte[0][4] | (dtb_asn_entry[0] == dtb_asn[7:0]);
+dhit0 = dtb_valid[0] & dtag_match0 & dasn0;
+var dasn1[0:0];
+dasn1 = dtb_pte[1][4] | (dtb_asn_entry[1] == dtb_asn[7:0]);
+dhit1 = dtb_valid[1] & dtag_match1 & dasn1;
+var dasn2[0:0];
+dasn2 = dtb_pte[2][4] | (dtb_asn_entry[2] == dtb_asn[7:0]);
+dhit2 = dtb_valid[2] & dtag_match2 & dasn2;
+var dasn3[0:0];
+dasn3 = dtb_pte[3][4] | (dtb_asn_entry[3] == dtb_asn[7:0]);
+dhit3 = dtb_valid[3] & dtag_match3 & dasn3;
+var dasn4[0:0];
+dasn4 = dtb_pte[4][4] | (dtb_asn_entry[4] == dtb_asn[7:0]);
+dhit4 = dtb_valid[4] & dtag_match4 & dasn4;
+var dasn5[0:0];
+dasn5 = dtb_pte[5][4] | (dtb_asn_entry[5] == dtb_asn[7:0]);
+dhit5 = dtb_valid[5] & dtag_match5 & dasn5;
+var dasn6[0:0];
+dasn6 = dtb_pte[6][4] | (dtb_asn_entry[6] == dtb_asn[7:0]);
+dhit6 = dtb_valid[6] & dtag_match6 & dasn6;
+var dasn7[0:0];
+dasn7 = dtb_pte[7][4] | (dtb_asn_entry[7] == dtb_asn[7:0]);
+dhit7 = dtb_valid[7] & dtag_match7 & dasn7;
+
+// Combine hits with OR chain
+var dhit01[0:0];
+var dhit23[0:0];
+var dhit45[0:0];
+var dhit67[0:0];
+var dhit0123[0:0];
+var dhit4567[0:0];
+var dtb_hit[0:0];
+dhit01 = dhit0 ? 1'b1 : dhit1;
+dhit23 = dhit2 ? 1'b1 : dhit3;
+dhit45 = dhit4 ? 1'b1 : dhit5;
+dhit67 = dhit6 ? 1'b1 : dhit7;
+dhit0123 = dhit01 ? 1'b1 : dhit23;
+dhit4567 = dhit45 ? 1'b1 : dhit67;
+dtb_hit = dhit0123 ? 1'b1 : dhit4567;
+
+// Priority encoder for PTE selection
+var dtb_pte_s7[63:0];
+var dtb_pte_s6[63:0];
+var dtb_pte_s5[63:0];
+var dtb_pte_s4[63:0];
+var dtb_pte_s3[63:0];
+var dtb_pte_s2[63:0];
+var dtb_pte_s1[63:0];
+var dtb_pte_sel[63:0];
+dtb_pte_s7 = dhit7 ? dtb_pte[7] : 64'b0;
+dtb_pte_s6 = dhit6 ? dtb_pte[6] : dtb_pte_s7;
+dtb_pte_s5 = dhit5 ? dtb_pte[5] : dtb_pte_s6;
+dtb_pte_s4 = dhit4 ? dtb_pte[4] : dtb_pte_s5;
+dtb_pte_s3 = dhit3 ? dtb_pte[3] : dtb_pte_s4;
+dtb_pte_s2 = dhit2 ? dtb_pte[2] : dtb_pte_s3;
+dtb_pte_s1 = dhit1 ? dtb_pte[1] : dtb_pte_s2;
+dtb_pte_sel = dhit0 ? dtb_pte[0] : dtb_pte_s1;
+
+// Extract PFN from selected PTE
+var dtb_pfn[31:0];
+dtb_pfn = dtb_pte_sel[63:32];
+
+// Permission checking for loads (read access)
+var dtb_for[0:0];
+var dtb_load_kre[0:0];
+var dtb_load_ure[0:0];
+dtb_for = dtb_pte_sel[1];
+dtb_load_kre = dtb_pte_sel[8];
+dtb_load_ure = dtb_pte_sel[9];
+var dtb_is_user[0:0];
+dtb_is_user = ps[3];
+var dtb_load_perm_ok[0:0];
+dtb_load_perm_ok = dtb_for ? 1'b0 : (dtb_is_user ? dtb_load_ure : dtb_load_kre);
+var dtb_load_acv[0:0];
+dtb_load_acv = not_pal_mode ? (dtb_hit ? (~dtb_load_perm_ok) : 1'b0) : 1'b0;
+
+// Compute translated address
+var addr_xlated[63:0];
+addr_xlated = {dtb_pfn, addr_offset};
+
+// Note: not_pal_mode is defined by itb.isa aspect
+var dtb_no_hit[0:0];
+dtb_no_hit = (dtb_hit == 0);
+dtb_miss = not_pal_mode ? dtb_no_hit : 1'b0;
+
+// Physical address: PAL=addr, TLB hit=translated, else=addr (will raise DTB miss)
+addr_pa = not_pal_mode ? (dtb_hit ? addr_xlated : addr) : addr;
+
+// DTB miss exception entry point (different from ITB)
+var dtb_miss_entry[63:0];
+dtb_miss_entry = pal_base + 64'h200;
+
+// DTB load fault: miss or ACV, but only if no ITB fault (ITB has priority)
+var no_itb_fault[0:0];
+no_itb_fault = (itb_fault == 0);
+var dtb_load_fault[0:0];
+dtb_load_fault = (dtb_miss | dtb_load_acv) ? no_itb_fault : 1'b0;
+
+// MM_STAT encoding: bit 0 = WR (0=read), bit 1 = ACV (1=acv, 0=miss)
+var dtb_load_mm_stat[63:0];
+dtb_load_mm_stat = dtb_load_acv ? 64'd2 : 64'd0;

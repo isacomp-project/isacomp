@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Thumb MOV (immediate) - Move 8-bit immediate to register
+// Encoding: 001|00|Rd|imm8 (Format 3)
+// MOV Rd, #imm8
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+mem umem[13:0];
+
+var rd[2:0];
+var imm8[7:0];
+var result[31:0];
+
+var new_n[0:0];
+var new_z[0:0];
+var new_cpsr[31:0];
+
+instr = umem[pc];
+
+assume instr[15:11] == 0b00100;
+
+rd = instr[10:8];
+imm8 = instr[7:0];
+
+// Zero-extend immediate to 32 bits
+result = {24'b0, imm8};
+
+// Update N and Z flags
+new_n = result[31];
+new_z = (result == 0);
+
+new_cpsr = {new_n, new_z, cpsr[29:0]};
+
+rf[{1'b0, rd}] = result;
+cpsr = new_cpsr;
+pc = pc + 2;

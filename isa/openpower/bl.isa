@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER bl - Branch and Link (I-Form)
+// bl target
+// Primary opcode 18, AA=0, LK=1
+// LR <- CIA + 4
+// NIA <- CIA + EXTS(LI || 0b00)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state lr[63:0];
+
+var li[23:0];
+var sign_ext_li[63:0];
+var target[63:0];
+var return_addr[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 18
+assume instr[31:26] == 18;
+// AA = 0 (relative addressing)
+assume instr[1] == 0;
+// LK = 1 (update link register)
+assume instr[0] == 1;
+
+// Extract LI field (24 bits)
+li = instr[25:2];
+
+// Sign-extend and multiply by 4 (LI || 00)
+sign_ext_li = {{38{li[23]}}, li, 2'b00};
+
+// Save return address in Link Register
+return_addr = pc + 4;
+lr = return_addr;
+
+// Calculate target address (relative to current PC)
+target = pc + sign_ext_li;
+
+pc = target;

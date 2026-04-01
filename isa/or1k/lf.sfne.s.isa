@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC lf.sfne.s - FP Single-Precision Set Flag if Not Equal
+// Format: lf.sfne.s rA, rB
+// Action: flag = (rA != rB) (IEEE 754 single-precision comparison)
+// Opcode: 0x32, Function: 0x09
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state fpcsr[31:0];
+isa_state flag[0:0];
+
+var rA[4:0];
+var rB[4:0];
+var r1[31:0];
+var r2[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x32;
+assume instr[7:0] == 0x09;
+rA = instr[20:16];
+rB = instr[15:11];
+
+r1 = rf[rA];
+r2 = rf[rB];
+
+var cmp_result[5:0];
+cmp_result = fp_eq(r1, r2);
+
+flag = ~cmp_result[0];
+
+// Update FPCSR exception flags (accumulate, don't clear)
+var flags[4:0];
+flags = cmp_result[5:1];
+var new_fpcsr[31:0];
+new_fpcsr = fpcsr;
+new_fpcsr[8] = fpcsr[8] | flags[0];    // IXF |= NX
+new_fpcsr[4] = fpcsr[4] | flags[1];    // UNF |= UF
+new_fpcsr[3] = fpcsr[3] | flags[2];    // OVF |= OF
+new_fpcsr[11] = fpcsr[11] | flags[3];  // DZF |= DZ
+new_fpcsr[9] = fpcsr[9] | flags[4];    // IVF |= NV
+fpcsr = new_fpcsr;
+
+pc = pc + 4;

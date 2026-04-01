@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vand.vv - Vector AND (vector-vector)
+// Encoding: vand.vv vd, vs2, vs1, vm
+// Operation: vd[i] = vs2[i] & vs1[i]
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v1[127:0];
+var v2[127:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b000;
+// funct6 = 001001 (vand)
+assume instr[31:26] == 0b001001;
+
+pc = pc + 4;
+
+vs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v1 = vrf[vs1];
+v2 = vrf[vs2];
+
+res = v2 & v1;
+
+vrf[vd] = res;

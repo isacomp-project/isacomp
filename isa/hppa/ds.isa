@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA DS instruction
+// DS r1,r2,t - Divide Step (non-restoring division)
+// Used to implement software division via millicode
+// Opcode: 0x02 (bits 31:26), ext=0x11 (bits 8:5)
+//
+// Algorithm (verified against QEMU trans_ds):
+//   1. add1 = (R1 << 1) | old_CB[0]       -- shift partial remainder, insert carry
+//   2. If old_V=0: result = add1 + R2      -- restore (add divisor)
+//      If old_V=1: result = add1 - R2      -- trial subtract (sub divisor)
+//   3. New CB[0] = carry_out               -- raw carry/borrow
+//   4. New V = carry_out XOR R2[31]        -- determines next step's operation
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state psw[31:0];  // V bit (17) and CB[0] bit (15) used for division
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var t[4:0];
+var src1[31:0];
+var src2[31:0];
+var old_v[0:0];
+var old_carry[0:0];
+var add1[31:0];
+var temp_add[32:0];
+var temp_sub[32:0];
+var result[31:0];
+var carry_out[0:0];
+var new_v[0:0];
+
+instr = umem[pc_pa];
+
+// DS encoding: opcode=0x02, bits[11:5]=0b0100010
+assume instr[31:26] == 0b000010;
+assume instr[11:5] == 0b0100010;
+
+// PA-RISC opcode 0x02 convention: bits[25:21]=r2, bits[20:16]=r1
+r2 = instr[25:21];
+r1 = instr[20:16];
+t = instr[4:0];
+
+src1 = (r1 == 0) ? 32'h0 : rf[r1];
+src2 = (r2 == 0) ? 32'h0 : rf[r2];
+
+// Read old V (bit 17) and old carry CB[0] (bit 15)
+old_v = psw[17];
+old_carry = psw[15];
+
+// Step 1: Shift partial remainder left by 1, insert old carry bit
+add1 = {src1[30:0], old_carry};
+
+// Step 2: Add or subtract based on old V
+// V=0 → ADD R2 (restore step), V=1 → SUBTRACT R2 (trial subtract)
+temp_add = {1'b0, add1} + {1'b0, src2};
+temp_sub = {1'b0, add1} + {1'b0, ~src2} + 33'h1;
+
+// Select result: V=0→add, V=1→subtract (opposite of naive reading of manual!)
+result = old_v ? temp_sub[31:0] : temp_add[31:0];
+carry_out = old_v ? temp_sub[32] : temp_add[32];
+
+// New V = carry_out XOR R2[31] (sign of divisor operand)
+new_v = carry_out ^ src2[31];
+
+// Update PSW: V bit (17) and CB[0] (15)
+// CB[0] = raw carry_out (NOT new_v — they differ when R2[31]=1)
+psw when (~instr_trap_taken & ~in_nullified) = {psw[31:18], new_v, psw[16], carry_out, psw[14:0]};
+
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = result;
+pc = pc + 4;

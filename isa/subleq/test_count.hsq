@@ -1,0 +1,10 @@
+// Simple countdown that doesn't use I/O
+int counter = 5;
+int one = 1;
+
+int main() {
+    while (counter > 0) {
+        counter = counter - one;
+    }
+    return 0;
+}

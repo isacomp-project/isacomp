@@ -1,0 +1,123 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V ECALL - Environment Call
+// Raises an environment call exception to transfer control to trap handler
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[23:0];
+mem csr[11:0];
+
+// Dedicated CSR registers as isa_state (for MMU aspect)
+isa_state priv_mode[1:0];      // Privilege mode: 0=U-mode, 1=S-mode, 3=M-mode
+isa_state satp[63:0];          // Supervisor Address Translation and Protection (0x180)
+isa_state mtvec[63:0];         // Machine Trap-Vector Base-Address (0x305)
+isa_state mepc[63:0];          // Machine Exception Program Counter (0x341)
+isa_state mcause[63:0];        // Machine Cause (0x342)
+isa_state mtval[63:0];         // Machine Trap Value (0x343)
+isa_state medeleg[63:0];       // Machine Exception Delegation (0x302)
+isa_state sepc[63:0];          // Supervisor Exception Program Counter (0x141)
+isa_state stvec[63:0];         // Supervisor Trap-Vector Base-Address (0x105)
+isa_state scause[63:0];        // Supervisor Cause (0x142)
+isa_state stval[63:0];         // Supervisor Trap Value (0x143)
+isa_state sscratch[63:0];      // Supervisor Scratch (0x140)
+isa_state sstatus[63:0];       // Supervisor Status (0x100) - SPP is bit 8
+isa_state mie[63:0];           // Machine Interrupt Enable (0x304)
+isa_state mstatus[63:0];       // Machine Status (0x300)
+ext isa_state timer_irq_pending[0:0]; // Timer interrupt pending from CLINT
+
+var ecall_mtvec_base[63:0];
+var ecall_stvec_base[63:0];
+var ecall_cause[63:0];
+var ecall_trap_target[63:0];
+
+// Trap delegation variables (ecall-specific, separate from mmu.isa's exception handling)
+var ecall_delegate_to_smode[0:0];
+var ecall_delegate_to_mmode[0:0];
+var ecall_medeleg_bit[0:0];
+var ecall_no_page_fault[0:0];  // Inverse of exception_taken from mmu.isa
+
+// Virtual memory translation
+aspect ../mmu.isa gates pc, priv_mode, mepc, mcause, mtval, sepc, scause, stval, mstatus, sstatus;
+
+instr = umem[pc_pa];
+
+// ECALL instruction encoding: 0x00000073
+// opcode: 0b1110011 (SYSTEM)
+// All other fields are 0
+assume instr[6:0] == 0b1110011;
+assume instr[14:12] == 0b000;
+assume instr[19:15] == 0b00000;
+assume instr[11:7] == 0b00000;
+assume instr[31:20] == 12'h000;
+
+// Compute exception cause based on current privilege mode
+// Cause 8: Environment call from U-mode (priv_mode = 0)
+// Cause 9: Environment call from S-mode (priv_mode = 1)
+// Cause 11: Environment call from M-mode (priv_mode = 3)
+var is_mmode[0:0];
+var is_smode[0:0];
+var is_umode[0:0];
+is_mmode = (priv_mode == 3);
+is_smode = (priv_mode == 1);
+is_umode = (priv_mode == 0);
+ecall_cause = is_mmode ? 11 : (is_smode ? 9 : 8);
+
+// Read trap vector registers (aligned to 4 bytes)
+ecall_mtvec_base = {mtvec[63:2], 2'b00};
+ecall_stvec_base = {stvec[63:2], 2'b00};
+
+// Check medeleg bit for this exception cause
+// medeleg[8] = U-mode ecall, medeleg[9] = S-mode ecall
+// M-mode ecall (cause 11) is never delegated
+var ecall_8_delegated[0:0];
+var ecall_9_delegated[0:0];
+ecall_8_delegated = is_umode & medeleg[8];
+ecall_9_delegated = is_smode & medeleg[9];
+ecall_medeleg_bit = ecall_8_delegated | ecall_9_delegated;
+
+// Delegate to S-mode if medeleg bit is set and NOT in M-mode
+ecall_delegate_to_smode = ecall_medeleg_bit & ~is_mmode;
+ecall_delegate_to_mmode = (ecall_delegate_to_smode == 0);  // Explicit inverse for Verilog generator
+
+// Choose trap target based on delegation
+ecall_trap_target = ecall_delegate_to_smode ? ecall_stvec_base : ecall_mtvec_base;
+
+// Compute inverse of exception_taken (page fault from mmu.isa)
+ecall_no_page_fault = (exception_taken == 0);
+
+// Save current PC to appropriate EPC register (only if no instruction page fault)
+// The mmu.isa aspect handles instruction page faults via exception_taken
+// Note: use intermediate variable for pc to prevent ISA compiler from
+// merging this write with the mmu.isa aspect's mepc/sepc=pc write, which
+// would incorrectly use only the aspect's condition (exception_taken)
+var ecall_saved_pc[63:0];
+ecall_saved_pc = pc;
+mepc when (ecall_delegate_to_mmode & ecall_no_page_fault) = ecall_saved_pc;
+sepc when (ecall_delegate_to_smode & ecall_no_page_fault) = ecall_saved_pc;
+
+// Set exception cause in appropriate cause register
+mcause when (ecall_delegate_to_mmode & ecall_no_page_fault) = ecall_cause;
+scause when (ecall_delegate_to_smode & ecall_no_page_fault) = ecall_cause;
+
+// Save mstatus when trapping to M-mode: MPIE=MIE, MIE=0, MPP=priv_mode
+var ecall_new_mstatus[63:0];
+ecall_new_mstatus = (mstatus & 64'hFFFFFFFFFFFFE677) |           // Clear MPP(12:11), MPIE(7), MIE(3)
+                    ({63'b0, mstatus[3]} << 7) |                 // MPIE = old MIE
+                    ({62'b0, priv_mode} << 11);                  // MPP = old priv_mode
+mstatus when (ecall_delegate_to_mmode & ecall_no_page_fault) = ecall_new_mstatus;
+
+// Save sstatus when trapping to S-mode: SPIE=SIE, SIE=0, SPP=priv_mode[0]
+var ecall_new_sstatus[63:0];
+ecall_new_sstatus = (sstatus & 64'hFFFFFFFFFFFFFEDD) |            // Clear SPP(8), SPIE(5), SIE(1)
+                    ({63'b0, sstatus[1]} << 5) |                  // SPIE = old SIE
+                    ({63'b0, priv_mode[0]} << 8);                 // SPP = old priv_mode[0]
+sstatus when (ecall_delegate_to_smode & ecall_no_page_fault) = ecall_new_sstatus;
+
+// Set privilege mode based on delegation
+// M-mode (3) when not delegating, S-mode (1) when delegating
+priv_mode when (ecall_delegate_to_mmode & ecall_no_page_fault) = 3;
+priv_mode when (ecall_delegate_to_smode & ecall_no_page_fault) = 1;
+
+// Jump to trap handler (ecall_trap_target if no page fault, otherwise mmu.isa handles it)
+pc when (ecall_no_page_fault) = ecall_trap_target;

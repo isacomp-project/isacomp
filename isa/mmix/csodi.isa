@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX CSODI - Conditional Set if Odd Immediate
+// CSODI $X,$Y,Z: if $Y is odd then $X = Z
+// Opcode: 0x67
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_ext[63:0];
+var x_val[63:0];
+var cond[0:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x67;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_ext = {56'h0, z};
+x_val = rf[x];
+
+cond = y_val[0];
+
+rf[x] = cond ? z_ext : x_val;
+pc = pc + 4;

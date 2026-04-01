@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 INC r16 - Parameterized with wildcard ** syntax
+// Opcodes: 0x40-0x47 (INC AX/CX/DX/BX/SP/BP/SI/DI)
+// Replaces multiple files: inc_ax, inc_bx, etc.
+// Opcode encoding: 0x40 + register_index (bits [2:0] of opcode = register index)
+// Affects: OF, SF, ZF, AF, PF (NOT CF)
+
+isa_state ip[15:0];
+var instr[7:0];
+
+// Word register file: AX, CX, DX, BX, SP, BP, SI, DI
+isa_state xregs[15:0][2:0];
+
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var reg_idx[2:0];
+var old_val[15:0];
+var result[16:0];
+
+// Fetch instruction
+instr = imem[ip];
+
+// Check this is an INC r16 instruction (0x40-0x47)
+assume instr[7:3] == 0b01000;  // Upper 5 bits must be 01000
+
+ip = ip + 1;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read old value
+old_val = xregs[reg_idx];
+
+// Increment by 1
+result = old_val + 1;
+
+// Write back using indexed access
+xregs[reg_idx] = result[15:0];
+
+// Update flags (CF is NOT affected by INC)
+flag_ZF = result[15:0] == 0 ? 1'b1 : 1'b0;
+flag_SF = result[15];
+flag_OF = (old_val[15] == 1'b0) & (result[15] == 1'b1);  // Overflow if 0x7FFF + 1 = 0x8000
+flag_PF = result[0];
+flag_AF = old_val[3];  // AF set if low nibble overflowed

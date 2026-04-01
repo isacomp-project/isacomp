@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+
+var imm[7:0];
+var xori_r0_lo[2:0];
+var r0[31:0];
+var res[31:0];
+
+// Register banking (unique to xori instruction)
+var xori_rb[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:8] == 0xCA;
+imm = instr[7:0];
+
+// Banking: R0 uses rf_bank when SR.RB=1
+xori_r0_lo = 3'b000;
+xori_rb = sr[28];
+
+r0 = xori_rb ? rf_bank[xori_r0_lo] : rf[0];
+res = r0 ^ {24'b0, imm};
+
+rf[0] when (xori_rb == 0) = res;
+rf_bank[xori_r0_lo] when (xori_rb) = res;
+
+pc = pc + 2;

@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED 68 - IN L,(C)
+// Read from port BC into L
+// Affects S, Z, H=0, P/V=parity, N=0, C unchanged
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+isa_state B[7:0];
+isa_state C[7:0];
+isa_state L[7:0];
+isa_state flag_S;
+isa_state flag_Z;
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+isa_state io[7:0][7:0];
+mem mainmem[15:0];
+var value[7:0];
+var parity[0:0];
+
+pc_plus_1 = pc + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 16'h68ED;
+pc = pc_plus_1 + 1;
+
+// Read from port (using C as lower 8 bits of port address)
+value = io[C];
+L = value;
+
+// Calculate parity
+parity = value[7] ^ value[6] ^ value[5] ^ value[4] ^ value[3] ^ value[2] ^ value[1] ^ value[0];
+
+flag_S = value[7];
+flag_Z = (value == 8'h00) ? 1'b1 : 1'b0;
+flag_H = 1'b0;
+flag_PV = parity ^ 1'b1;
+flag_N = 1'b0;

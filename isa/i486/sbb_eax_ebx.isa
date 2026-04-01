@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SBB EAX, EBX (0x19 with ModR/M 0xD8)
+// Subtract with Borrow: EAX = EAX - EBX - CF
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state EAX[31:0];
+isa_state EBX[31:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var old_eax[31:0];
+var borrow_in[31:0];
+var result[32:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x19;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+assume modrm == 0xD8;  // mod=11, reg=011 (EBX), rm=000 (EAX)
+eip = eip + 1;
+
+// Save old value
+old_eax = EAX;
+
+// Extend borrow flag to 32 bits
+borrow_in = {31'b0, flag_CF};
+
+// Perform SBB operation: EAX = EAX - EBX - CF
+result = EAX - EBX - borrow_in;
+
+// Write result
+EAX = result[31:0];
+
+// Set flags
+flag_CF = result[32];  // Borrow out
+flag_ZF = result[31:0] == 32'h00000000 ? 1'b1 : 1'b0;
+flag_SF = result[31];
+flag_OF = (old_eax[31] != EBX[31]) & (old_eax[31] != result[31]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_AF = (old_eax[3:0] < EBX[3:0] + borrow_in[3:0]);

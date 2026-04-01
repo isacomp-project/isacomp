@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ADD [indirect], r8_high - WITH PROPER SEGMENTATION
+// Opcode: 0x00 + ModR/M byte with mod=00 (simple indirect)
+// Supports [ESI], [EDI], and [EBX] addressing modes
+// Uses DS segment for data access
+
+isa_state hregs[7:0][1:0] of xregs[0b1**][15:8];  // AH,CH,DH,BH
+isa_state xregs[31:0][2:0];    // 32-bit registers array
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];            // Data segment register
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x00;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume mod_bits == 0b00;
+assume reg_idx[2] == 1;    // High byte source
+
+var src_idx[1:0];
+var addr_reg_idx[2:0];
+var offset[31:0];              // 32-bit offset from register
+var physical_addr[31:0];       // 32-bit physical address
+var src_val[7:0];
+var dst_val[7:0];
+var result[8:0];
+
+src_idx = reg_idx[1:0];
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;   // ESI
+  0b101: addr_reg_idx = 3'b111;   // EDI
+  0b111: addr_reg_idx = 3'b011;   // EBX
+}
+
+// Get full 32-bit offset from register
+offset = xregs[addr_reg_idx];
+
+// Calculate physical address
+physical_addr = offset;
+
+// Read-modify-write: read from memory, add register, write back
+src_val = hregs[src_idx];
+dst_val = dmem[physical_addr];
+result = dst_val + src_val;
+dmem[physical_addr] = result[7:0];

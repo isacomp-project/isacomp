@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 RST 10H (0xD7) - Restart at 0x10
+// Push PC, jump to 0x10
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state sp[15:0];
+mem mainmem[15:0];
+var pc_plus_1[15:0];
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xD7;
+pc_plus_1 = pc + 1;
+
+sp_minus_1 = sp - 1;
+sp_minus_2 = sp_minus_1 - 1;
+
+mainmem[sp_minus_1] = pc_plus_1[15:8];
+mainmem[sp_minus_2] = pc_plus_1[7:0];
+sp = sp_minus_2;
+pc = 16'h0010;

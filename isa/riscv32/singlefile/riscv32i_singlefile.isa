@@ -1,0 +1,258 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV32I Single-File Specification v3
+// Uses one-hot enable encoding with OR-based muxing (each instruction contributes, only one active)
+
+// Architectural State
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+mem dmem[9:0];
+
+// Instruction fetch and decode
+var instr[31:0];
+var opcode[6:0];
+var funct3[2:0];
+var funct7[6:0];
+var rd[4:0];
+var rs1[4:0];
+var rs2[4:0];
+
+instr = imem[pc];
+opcode = instr[6:0];
+funct3 = instr[14:12];
+funct7 = instr[31:25];
+rd = instr[11:7];
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+
+// Instruction enable signals (one-hot encoding)
+var lui_en[0:0];
+var auipc_en[0:0];
+var jal_en[0:0];
+var jalr_en[0:0];
+var beq_en[0:0];
+var bne_en[0:0];
+var blt_en[0:0];
+var bge_en[0:0];
+var bltu_en[0:0];
+var bgeu_en[0:0];
+var lb_en[0:0];
+var lh_en[0:0];
+var lw_en[0:0];
+var lbu_en[0:0];
+var lhu_en[0:0];
+var sb_en[0:0];
+var sh_en[0:0];
+var sw_en[0:0];
+var addi_en[0:0];
+var slti_en[0:0];
+var sltiu_en[0:0];
+var xori_en[0:0];
+var ori_en[0:0];
+var andi_en[0:0];
+var slli_en[0:0];
+var srli_en[0:0];
+var srai_en[0:0];
+var add_en[0:0];
+var sub_en[0:0];
+var sll_en[0:0];
+var slt_en[0:0];
+var sltu_en[0:0];
+var xor_en[0:0];
+var srl_en[0:0];
+var sra_en[0:0];
+var or_en[0:0];
+var and_en[0:0];
+
+lui_en = opcode == 7'b0110111;
+auipc_en = opcode == 7'b0010111;
+jal_en = opcode == 7'b1101111;
+jalr_en = (opcode == 7'b1100111) & (funct3 == 3'h0);
+beq_en = (opcode == 7'b1100011) & (funct3 == 3'h0);
+bne_en = (opcode == 7'b1100011) & (funct3 == 3'h1);
+blt_en = (opcode == 7'b1100011) & (funct3 == 3'h4);
+bge_en = (opcode == 7'b1100011) & (funct3 == 3'h5);
+bltu_en = (opcode == 7'b1100011) & (funct3 == 3'h6);
+bgeu_en = (opcode == 7'b1100011) & (funct3 == 3'h7);
+lb_en = (opcode == 7'b0000011) & (funct3 == 3'h0);
+lh_en = (opcode == 7'b0000011) & (funct3 == 3'h1);
+lw_en = (opcode == 7'b0000011) & (funct3 == 3'h2);
+lbu_en = (opcode == 7'b0000011) & (funct3 == 3'h4);
+lhu_en = (opcode == 7'b0000011) & (funct3 == 3'h5);
+sb_en = (opcode == 7'b0100011) & (funct3 == 3'h0);
+sh_en = (opcode == 7'b0100011) & (funct3 == 3'h1);
+sw_en = (opcode == 7'b0100011) & (funct3 == 3'h2);
+addi_en = (opcode == 7'b0010011) & (funct3 == 3'h0);
+slti_en = (opcode == 7'b0010011) & (funct3 == 3'h2);
+sltiu_en = (opcode == 7'b0010011) & (funct3 == 3'h3);
+xori_en = (opcode == 7'b0010011) & (funct3 == 3'h4);
+ori_en = (opcode == 7'b0010011) & (funct3 == 3'h6);
+andi_en = (opcode == 7'b0010011) & (funct3 == 3'h7);
+slli_en = (opcode == 7'b0010011) & (funct3 == 3'h1) & (funct7 == 7'h00);
+srli_en = (opcode == 7'b0010011) & (funct3 == 3'h5) & (funct7 == 7'h00);
+srai_en = (opcode == 7'b0010011) & (funct3 == 3'h5) & (funct7 == 7'h20);
+add_en = (opcode == 7'b0110011) & (funct3 == 3'h0) & (funct7 == 7'h00);
+sub_en = (opcode == 7'b0110011) & (funct3 == 3'h0) & (funct7 == 7'h20);
+sll_en = (opcode == 7'b0110011) & (funct3 == 3'h1) & (funct7 == 7'h00);
+slt_en = (opcode == 7'b0110011) & (funct3 == 3'h2) & (funct7 == 7'h00);
+sltu_en = (opcode == 7'b0110011) & (funct3 == 3'h3) & (funct7 == 7'h00);
+xor_en = (opcode == 7'b0110011) & (funct3 == 3'h4) & (funct7 == 7'h00);
+srl_en = (opcode == 7'b0110011) & (funct3 == 3'h5) & (funct7 == 7'h00);
+sra_en = (opcode == 7'b0110011) & (funct3 == 3'h5) & (funct7 == 7'h20);
+or_en = (opcode == 7'b0110011) & (funct3 == 3'h6) & (funct7 == 7'h00);
+and_en = (opcode == 7'b0110011) & (funct3 == 3'h7) & (funct7 == 7'h00);
+
+// Common values
+var r1[31:0];
+var r2[31:0];
+var imm_i[11:0];
+var imm_s[11:0];
+var sign_ext_imm_i[31:0];
+var sign_ext_imm_s[31:0];
+var addr_load[31:0];
+var addr_store[31:0];
+var shamt[4:0];
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+
+// I-type immediate (for loads and ALU immediates)
+imm_i = instr[31:20];
+sign_ext_imm_i = {{20{imm_i[11]}}, imm_i};
+
+// S-type immediate (for stores)
+imm_s = {instr[31:25], instr[11:7]};
+sign_ext_imm_s = {{20{imm_s[11]}}, imm_s};
+
+addr_load = r1 + sign_ext_imm_i;
+addr_store = r1 + sign_ext_imm_s;
+shamt = instr[24:20];
+
+// Save current PC for instructions that need it (AUIPC, JAL, JALR)
+var curr_pc[31:0];
+curr_pc = pc;
+
+// Branch/jump calculations
+var branch_offset[31:0];
+var branch_dest[31:0];
+var jump_offset[31:0];
+var jump_dest[31:0];
+var jalr_target[31:0];
+
+branch_offset = {{19{instr[31]}}, instr[31], instr[7], instr[30:25], instr[11:8], 1'b0};
+branch_dest = curr_pc + branch_offset;
+jump_offset = {{11{instr[31]}}, instr[31], instr[19:12], instr[20], instr[30:21], 1'b0};
+jump_dest = curr_pc + jump_offset;
+jalr_target = (r1 + sign_ext_imm_i) & 32'hFFFFFFFE;
+
+// PC calculation: OR of all contributions (only one non-zero due to one-hot enables)
+var pc_jal[31:0];
+var pc_jalr[31:0];
+var pc_beq[31:0];
+var pc_bne[31:0];
+var pc_blt[31:0];
+var pc_bge[31:0];
+var pc_bltu[31:0];
+var pc_bgeu[31:0];
+var pc_default[31:0];
+
+pc_jal = jal_en ? jump_dest : 0;
+pc_jalr = jalr_en ? jalr_target : 0;
+pc_beq = (beq_en & (r1 == r2)) ? branch_dest : 0;
+pc_bne = (bne_en & (r1 != r2)) ? branch_dest : 0;
+pc_blt = (blt_en & (r1 <s r2)) ? branch_dest : 0;
+pc_bge = (bge_en & (r1 >=s r2)) ? branch_dest : 0;
+pc_bltu = (bltu_en & (r1 < r2)) ? branch_dest : 0;
+pc_bgeu = (bgeu_en & (r1 >= r2)) ? branch_dest : 0;
+pc_default = (jal_en | jalr_en | (beq_en & (r1 == r2)) | (bne_en & (r1 != r2)) | (blt_en & (r1 <s r2)) | (bge_en & (r1 >=s r2)) | (bltu_en & (r1 < r2)) | (bgeu_en & (r1 >= r2))) ? 0 : (curr_pc + 4);
+
+pc = pc_jal | pc_jalr | pc_beq | pc_bne | pc_blt | pc_bge | pc_bltu | pc_bgeu | pc_default;
+
+// Load data - direct width-specific loads
+var dmem_data_word[31:0];
+var dmem_data_hword[15:0];
+var dmem_data_byte[7:0];
+
+dmem_data_word = dmem[addr_load];
+dmem_data_hword = dmem[addr_load];
+dmem_data_byte = dmem[addr_load];
+
+// RF write data: OR of all contributions
+var rf_wd_lui[31:0];
+var rf_wd_auipc[31:0];
+var rf_wd_jal[31:0];
+var rf_wd_jalr[31:0];
+var rf_wd_lw[31:0];
+var rf_wd_lh[31:0];
+var rf_wd_lhu[31:0];
+var rf_wd_lb[31:0];
+var rf_wd_lbu[31:0];
+var rf_wd_addi[31:0];
+var rf_wd_slti[31:0];
+var rf_wd_sltiu[31:0];
+var rf_wd_xori[31:0];
+var rf_wd_ori[31:0];
+var rf_wd_andi[31:0];
+var rf_wd_slli[31:0];
+var rf_wd_srli[31:0];
+var rf_wd_srai[31:0];
+var rf_wd_add[31:0];
+var rf_wd_sub[31:0];
+var rf_wd_sll[31:0];
+var rf_wd_slt[31:0];
+var rf_wd_sltu[31:0];
+var rf_wd_xor[31:0];
+var rf_wd_srl[31:0];
+var rf_wd_sra[31:0];
+var rf_wd_or[31:0];
+var rf_wd_and[31:0];
+
+rf_wd_lui = lui_en ? {instr[31:12], 12'b0} : 0;
+rf_wd_auipc = auipc_en ? (curr_pc + {instr[31:12], 12'b0}) : 0;
+rf_wd_jal = jal_en ? (curr_pc + 4) : 0;
+rf_wd_jalr = jalr_en ? (curr_pc + 4) : 0;
+rf_wd_lw = lw_en ? dmem_data_word : 0;
+rf_wd_lh = lh_en ? {{16{dmem_data_hword[15]}}, dmem_data_hword} : 0;
+rf_wd_lhu = lhu_en ? {16'b0, dmem_data_hword} : 0;
+rf_wd_lb = lb_en ? {{24{dmem_data_byte[7]}}, dmem_data_byte} : 0;
+rf_wd_lbu = lbu_en ? {24'b0, dmem_data_byte} : 0;
+rf_wd_addi = addi_en ? (r1 + sign_ext_imm_i) : 0;
+rf_wd_slti = slti_en ? ((r1 <s sign_ext_imm_i) ? 1 : 0) : 0;
+rf_wd_sltiu = sltiu_en ? ((r1 < sign_ext_imm_i) ? 1 : 0) : 0;
+rf_wd_xori = xori_en ? (r1 ^ sign_ext_imm_i) : 0;
+rf_wd_ori = ori_en ? (r1 | sign_ext_imm_i) : 0;
+rf_wd_andi = andi_en ? (r1 & sign_ext_imm_i) : 0;
+rf_wd_slli = slli_en ? (r1 << shamt) : 0;
+rf_wd_srli = srli_en ? (r1 >> shamt) : 0;
+rf_wd_srai = srai_en ? (r1 >>> shamt) : 0;
+rf_wd_add = add_en ? (r1 + r2) : 0;
+rf_wd_sub = sub_en ? (r1 - r2) : 0;
+rf_wd_sll = sll_en ? (r1 << r2[4:0]) : 0;
+rf_wd_slt = slt_en ? ((r1 <s r2) ? 1 : 0) : 0;
+rf_wd_sltu = sltu_en ? ((r1 < r2) ? 1 : 0) : 0;
+rf_wd_xor = xor_en ? (r1 ^ r2) : 0;
+rf_wd_srl = srl_en ? (r1 >> r2[4:0]) : 0;
+rf_wd_sra = sra_en ? (r1 >>> r2[4:0]) : 0;
+rf_wd_or = or_en ? (r1 | r2) : 0;
+rf_wd_and = and_en ? (r1 & r2) : 0;
+
+var rf_wdata[31:0];
+rf_wdata = rf_wd_lui | rf_wd_auipc | rf_wd_jal | rf_wd_jalr | rf_wd_lw | rf_wd_lh | rf_wd_lhu | rf_wd_lb | rf_wd_lbu | rf_wd_addi | rf_wd_slti | rf_wd_sltiu | rf_wd_xori | rf_wd_ori | rf_wd_andi | rf_wd_slli | rf_wd_srli | rf_wd_srai | rf_wd_add | rf_wd_sub | rf_wd_sll | rf_wd_slt | rf_wd_sltu | rf_wd_xor | rf_wd_srl | rf_wd_sra | rf_wd_or | rf_wd_and;
+
+// RF write enable
+var rf_we[0:0];
+rf_we = (lui_en | auipc_en | jal_en | jalr_en | lw_en | lh_en | lhu_en | lb_en | lbu_en | addi_en | slti_en | sltiu_en | xori_en | ori_en | andi_en | slli_en | srli_en | srai_en | add_en | sub_en | sll_en | slt_en | sltu_en | xor_en | srl_en | sra_en | or_en | and_en) & (rd != 0);
+
+// Register file write
+rf[rd] when (rf_we) = rf_wdata;
+
+// Memory stores
+var store_hword[15:0];
+var store_byte[7:0];
+
+store_hword = r2[15:0];
+store_byte = r2[7:0];
+
+dmem[addr_store] when (sw_en) = r2;
+dmem[addr_store] when (sh_en) = store_hword;
+dmem[addr_store] when (sb_en) = store_byte;

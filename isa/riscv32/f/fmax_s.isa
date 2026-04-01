@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV32F - FMAX.S (Maximum)
+// Encoding: funct7=0010100, rs2, rs1, funct3=001, rd, opcode=1010011
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[31:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var f1[31:0];
+var f2[31:0];
+var result[31:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;
+assume instr[31:27] == 0b00101;
+assume instr[26:25] == 0b00;
+assume instr[14:12] == 0b001;     // FMAX.S funct3
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+
+f1 = frf[rs1];
+f2 = frf[rs2];
+
+result = fp_max(f1, f2);
+
+frf[rd] = result;

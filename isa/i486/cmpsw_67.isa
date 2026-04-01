@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CMPSW with 67 prefix (0x67 0xA7) - 32-bit addressing mode
+// Compare words at [ESI] and [EDI] with 32-bit addressing
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state DS[15:0];
+isa_state ES[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var src_lo[7:0];
+var src_hi[7:0];
+var dst_lo[7:0];
+var dst_hi[7:0];
+var src_val[15:0];
+var dst_val[15:0];
+var result[16:0];
+var src_addr[31:0];
+var dst_addr[31:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xA7;
+
+src_addr = (DS << 4) + xregs[6];
+dst_addr = (ES << 4) + xregs[7];
+
+src_lo = dmem[src_addr];
+src_hi = dmem[src_addr + 1];
+dst_lo = dmem[dst_addr];
+dst_hi = dmem[dst_addr + 1];
+
+src_val = {src_hi, src_lo};
+dst_val = {dst_hi, dst_lo};
+
+result = {1'b0, src_val} - {1'b0, dst_val};
+
+flag_CF = result[16];
+flag_OF = (src_val[15] != dst_val[15]) & (src_val[15] != result[15]);
+flag_SF = result[15];
+flag_ZF = result[15:0] == 16'h0000;
+flag_AF = (src_val[3:0] < dst_val[3:0]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+case (flag_DF) {
+  1'b0: xregs[6] = xregs[6] + 32'h00000002;
+  1'b1: xregs[6] = xregs[6] - 32'h00000002;
+}
+
+case (flag_DF) {
+  1'b0: xregs[7] = xregs[7] + 32'h00000002;
+  1'b1: xregs[7] = xregs[7] - 32'h00000002;
+}
+
+eip = eip + 2;

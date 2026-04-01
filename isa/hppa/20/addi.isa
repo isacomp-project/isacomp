@@ -1,0 +1,100 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA 2.0 ADDI instruction
+// ADDI imm,r,t - Add immediate: t = r + sign_ext(imm)
+// Opcode: 0x2D (bits 31:26)
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var t[4:0];
+var imm[10:0];
+var sign_ext_imm[63:0];
+var src[63:0];
+var res[63:0];
+var cond_eq[0:0];
+var cond_lt[0:0];
+var cond_od[0:0];
+var cond_le[0:0];
+var carry[0:0];
+var overflow[0:0];
+var cond_nuv[0:0];
+var cond_znv[0:0];
+var cond_base[0:0];
+var cond_met[0:0];
+var psw_c[63:0];
+var psw_cn[63:0];
+
+instr = umem[pc_pa];
+
+// ADDI encoding: opcode=0x2D (bits 31:26)
+assume instr[31:26] == 0b101101;
+
+// Extract register fields
+// Format: bits 25:21 = r (source), bits 20:16 = t (target)
+// bits 10:0 = 11-bit immediate
+r = instr[25:21];
+t = instr[20:16];
+imm = instr[10:0];
+
+// Low-sign-extend 11-bit immediate: bit[0]=sign, bits[10:1]=value
+sign_ext_imm = {{53{imm[0]}}, imm[0], imm[10:1]};
+
+// Read source register (r0 always reads as 0)
+var psw_W[0:0];
+psw_W = psw[27];
+src = (r == 0) ? 64'h0 : (psw_W ? rf[r] : {{32{rf[r][31]}}, rf[r][31:0]});
+
+// Perform addition
+var res_raw[63:0];
+res_raw = src + sign_ext_imm;
+res = psw_W ? res_raw : {{32{res_raw[31]}}, res_raw[31:0]};
+
+// Arithmetic conditional nullification (c=instr[15:13], f=instr[12])
+cond_eq = (res == 0);
+cond_lt = res[63];
+cond_od = res[0];
+cond_le = cond_lt | cond_eq;
+// Carry out of addition (unsigned overflow) from MSB
+carry = (src[63] & sign_ext_imm[63]) | ((src[63] ^ sign_ext_imm[63]) & ~res[63]);
+// Word carry: carry from bit 31 (always)
+var carry_word[0:0];
+carry_word = (src[31] & sign_ext_imm[31]) | ((src[31] ^ sign_ext_imm[31]) & ~res_raw[31]);
+// Signed overflow: both operands same sign, result different sign
+overflow = (~(src[63] ^ sign_ext_imm[63])) & (src[63] ^ res[63]);
+// ADDI: NUV = no carry, ZNV = zero and no carry
+cond_nuv = ~carry;
+cond_znv = cond_eq & ~carry;
+cond_base = (instr[13] & ~instr[14] & ~instr[15] & cond_eq) |
+            (~instr[13] & instr[14] & ~instr[15] & cond_lt) |
+            (instr[13] & instr[14] & ~instr[15] & cond_le) |
+            (~instr[13] & ~instr[14] & instr[15] & cond_nuv) |
+            (instr[13] & ~instr[14] & instr[15] & cond_znv) |
+            (~instr[13] & instr[14] & instr[15] & overflow) |
+            (instr[13] & instr[14] & instr[15] & cond_od);
+cond_met = cond_base ^ instr[12];
+// Update PSW.C (bit 15) with MSB carry, PSW word carry (bit 14) with bit-31 carry
+psw_c = carry ? (psw | 64'h0000000000008000) : (psw & 64'hFFFFFFFFFFFF7FFF);
+var psw_cw[63:0];
+psw_cw = carry_word ? (psw_c | 64'h0000000000004000) : (psw_c & 64'hFFFFFFFFFFFFBFFF);
+psw_cn = cond_met ? (psw_cw | 64'h0000000000200000) : psw_cw;
+psw when (~instr_trap_taken & ~in_nullified) = psw_cn;
+
+// Write result to target (r0 writes are discarded)
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC by 4
+pc = pc + 4;

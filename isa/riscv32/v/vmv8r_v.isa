@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmv8r.v - Whole Register Move (8 registers)
+// Encoding: vmv8r.v vd, vs2
+// Operation: vd..vd+7 = vs2..vs2+7 (move 8 registers)
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs2[4:0];
+var vd[4:0];
+var v2_0[127:0];
+var v2_1[127:0];
+var v2_2[127:0];
+var v2_3[127:0];
+var v2_4[127:0];
+var v2_5[127:0];
+var v2_6[127:0];
+var v2_7[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b011;
+assume instr[31:26] == 0b100111;
+assume instr[19:15] == 0b00111;
+
+pc = pc + 4;
+
+vs2 = instr[24:20];
+vd = instr[11:7];
+
+v2_0 = vrf[vs2];
+v2_1 = vrf[vs2 + 1];
+v2_2 = vrf[vs2 + 2];
+v2_3 = vrf[vs2 + 3];
+v2_4 = vrf[vs2 + 4];
+v2_5 = vrf[vs2 + 5];
+v2_6 = vrf[vs2 + 6];
+v2_7 = vrf[vs2 + 7];
+
+vrf[vd] = v2_0;
+vrf[vd + 1] = v2_1;
+vrf[vd + 2] = v2_2;
+vrf[vd + 3] = v2_3;
+vrf[vd + 4] = v2_4;
+vrf[vd + 5] = v2_5;
+vrf[vd + 6] = v2_6;
+vrf[vd + 7] = v2_7;

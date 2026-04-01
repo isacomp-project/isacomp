@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 FMPYFADD,DBL instruction (NEW in PA2.0)
+// FMPYFADD,DBL fra,frb,frc,ft - Fused Multiply-Add Double
+// ft = (fra * frb) + frc with single rounding (IEEE 754)
+// Opcode: 0x2E (bits 31:26), double precision
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[25:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var fra[4:0];
+var frb[4:0];
+var frc[4:0];
+var ft[4:0];
+
+instr = umem[pc_pa];
+
+assume instr[31:26] == 0b101110;
+assume instr[5] == 0b1;  // Double precision
+assume instr[4] == 0b0;  // FMPYFADD
+
+fra = instr[25:21];
+frb = instr[20:16];
+frc = instr[15:11];
+ft = instr[4:0];
+
+var a[63:0];
+var b[63:0];
+var c[63:0];
+var result[63:0];
+
+a = frf[fra];
+b = frf[frb];
+c = frf[frc];
+
+result = fp_fmadd(a, b, c, 3'b000);
+
+frf[ft] when (~instr_trap_taken & ~in_nullified) = result;
+pc = pc + 4;

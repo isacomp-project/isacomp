@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 BFINS - Bit Field Insert
+// Opcode: 1110 1111 11 mmm rrr followed by extension word
+// Extension: 0 DDD D ooooo D wwwww
+//   DDD = source data register (low bits inserted)
+//   D = offset is in register (1) or immediate (0)
+//   ooooo = offset register or immediate
+//   D = width is in register (1) or immediate (0)
+//   wwwww = width register or immediate (1-32, 0 means 32)
+// Inserts low 'width' bits of Dn into bit field at destination
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+#ifdef MMU
+// MMU state for ATC instruction fetch translation
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state cam atc_va[19:0]@[4:0][];
+isa_state atc_fc[2:0][4:0];
+isa_state atc_v[0:0][4:0];
+isa_state atc_pa[19:0][4:0];
+isa_state atc_wp[0:0][4:0];
+isa_state atc_m[0:0][4:0];
+isa_state atc_u[0:0][4:0];
+isa_state atc_s[0:0][4:0];
+isa_state atc_next[4:0];
+#endif
+mem dmem[23:0];
+
+// Status Register
+isa_state sr[15:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_mode[2:0];
+var ea_reg[2:0];
+var src_reg[2:0];
+var offset_in_reg[0:0];
+var offset_field[4:0];
+var width_in_reg[0:0];
+var width_field[4:0];
+
+var offset[5:0];
+var width[5:0];
+var dest[31:0];
+var insert_val[31:0];
+var mask[31:0];
+var shifted_mask[31:0];
+var shifted_val[31:0];
+var result[31:0];
+
+// Fetch instruction
+#ifdef MMU
+aspect ../mmu/atc_translate_instr.isa gates pc, atc_va, atc_fc, atc_v, atc_pa, atc_wp, atc_m, atc_u, atc_s, atc_next, dmem;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#endif
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+instr = imem[pc_pa];
+assume instr[15:6] == 10'b1110111111;  // BFINS opcode
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_mode = instr[5:3];
+ea_reg = instr[2:0];
+
+// Fetch extension word
+extw = imem[pc + pc_pa_delta];
+assume extw[15] == 1'b0;
+pc when (~m68k_exc_taken) = pc + 2;
+
+src_reg = extw[14:12];
+offset_in_reg = extw[11];
+offset_field = extw[10:6];
+width_in_reg = extw[5];
+width_field = extw[4:0];
+
+// Get offset
+offset = offset_in_reg ? dregs[offset_field[2:0]][5:0] : {1'b0, offset_field};
+
+// Get width (0 means 32)
+width = width_in_reg ?
+        (dregs[width_field[2:0]][4:0] == 0 ? 6'd32 : {1'b0, dregs[width_field[2:0]][4:0]}) :
+        (width_field == 0 ? 6'd32 : {1'b0, width_field});
+
+// This variant: Dn
+assume instr[5:3] == 3'b000;
+dest = dregs[ea_reg];
+
+// Get insert value (low 'width' bits)
+insert_val = dregs[src_reg];
+
+// Create mask for the field width
+mask = (width == 6'd32) ? 32'hFFFFFFFF : ((32'b1 << width) - 1);
+
+// Shift mask and value to proper position
+// Field starts at bit (31 - offset)
+shifted_mask = mask << (6'd32 - offset - width);
+shifted_val = (insert_val & mask) << (6'd32 - offset - width);
+
+// Clear field in destination and insert new value
+result = (dest & ~shifted_mask) | shifted_val;
+
+// Store result
+dregs[ea_reg] when (~m68k_exc_taken) = result;
+
+// Update CCR based on inserted field value
+flag_N when (~m68k_exc_taken) = insert_val[width - 1];
+flag_Z when (~m68k_exc_taken) = ((insert_val & mask) == 0);
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;
+// X not affected

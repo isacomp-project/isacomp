@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER lfd - Load Floating-Point Double (D-Form)
+// lfd FRT,D(RA)
+// Primary opcode 50
+// FRT <- MEM(RA + EXTS(D), 8) as double precision
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[14:0];
+
+var frt[4:0];
+var ra[4:0];
+var d[15:0];
+var ra_val[63:0];
+var offset[63:0];
+var addr[63:0];
+var data[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 50;     // Primary opcode 50 (lfd)
+
+pc = pc + 4;
+
+frt = instr[25:21];
+ra = instr[20:16];
+d = instr[15:0];
+
+// RA=0 means use 0, else use rf[ra]
+ra_val = rf[ra];
+offset = {{48{d[15]}}, d};  // Sign-extend displacement
+addr = ra_val + offset;
+
+// Load 64-bit value from memory
+#ifdef VM
+aspect mmu_load.isa gates pc, msr, srr0, srr1, dar, dsisr;
+data = umem[ea_pa];
+#else
+data = umem[ea];
+#endif
+
+// Store as double-precision (full 64 bits)
+frf[frt] when (~load_exception_taken & ~instr_trap_taken) = data;

@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RET (0xC3) - Real mode (16-bit default)
+// Near return - pops 16-bit return address from stack using SS:SP
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Stack segment
+isa_state SS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var ret_b0[7:0];
+var ret_b1[7:0];
+var return_addr[15:0];
+var new_sp[15:0];
+var stack_addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xC3;
+
+// Calculate stack physical address using SS:SP
+stack_addr = (SS << 4) + xregs[4][15:0];
+
+// Pop return address from stack (little-endian, 16-bit)
+ret_b0 = dmem[stack_addr];
+ret_b1 = dmem[stack_addr + 1];
+return_addr = {ret_b1, ret_b0};
+
+// Increment SP by 2 (16-bit word size in real mode)
+new_sp = xregs[4][15:0] + 16'h0002;
+xregs[4] = {xregs[4][31:16], new_sp};
+
+// Jump to return address (update only lower 16 bits of EIP)
+eip = {eip[31:16], return_addr};
+
+// RET does not affect flags

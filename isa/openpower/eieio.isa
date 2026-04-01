@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER eieio - Enforce In-order Execution of I/O (X-Form)
+// eieio
+// Primary opcode 31, XO=854
+// Ensures ordering of:
+//   - Load and Store operations to caching-inhibited memory
+//   - Load and Store operations to memory-mapped I/O devices
+// Provides ordering barrier for I/O operations without full memory sync
+// Less restrictive than sync - only affects caching-inhibited accesses
+// Commonly used in device drivers for MMIO register access ordering
+// In single-core, in-order implementation: modeled as no-op
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 854 (bits 21:30 in Power = bits 10:1 in Verilog)
+assume instr[10:1] == 854;
+
+// eieio execution: I/O ordering barrier
+// For single-core implementation, this is a no-op
+// All memory operations are already in-order
+pc = pc + 4;

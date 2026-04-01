@@ -1,0 +1,19 @@
+// MMIX SETL instruction test
+// Test: SETL $1, 0x1234
+
+// Address 0x00: SETL $1, 0x1234  (E3 01 12 34)
+E3011234
+// Address 0x04: SETL $2, 0x1234  (E3 02 12 34) - expected
+E3021234
+// Address 0x08: SUB $3,$1,$2     (24 03 01 02)
+24030102
+// Address 0x0C: BZ $3, +2        (42 03 00 02)
+42030002
+// Address 0x10: JMP +2           (F0 00 00 02)
+F0000002
+// Address 0x14: JMP +1           (F0 00 00 01)
+F0000001
+// Address 0x18: pass
+F0000000
+// Address 0x1C: fail
+F0000000

@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER crandc - Condition Register AND with Complement (XL-Form)
+// crandc BT,BA,BB
+// Primary opcode 19, XO=129
+// CR[BT] <- CR[BA] & ~CR[BB]
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state cr[31:0];
+
+var bt[4:0];
+var ba[4:0];
+var bb[4:0];
+var ba_bit[0:0];
+var bb_bit[0:0];
+var result_bit[0:0];
+var bt_mask[31:0];
+var new_cr[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 19
+assume instr[31:26] == 19;
+// XO field = 129
+assume instr[10:1] == 129;
+
+// Extract fields
+bt = instr[25:21];
+ba = instr[20:16];
+bb = instr[15:11];
+
+// Get source CR bits
+ba_bit = cr[31 - ba];
+bb_bit = cr[31 - bb];
+
+// AND with complement operation
+result_bit = ba_bit & ~bb_bit;
+
+// Update target CR bit
+bt_mask = 32'h1 << (31 - bt);
+new_cr = (cr & ~bt_mask) | ({31'b0, result_bit} << (31 - bt));
+cr = new_cr;
+
+pc = pc + 4;

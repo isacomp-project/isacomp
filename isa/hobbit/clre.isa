@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: CLRE (clear PSW enter guard bit)
+// One-parcel encoding: opcode 0x0B, subcode 0xA, 2 bytes
+// PSW.E = 0
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+assume instr[14:10] == 0x0B;
+assume instr[9:6] == 0b1010;
+
+// Clear PSW enter guard bit (bit 11)
+psw[11] = 0;
+
+pc = pc + 2;

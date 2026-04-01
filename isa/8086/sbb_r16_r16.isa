@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 SBB r16, r16 - Subtract with borrow
+// Opcode: 0x19 + ModR/M byte
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[15:0][7:0];
+
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var reg_idx[2:0];
+var rm_idx[2:0];
+var mod_bits[1:0];
+
+// Fetch instruction
+instr = imem[ip];
+assume instr == 0x19;
+ip = ip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[ip];
+ip = ip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_idx = modrm[2:0];
+
+// Register-to-register mode only
+assume mod_bits == 0b11;
+
+var src_idx[2:0];
+var dst_idx[2:0];
+var src_val[15:0];
+var dst_val[15:0];
+var result[16:0];  // 17 bits to capture borrow
+
+src_idx = reg_idx;
+dst_idx = rm_idx;
+
+src_val = xregs[src_idx];
+dst_val = xregs[dst_idx];
+result = dst_val - src_val - {16'b0, flag_CF};
+xregs[dst_idx] = result[15:0];
+
+// Update flags
+flag_CF = result[16];
+flag_ZF = result[15:0] == 0 ? 1'b1 : 1'b0;
+flag_SF = result[15];
+flag_OF = dst_val[15] & ~src_val[15] & ~result[15] | ~dst_val[15] & src_val[15] & result[15];
+flag_PF = result[0];
+flag_AF = dst_val[3] & ~src_val[3] | ~src_val[3] & ~result[3] | ~result[3] & dst_val[3];

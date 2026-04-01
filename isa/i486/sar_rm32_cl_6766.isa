@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SAR r/m32, CL with 6766 prefix (0x67 0x66 0xD3 /7)
+// 32-bit addressing mode + 32-bit operand size
+// Shift Arithmetic Right by CL
+
+isa_state eip[31:0];
+var prefix67[7:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr[31:0];
+var physical_addr_1[31:0];
+var physical_addr_2[31:0];
+var physical_addr_3[31:0];
+var dst_mem_val_b0[7:0];
+var dst_mem_val_b1[7:0];
+var dst_mem_val_b2[7:0];
+var dst_mem_val_b3[7:0];
+var dst_mem_val[31:0];
+var dst_reg_val[31:0];
+var dst_val[31:0];
+var count[4:0];
+var result[31:0];
+var is_mem_dest[0:0];
+var sign_bit[0:0];
+
+prefix67 = imem[eip];
+assume prefix67 == 0x67;
+
+prefix = imem[eip + 1];
+assume prefix == 0x66;
+
+instr = imem[eip + 2];
+assume instr == 0xD3;
+
+modrm = imem[eip + 3];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b111;
+
+base_val = xregs[rm_bits];
+
+// Read displacement bytes
+disp8 = imem[eip + 4];
+disp32 = {imem[eip + 7], imem[eip + 6], imem[eip + 5], imem[eip + 4]};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+// Calculate offset based on addressing mode
+case (mod_bits) {
+  2'b00: offset = base_val;
+  2'b01: offset = base_val + signed_disp8;
+  2'b10: offset = base_val + disp32;
+  2'b11: offset = 32'h00000000;
+}
+
+// Set destination type flag
+case (mod_bits) {
+  2'b00: is_mem_dest = 1'b1;
+  2'b01: is_mem_dest = 1'b1;
+  2'b10: is_mem_dest = 1'b1;
+  2'b11: is_mem_dest = 1'b0;
+}
+
+// Update EIP: prefix67(1) + prefix(1) + opcode(1) + modrm(1) + disp
+case (mod_bits) {
+  2'b00: eip = eip + 4;   // 67+66+op+modrm
+  2'b01: eip = eip + 5;   // 67+66+op+modrm+disp8
+  2'b10: eip = eip + 8;   // 67+66+op+modrm+disp32
+  2'b11: eip = eip + 4;   // 67+66+op+modrm
+}
+
+// Calculate physical address for memory modes
+physical_addr = ({16'h0000, DS} << 4) + offset;
+physical_addr_1 = physical_addr + 32'h00000001;
+physical_addr_2 = physical_addr + 32'h00000002;
+physical_addr_3 = physical_addr + 32'h00000003;
+
+// Read destination values
+dst_mem_val_b0 = dmem[physical_addr];
+dst_mem_val_b1 = dmem[physical_addr_1];
+dst_mem_val_b2 = dmem[physical_addr_2];
+dst_mem_val_b3 = dmem[physical_addr_3];
+dst_mem_val = {dst_mem_val_b3, dst_mem_val_b2, dst_mem_val_b1, dst_mem_val_b0};
+dst_reg_val = xregs[rm_bits];
+
+case (is_mem_dest) {
+  1'b1: dst_val = dst_mem_val;
+  1'b0: dst_val = dst_reg_val;
+}
+
+count = xregs[1][4:0];
+
+sign_bit = dst_val[31];
+result = (dst_val >> count) | (sign_bit ? (32'hFFFFFFFF << (32 - count)) : 32'h0);
+
+flag_CF = count == 0 ? flag_CF : dst_val[count - 1];
+flag_OF = count == 1 ? 1'b0 : flag_OF;
+flag_SF = result[31];
+flag_ZF = result == 32'h0;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+// Write result to destination
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr] = result[7:0];
+  1'b0: xregs[rm_bits] = result[31:0];
+}
+
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr_1] = result[15:8];
+  1'b0: xregs[rm_bits] = result[31:0];
+}
+
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr_2] = result[23:16];
+  1'b0: xregs[rm_bits] = result[31:0];
+}
+
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr_3] = result[31:24];
+  1'b0: xregs[rm_bits] = result[31:0];
+}

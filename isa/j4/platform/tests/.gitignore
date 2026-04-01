@@ -1,0 +1,11 @@
+# Verilator build artifacts
+obj_dir/
+
+# Memory initialization files (generated)
+*.hex
+
+# Boot images (generated from kernel)
+boot.bin
+*.vcd
+sim*.log
+sim*.txt

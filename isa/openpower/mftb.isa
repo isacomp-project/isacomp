@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mftb - Move From Time Base (XFX-Form)
+// mftb RT,TBR
+// Primary opcode 31, XO=371
+// TBR field encodes which TB register (268=TB, 269=TBU)
+// RT <- Time Base (lower or upper)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state tb[63:0];
+
+var rt[4:0];
+var tbr[9:0];
+var tbr_swapped[9:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 371
+assume instr[10:1] == 371;
+
+// Extract fields
+rt = instr[25:21];
+// TBR field is encoded in bits 20:11 with swapped halves
+tbr_swapped[9:5] = instr[15:11];
+tbr_swapped[4:0] = instr[20:16];
+
+// Decode TBR value
+// 268 (0x10C) = TB lower, 269 (0x10D) = TB upper
+// For simplicity, always return full TB (lower 64 bits)
+result = tb;
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

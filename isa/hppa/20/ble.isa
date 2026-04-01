@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 BLE instruction (64-bit)
+// BLE d(sr,b) - Branch and Link External: branch to different space, save return
+// Opcode: 0x39 (bits 31:26)
+// 17-bit displacement, sr=instr[15:14], b=instr[25:21]
+// Saves return address (pc+8) to GR31, sets SR0 for return space.
+// Sets branch_target_space from space register.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// Space registers (sr0-sr7) — individual state, matching mtsp/mfsp
+isa_state sr0[63:0];
+isa_state sr1[63:0];
+isa_state sr2[63:0];
+isa_state sr3[63:0];
+isa_state sr4[63:0];
+isa_state sr5[63:0];
+isa_state sr6[63:0];
+isa_state sr7[63:0];
+
+// Branch target space for external branches
+isa_state branch_target_space[63:0];
+
+// Code address space queue
+isa_state code_iasq[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var b[4:0];
+var base[63:0];
+var w[16:0];
+var target_offset[63:0];
+var target[63:0];
+var sr_field[2:0];
+
+instr = umem[pc_pa];
+
+// BLE encoding: opcode=0x39
+assume instr[31:26] == 0b111001;
+
+// Extract base register
+b = instr[25:21];
+
+// Read base register (r0 reads as 0)
+base = (b == 0) ? 64'h0 : rf[b];
+
+// Assemble 17-bit displacement from scattered bits
+// w = {instr[0], instr[20:16], instr[2], instr[12:3]}
+w = {instr[0], instr[20:16], instr[2], instr[12:3]};
+
+// Sign-extend and word-align (shift left 2)
+target_offset = {{45{w[16]}}, w, 2'b00};
+
+// Target = base + offset (external branch uses base register)
+target = base + target_offset;
+
+// Space register: 3-bit SCRAMBLED field at bits[15:13]
+// SR = {instr[13], instr[15], instr[14]} (PA-RISC bit-swapped encoding)
+sr_field = {instr[13], instr[15], instr[14]};
+
+// Save return address (pc+8) to GR31
+rf[31] when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = pc + 8;
+
+// Save current code space to SR0 for return
+sr0 when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = code_iasq;
+
+// Select space register value using multiplexer (matching 1.1 pattern)
+var target_space[63:0];
+target_space = (sr_field == 3'd0) ? sr0 :
+               (sr_field == 3'd1) ? sr1 :
+               (sr_field == 3'd2) ? sr2 :
+               (sr_field == 3'd3) ? sr3 :
+               (sr_field == 3'd4) ? sr4 :
+               (sr_field == 3'd5) ? sr5 :
+               (sr_field == 3'd6) ? sr6 : sr7;
+
+// Set branch target space from selected space register
+branch_target_space when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target_space;
+
+// Branch target
+branch_target when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+
+// BLE (n=0 or n=1): always enter delay slot
+// For BLE,n: we set PSW.N=1 so the delay slot instruction is nullified,
+// but the delay_slot aspect still fires to update code_iasq.
+delay_slot when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+
+// Advance PC to delay slot instruction
+pc = pc + 4;
+
+// BLE,n (n=1): set PSW.N to nullify the delay slot instruction
+// Use unique variable name to prevent graph_merger deduplication with other instructions
+var ble_psw_with_n[63:0];
+ble_psw_with_n = psw | 64'h0000000000200000;
+psw when (instr[1] & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = ble_psw_with_n;

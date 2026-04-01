@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ENTER (0xC8)
+// Create stack frame
+// Format: ENTER imm16, imm8 (imm8 is nesting level)
+// For imm8=0: PUSH EBP; MOV EBP, ESP; SUB ESP, imm16
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Stack pointer and base pointer aliases
+isa_state ESP[31:0] of xregs[4];
+isa_state EBP[31:0] of xregs[5];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var size_b0[7:0];
+var size_b1[7:0];
+var size[15:0];
+var imm8[7:0];
+var new_esp[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xC8;
+
+// Read 16-bit size operand (little-endian)
+size_b0 = imem[eip + 1];
+size_b1 = imem[eip + 2];
+size = {size_b1, size_b0};
+
+// Read 8-bit nesting level
+imm8 = imem[eip + 3];
+
+// Update EIP to point after instruction
+eip = eip + 4;
+
+// This implementation handles imm8=0 (most common case)
+// For simplicity, we assume imm8 == 0
+assume imm8 == 8'h00;
+
+// Step 1: PUSH EBP
+new_esp = ESP - 4;
+ESP = new_esp;
+dmem[new_esp] = EBP[7:0];
+dmem[new_esp + 1] = EBP[15:8];
+dmem[new_esp + 2] = EBP[23:16];
+dmem[new_esp + 3] = EBP[31:24];
+
+// Step 2: MOV EBP, ESP
+EBP = ESP;
+
+// Step 3: SUB ESP, size (allocate local variables)
+ESP = ESP - {16'h0000, size};
+
+// ENTER does not affect flags

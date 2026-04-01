@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER lhbrx - Load Halfword Byte-Reverse Indexed (X-Form)
+// lhbrx RT,RA,RB
+// Primary opcode 31, XO=790
+// if RA = 0 then b <- 0 else b <- (RA)
+// EA <- b + (RB)
+// Load 2 bytes, reverse byte order, zero-extend to 64 bits
+// RT <- 0x0000_0000_0000 || BYTE_REVERSE(MEM(EA, 2))
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var rb[4:0];
+var ra_val[63:0];
+var rb_val[63:0];
+var ra_or_zero[63:0];
+var ea[63:0];
+var half_data[15:0];
+var reversed[15:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 790
+assume instr[10:1] == 790;
+
+// Extract register fields
+rt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+ra_val = rf[ra];
+rb_val = rf[rb];
+
+// If RA=0, use 0; otherwise use (RA)
+ra_or_zero = ra == 0 ? 64'h0 : ra_val;
+
+// Calculate effective address
+ea = ra_or_zero + rb_val;
+
+// Load halfword from memory
+#ifdef VM
+aspect mmu_load.isa gates pc, msr, srr0, srr1, dar, dsisr;
+half_data = umem[ea_pa];
+#else
+half_data = umem[ea];
+#endif
+
+// Reverse bytes: [byte0, byte1] -> [byte1, byte0]
+reversed = {half_data[7:0], half_data[15:8]};
+
+// Zero-extend to 64 bits
+result = {48'h0, reversed};
+
+#ifdef VM
+rf[rt] when (~load_exception_taken & ~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

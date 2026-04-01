@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 LD (HL),n (0x36) - Load immediate to memory at HL
+// (HL) = n
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state H[7:0];
+isa_state L[7:0];
+mem mainmem[15:0];
+var pc_plus_1[15:0];
+var addr[15:0];
+var imm[7:0];
+
+instr = mainmem[pc];
+assume instr == 0x36;
+pc_plus_1 = pc + 1;
+
+addr = {H, L};
+imm = mainmem[pc_plus_1];
+mainmem[addr] = imm;
+pc = pc_plus_1 + 1;

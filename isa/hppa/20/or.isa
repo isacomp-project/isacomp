@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 OR instruction (64-bit)
+// OR r1,r2,t - Bitwise OR: t = r1 | r2
+// Opcode: 0x02 (bits 31:26), Sub-opcode: 0x12 (bits 11:5 = 0b0001001)
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var t[4:0];
+var src1[63:0];
+var src2[63:0];
+var res[63:0];
+var cond_eq[0:0];
+var cond_lt[0:0];
+var cond_od[0:0];
+var cond_base[0:0];
+var cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// OR encoding: opcode=0x02 (bits 31:26), sub-opcode bits[11:6]=001001
+// bit[5] is the PA-RISC 2.0 "d" (double) bit: 0=normal, 1=64-bit condition (*)
+assume instr[31:26] == 0b000010;
+assume instr[11:6] == 0b001001;
+
+// Extract register fields
+r2 = instr[25:21];
+r1 = instr[20:16];
+t = instr[4:0];
+
+// Read source registers (r0 always reads as 0)
+src1 = (r1 == 0) ? 64'h0 : rf[r1];
+src2 = (r2 == 0) ? 64'h0 : rf[r2];
+
+// Perform bitwise OR
+res = src1 | src2;
+
+// Conditional nullification (3-bit condition: bits[15:13])
+cond_eq = (res == 0);
+cond_lt = res[63];
+cond_od = res[0];
+cond_base = (instr[13] & ~instr[14] & cond_eq) | (~instr[13] & instr[14] & cond_lt) | (instr[13] & instr[14] & cond_od);
+cond_met = cond_base ^ instr[12];
+psw when (cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target (r0 writes are discarded)
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC by 4
+pc = pc + 4;

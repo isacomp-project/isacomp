@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX POP - Pop Registers and Return
+// POP X,YZ: pop registers, return to caller
+// Opcode: 0xF8
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rJ[63:0];
+mem umem[14:0];
+
+var x[7:0];
+var yz[15:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xF8;
+
+x = instr[23:16];
+yz = instr[15:0];
+
+// Return to address in rJ (plus offset from YZ)
+pc = rJ + ({48'h0, yz} << 2);

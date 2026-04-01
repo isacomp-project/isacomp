@@ -1,0 +1,165 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BSR r32, r/m32 with 66 prefix (0x66 0x0F 0xBD) - Bit Scan Reverse
+// Find highest set bit (MSB to LSB) in source
+// If source is 0: ZF=1, dest undefined
+// If source is non-zero: ZF=0, dest=bit position of highest set bit
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_ZF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var src_val[31:0];
+var result[31:0];
+var is_zero[0:0];
+
+// Priority encoding flags for bytes
+var byte3_nonzero[0:0];
+var byte2_nonzero[0:0];
+var byte1_nonzero[0:0];
+
+// Priority encoding flags for each bit position
+var found31[0:0]; var found30[0:0]; var found29[0:0]; var found28[0:0];
+var found27[0:0]; var found26[0:0]; var found25[0:0]; var found24[0:0];
+var found23[0:0]; var found22[0:0]; var found21[0:0]; var found20[0:0];
+var found19[0:0]; var found18[0:0]; var found17[0:0]; var found16[0:0];
+var found15[0:0]; var found14[0:0]; var found13[0:0]; var found12[0:0];
+var found11[0:0]; var found10[0:0]; var found9[0:0]; var found8[0:0];
+var found7[0:0]; var found6[0:0]; var found5[0:0]; var found4[0:0];
+var found3[0:0]; var found2[0:0]; var found1[0:0]; var found0[0:0];
+
+// Fetch and verify 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch first opcode byte
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+// Fetch second opcode byte
+instr2 = imem[eip + 2];
+assume instr2 == 0xBD;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 3];
+
+eip = eip + 4;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Register-direct mode only
+assume mod_bits == 0b11;
+
+// Read source value
+src_val = xregs[rm_bits];
+
+// Check if source is zero
+is_zero = (src_val == 32'h00000000) ? 1'b1 : 1'b0;
+
+// Set ZF based on whether source is zero
+case (is_zero) {
+    1'b1: flag_ZF = 1'b1;
+    1'b0: flag_ZF = 1'b0;
+}
+
+// Byte nonzero flags (checking if higher bytes have bits set)
+byte3_nonzero = (src_val[31:24] != 8'h00) ? 1'b1 : 1'b0;
+byte2_nonzero = (src_val[31:16] != 16'h0000) ? 1'b1 : 1'b0;
+byte1_nonzero = (src_val[31:8] != 24'h000000) ? 1'b1 : 1'b0;
+
+// Priority encoding for bits 31-24 (check highest byte first)
+found31 = src_val[31];
+found30 = src_val[30] & ~src_val[31];
+found29 = src_val[29] & ~src_val[30] & ~src_val[31];
+found28 = src_val[28] & ~src_val[29] & ~src_val[30] & ~src_val[31];
+found27 = src_val[27] & ~src_val[28] & ~src_val[29] & ~src_val[30] & ~src_val[31];
+found26 = src_val[26] & ~src_val[27] & ~src_val[28] & ~src_val[29] & ~src_val[30] & ~src_val[31];
+found25 = src_val[25] & ~src_val[26] & ~src_val[27] & ~src_val[28] & ~src_val[29] & ~src_val[30] & ~src_val[31];
+found24 = src_val[24] & ~src_val[25] & ~src_val[26] & ~src_val[27] & ~src_val[28] & ~src_val[29] & ~src_val[30] & ~src_val[31];
+
+case (found31) { 1'b1: result = 32'd31; }
+case (found30) { 1'b1: result = 32'd30; }
+case (found29) { 1'b1: result = 32'd29; }
+case (found28) { 1'b1: result = 32'd28; }
+case (found27) { 1'b1: result = 32'd27; }
+case (found26) { 1'b1: result = 32'd26; }
+case (found25) { 1'b1: result = 32'd25; }
+case (found24) { 1'b1: result = 32'd24; }
+
+// Priority encoding for bits 23-16 (only if byte 3 is zero)
+found23 = ~byte3_nonzero & src_val[23];
+found22 = ~byte3_nonzero & src_val[22] & ~src_val[23];
+found21 = ~byte3_nonzero & src_val[21] & ~src_val[22] & ~src_val[23];
+found20 = ~byte3_nonzero & src_val[20] & ~src_val[21] & ~src_val[22] & ~src_val[23];
+found19 = ~byte3_nonzero & src_val[19] & ~src_val[20] & ~src_val[21] & ~src_val[22] & ~src_val[23];
+found18 = ~byte3_nonzero & src_val[18] & ~src_val[19] & ~src_val[20] & ~src_val[21] & ~src_val[22] & ~src_val[23];
+found17 = ~byte3_nonzero & src_val[17] & ~src_val[18] & ~src_val[19] & ~src_val[20] & ~src_val[21] & ~src_val[22] & ~src_val[23];
+found16 = ~byte3_nonzero & src_val[16] & ~src_val[17] & ~src_val[18] & ~src_val[19] & ~src_val[20] & ~src_val[21] & ~src_val[22] & ~src_val[23];
+
+case (found23) { 1'b1: result = 32'd23; }
+case (found22) { 1'b1: result = 32'd22; }
+case (found21) { 1'b1: result = 32'd21; }
+case (found20) { 1'b1: result = 32'd20; }
+case (found19) { 1'b1: result = 32'd19; }
+case (found18) { 1'b1: result = 32'd18; }
+case (found17) { 1'b1: result = 32'd17; }
+case (found16) { 1'b1: result = 32'd16; }
+
+// Priority encoding for bits 15-8 (only if bytes 3-2 are zero)
+found15 = ~byte2_nonzero & src_val[15];
+found14 = ~byte2_nonzero & src_val[14] & ~src_val[15];
+found13 = ~byte2_nonzero & src_val[13] & ~src_val[14] & ~src_val[15];
+found12 = ~byte2_nonzero & src_val[12] & ~src_val[13] & ~src_val[14] & ~src_val[15];
+found11 = ~byte2_nonzero & src_val[11] & ~src_val[12] & ~src_val[13] & ~src_val[14] & ~src_val[15];
+found10 = ~byte2_nonzero & src_val[10] & ~src_val[11] & ~src_val[12] & ~src_val[13] & ~src_val[14] & ~src_val[15];
+found9 = ~byte2_nonzero & src_val[9] & ~src_val[10] & ~src_val[11] & ~src_val[12] & ~src_val[13] & ~src_val[14] & ~src_val[15];
+found8 = ~byte2_nonzero & src_val[8] & ~src_val[9] & ~src_val[10] & ~src_val[11] & ~src_val[12] & ~src_val[13] & ~src_val[14] & ~src_val[15];
+
+case (found15) { 1'b1: result = 32'd15; }
+case (found14) { 1'b1: result = 32'd14; }
+case (found13) { 1'b1: result = 32'd13; }
+case (found12) { 1'b1: result = 32'd12; }
+case (found11) { 1'b1: result = 32'd11; }
+case (found10) { 1'b1: result = 32'd10; }
+case (found9) { 1'b1: result = 32'd9; }
+case (found8) { 1'b1: result = 32'd8; }
+
+// Priority encoding for bits 7-0 (only if bytes 3-1 are zero)
+found7 = ~byte1_nonzero & src_val[7];
+found6 = ~byte1_nonzero & src_val[6] & ~src_val[7];
+found5 = ~byte1_nonzero & src_val[5] & ~src_val[6] & ~src_val[7];
+found4 = ~byte1_nonzero & src_val[4] & ~src_val[5] & ~src_val[6] & ~src_val[7];
+found3 = ~byte1_nonzero & src_val[3] & ~src_val[4] & ~src_val[5] & ~src_val[6] & ~src_val[7];
+found2 = ~byte1_nonzero & src_val[2] & ~src_val[3] & ~src_val[4] & ~src_val[5] & ~src_val[6] & ~src_val[7];
+found1 = ~byte1_nonzero & src_val[1] & ~src_val[2] & ~src_val[3] & ~src_val[4] & ~src_val[5] & ~src_val[6] & ~src_val[7];
+found0 = ~byte1_nonzero & src_val[0] & ~src_val[1] & ~src_val[2] & ~src_val[3] & ~src_val[4] & ~src_val[5] & ~src_val[6] & ~src_val[7];
+
+case (found7) { 1'b1: result = 32'd7; }
+case (found6) { 1'b1: result = 32'd6; }
+case (found5) { 1'b1: result = 32'd5; }
+case (found4) { 1'b1: result = 32'd4; }
+case (found3) { 1'b1: result = 32'd3; }
+case (found2) { 1'b1: result = 32'd2; }
+case (found1) { 1'b1: result = 32'd1; }
+case (found0) { 1'b1: result = 32'd0; }
+
+// Write result to destination register (only when source is non-zero)
+case (is_zero) {
+    1'b0: xregs[reg_idx] = result;
+}
+
+// CF, OF, SF, AF, PF are undefined

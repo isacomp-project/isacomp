@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 TN instruction (trap never)
+// Format 3: op=10, op3=111010, cond=0000
+// TN rs1 + reg_or_imm
+// Never trap (effectively a NOP)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];  // 256 physical registers (136 used for 8 windows)
+isa_state cwp[2:0];       // Current Window Pointer (0-7)
+isa_state trap[0:0];      // Trap pending flag
+isa_state tt[7:0];        // Trap type
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;       // op = 10 (Format 3)
+assume instr[28:25] == 0b0000;     // cond = never
+assume instr[24:19] == 0b111010;   // op3 = Ticc
+
+// TN never traps - just advance PC
+pc = pc + 4;

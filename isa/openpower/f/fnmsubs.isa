@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER fnmsubs - Floating Negative Multiply-Subtract Single (A-Form)
+// fnmsubs FRT,FRA,FRC,FRB (Rc=0)
+// Primary opcode 59, XO=30
+// FRT <- -((FRA) * (FRC) - (FRB)) as single precision
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+isa_state fpscr[31:0];
+mem umem[14:0];
+
+var frt[4:0];
+var fra[4:0];
+var frb[4:0];
+var frc[4:0];
+var f1[31:0];
+var f2[31:0];
+var f3[31:0];
+var nfms_result[31:0];
+var rm[2:0];  // Rounding mode in canonical IEEE 754 encoding
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 59;     // Primary opcode 59
+assume instr[5:1] == 30;       // XO = 30 (fnmsubs)
+assume instr[0] == 0;          // Rc = 0
+
+pc = pc + 4;
+
+frt = instr[25:21];
+fra = instr[20:16];
+frb = instr[15:11];
+frc = instr[10:6];
+
+f1 = frf[fra][31:0];
+f2 = frf[frc][31:0];
+f3 = frf[frb][31:0];
+
+// Map OpenPOWER FPSCR[RN] to canonical IEEE 754 rounding mode
+rm = {1'b0, fpscr[1], fpscr[1] ^ fpscr[0]};
+
+// Negated fused multiply-subtract: -((fra * frc) - frb)
+nfms_result = fp_fnmsub(f1, f2, f3, rm);
+
+frf[frt] when (~instr_trap_taken) = {32'b0, nfms_result};

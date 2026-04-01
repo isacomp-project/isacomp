@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Info Table Field Extraction
+//
+// Info tables are stored in instruction memory and describe functions.
+// Format (32-bit word):
+//   Bit 31:      isConstructor - 1 if this is a data constructor
+//   Bits 30-20:  arity - number of arguments the function expects (11 bits)
+//   Bits 19-10:  nfree - number of free variables in closure (10 bits)
+//   Bits 9-0:    nlocals - number of local variables needed (10 bits)
+//
+// Requires: info_addr[31:0] defined before inclusion
+// Provides: info_is_cons, info_arity, info_nfree, info_nlocals
+
+var info_word[31:0];
+var info_is_cons[0:0];
+var info_arity[10:0];
+var info_nfree[9:0];
+var info_nlocals[9:0];
+
+// Read info table from instruction memory
+info_word = imem[info_addr];
+
+// Extract fields
+info_is_cons = info_word[31];
+info_arity = info_word[30:20];
+info_nfree = info_word[19:10];
+info_nlocals = info_word[9:0];

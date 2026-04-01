@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD F1 - DD prefix passthrough
+// DD prefix consumed, base opcode F1 executes unchanged
+
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state sp[15:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_S[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_H[0:0];
+isa_state flag_PV[0:0];
+isa_state flag_N[0:0];
+isa_state flag_C[0:0];
+
+var F[7:0];
+var sp_plus_1[15:0];
+var sp_plus_2[15:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'hF1DD;
+pc = pc + 2;
+
+F = mainmem[sp];
+sp_plus_1 = sp + 1;
+A = mainmem[sp_plus_1];
+sp_plus_2 = sp_plus_1 + 1;
+
+// Extract flags from F register
+// F: S(7) Z(6) 0(5) H(4) 0(3) P/V(2) N(1) C(0)
+flag_S = F[7];
+flag_Z = F[6];
+flag_H = F[4];
+flag_PV = F[2];
+flag_N = F[1];
+flag_C = F[0];
+
+sp = sp_plus_2;

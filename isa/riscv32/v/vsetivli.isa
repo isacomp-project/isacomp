@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vsetivli - Set Vector Length Immediate with Immediate AVL
+// Encoding: vsetivli rd, uimm, vtypei
+// Sets vl based on immediate AVL and vtype immediate
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vl[31:0];          // Vector length
+isa_state vtype[31:0];       // Vector type register
+mem umem[12:0];
+
+var instr[31:0];
+var rd[4:0];
+var uimm[4:0];
+var vtypei[9:0];
+var vsew[2:0];
+var vlmul[2:0];
+var vta[0:0];
+var vma[0:0];
+var new_vl[31:0];
+var new_vtype[31:0];
+
+instr = umem[pc];
+// Opcode for vector config: 1010111 (OP-V)
+assume instr[6:0] == 0b1010111;
+// funct3 = 111 for vsetivli
+assume instr[14:12] == 0b111;
+// Bit 31:30 = 11 for vsetivli
+assume instr[31:30] == 0b11;
+
+pc = pc + 4;
+
+rd = instr[11:7];
+// uimm[4:0] is in rs1 field (immediate AVL, 0-31)
+uimm = instr[19:15];
+
+// vtypei is in bits [29:20]
+vtypei = instr[29:20];
+
+// Extract vtype fields
+vsew = vtypei[5:3];      // Selected Element Width
+vlmul = vtypei[2:0];     // Vector Length Multiplier
+vta = vtypei[6:6];       // Vector Tail Agnostic
+vma = vtypei[7:7];       // Vector Mask Agnostic
+
+// Build new vtype register value
+new_vtype = vtypei;
+
+// Set vl = uimm (immediate AVL)
+new_vl = uimm;
+
+// Update vtype
+vtype = new_vtype;
+
+// Update vl
+vl = new_vl;
+
+// Write new vl to rd if rd != 0
+rf[rd] when (rd != 0) = new_vl;

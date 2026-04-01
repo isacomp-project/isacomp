@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 MULU.L #imm,Dh:Dl - Unsigned Multiply Long immediate (32x32->64)
+// Opcode: 0100 1100 00 111 100 followed by extension word, then 32-bit immediate
+// Extension: 0 DDD x 1 0000000 DDD where upper DDD=Dl, lower DDD=Dh, bit10=1 (64-bit)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ext_word[15:0];
+var dl_reg[2:0];
+var dh_reg[2:0];
+var imm_hi[15:0];
+var imm_lo[15:0];
+var imm_val[31:0];
+var dl_val[31:0];
+var src_ext[63:0];
+var dst_ext[63:0];
+var result_full[63:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100110000;  // MULU.L/MULS.L
+assume instr[5:3] == 0b111;          // EA mode: Special
+assume instr[2:0] == 0b100;          // Immediate
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Fetch extension word
+ext_word = dmem[pc + pc_pa_delta];
+assume ext_word[11] == 0b0;    // Unsigned (MULU.L) - bit 11 distinguishes signed/unsigned
+assume ext_word[10] == 0b1;    // 64-bit result
+pc when (~m68k_exc_taken) = pc + 2;
+
+dl_reg = ext_word[14:12];
+dh_reg = ext_word[2:0];
+
+// Fetch 32-bit immediate (big-endian)
+imm_hi = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+imm_lo = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+imm_val = {imm_hi, imm_lo};
+
+// Execute multiply (32x32->64, unsigned)
+dl_val = dregs[dl_reg];
+src_ext = {32'b0, imm_val};
+dst_ext = {32'b0, dl_val};
+result_full = src_ext * dst_ext;
+dregs[dh_reg] when (~m68k_exc_taken) = result_full[63:32];
+dregs[dl_reg] when (~m68k_exc_taken) = result_full[31:0];
+
+// Update CCR
+flag_N when (~m68k_exc_taken) = result_full[63];
+flag_Z when (~m68k_exc_taken) = result_full == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

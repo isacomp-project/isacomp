@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 PUSH BC (0xC5) - Push BC register pair to stack
+// (SP-1) = B, (SP-2) = C, SP = SP - 2
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state sp[15:0];
+isa_state B[7:0];
+isa_state C[7:0];
+mem mainmem[15:0];
+
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xC5;
+pc = pc + 1;
+
+sp_minus_1 = sp - 1;
+mainmem[sp_minus_1] = B;
+
+sp_minus_2 = sp_minus_1 - 1;
+mainmem[sp_minus_2] = C;
+
+sp = sp_minus_2;

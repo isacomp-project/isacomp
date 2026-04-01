@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 OR A,(HL) (0xB6) - OR (HL) with A
+// A = A | (HL)
+// Affects S, Z, H, P/V, N, C flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state H[7:0];
+isa_state L[7:0];
+isa_state flag_S;
+isa_state flag_Z;
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+isa_state flag_C;
+mem mainmem[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xB6;
+pc = pc + 1;
+
+var addr[15:0];
+addr = {H, L};
+var operand[7:0];
+operand = mainmem[addr];
+A = A | operand;
+flag_S = A[7];
+flag_Z = (A == 8'b0);
+flag_H = 0;
+flag_PV = (A[7] ^ A[6] ^ A[5] ^ A[4] ^ A[3] ^ A[2] ^ A[1] ^ A[0]) == 0;
+flag_N = 0;
+flag_C = 0;
+

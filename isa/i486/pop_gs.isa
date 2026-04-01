@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 POP GS (0x0F 0xA9)
+// Pop value from stack into GS segment register
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state EAX[31:0] of xregs[0];
+isa_state ESP[31:0] of xregs[4];
+
+// Segment registers
+isa_state CS[15:0];
+isa_state DS[15:0];
+isa_state ES[15:0];
+isa_state SS[15:0];
+isa_state FS[15:0];
+isa_state GS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var val_b0[7:0];
+var val_b1[7:0];
+var instr2[7:0];
+
+// Fetch first byte (0x0F escape)
+instr = imem[eip];
+
+// Check this is 0x0F (two-byte escape)
+assume instr == 0x0F;
+
+eip = eip + 1;
+
+// Fetch second byte
+instr2 = imem[eip];
+
+// Check this is POP GS (0xA9)
+assume instr2 == 0xA9;
+
+eip = eip + 1;
+
+// Read 16-bit value from stack (little-endian)
+val_b0 = dmem[ESP];
+val_b1 = dmem[ESP + 1];
+
+// Increment ESP by 4 (32-bit pop, even though only 16 bits used)
+ESP = ESP + 4;
+
+// Store value in GS (only low 16 bits)
+GS = {val_b1, val_b0};
+
+// POP does not affect flags

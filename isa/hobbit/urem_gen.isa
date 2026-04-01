@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: UREM src, dst (general addressing, three-parcel)
+// Three-parcel encoding: opcode 0x05, 6 bytes
+// dst %= src (unsigned remainder); carry always cleared
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state psw[31:0];
+mem umem[31:0];
+
+var parcel0[15:0];
+var parcel1[15:0];
+var parcel2[15:0];
+var opcode6[5:0];
+var smode[3:0];
+var dmode[3:0];
+var src_field[15:0];
+var dst_field[15:0];
+
+var src_val[31:0];
+var dst_val[31:0];
+var src_addr[31:0];
+var dst_addr[31:0];
+var result[31:0];
+
+parcel0 = umem[pc];
+parcel1 = umem[pc + 2];
+parcel2 = umem[pc + 4];
+
+assume parcel0[15:14] == 0b10;
+opcode6 = parcel0[13:8];
+assume opcode6 == 0x05;
+
+smode = parcel0[7:4];
+dmode = parcel0[3:0];
+src_field = parcel1;
+dst_field = parcel2;
+
+assume smode == 0xD;
+src_addr = sp + {{16{src_field[15]}}, src_field};
+src_val = umem[src_addr];
+
+assume dmode == 0xD;
+dst_addr = sp + {{16{dst_field[15]}}, dst_field};
+dst_val = umem[dst_addr];
+
+assume src_val != 0;
+result = dst_val % src_val;
+
+umem[dst_addr] = result;
+
+psw[5] = 0;
+
+pc = pc + 6;

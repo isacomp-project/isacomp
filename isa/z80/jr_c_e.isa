@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 JR C,e (0x38) - Relative jump if Carry flag set
+// if C=1: PC = PC + 2 + e, else PC = PC + 2
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+mem mainmem[15:0];
+isa_state flag_C[0:0];
+
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var offset[7:0];
+var sign_ext_offset[15:0];
+var target[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x38;
+
+// Use intermediate variables for address calculation
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+
+offset = mainmem[pc_plus_1];
+
+sign_ext_offset = {{8{offset[7]}}, offset};
+target = pc_plus_2 + sign_ext_offset;
+
+// Single write to PC with conditional target
+pc = flag_C ? target : pc_plus_2;

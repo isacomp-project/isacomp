@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SH-4 MMU Control Registers and TLB Arrays
+// These are memory-mapped registers accessed via P4 area (0xFF000000+)
+// and the UTLB/ITLB arrays for software-managed TLB lookups.
+//
+// SH-4 Address Space Regions:
+// P0/U0: 0x00000000-0x7FFFFFFF - User/Kernel, TRANSLATED (uses TLB)
+// P1:    0x80000000-0x9FFFFFFF - Kernel, CACHED, UNTRANSLATED (physical)
+// P2:    0xA0000000-0xBFFFFFFF - Kernel, UNCACHED, UNTRANSLATED (physical)
+// P3:    0xC0000000-0xDFFFFFFF - Kernel, TRANSLATED (uses TLB)
+// P4:    0xE0000000-0xFFFFFFFF - Control regs, UNTRANSLATED
+//
+// Exception Vectors (relative to VBR):
+// TLB miss (general):        VBR + 0x400
+// TLB miss (initial page):   VBR + 0x400
+// TLB protection violation:  VBR + 0x100
+// TLB invalid:               VBR + 0x400
+// Address error:             VBR + 0x100
+
+// ============================================================================
+// MMU Control Registers
+// ============================================================================
+
+// MMUCR - MMU Control Register (0xFF000010)
+// Bit 0:      AT   - Address Translation enable (0=off, 1=on)
+// Bit 2:      TI   - TLB Invalidate (write 1 to invalidate all, auto-clears)
+// Bit 8:      SV   - Single Virtual mode
+// Bit 9:      SQMD - Store Queue Mode
+// Bits 10-15: URB  - UTLB Replace Boundary (entries 0 to URB-1 are wired)
+// Bits 18-23: URC  - UTLB Replace Counter (index for LDTLB)
+// Bits 26-31: LRUI - Least Recently Used ITLB (for replacement)
+isa_state mmucr[31:0];
+
+// PTEH - Page Table Entry High Register (0xFF000000)
+// Bits 0-7:   ASID - Address Space Identifier (8-bit process ID)
+// Bits 10-31: VPN  - Virtual Page Number (22 bits, bits [31:10] of VA)
+isa_state pteh[31:0];
+
+// PTEL - Page Table Entry Low Register (0xFF000004)
+// Bit 0:      WT  - Write-through (0=copy-back, 1=write-through)
+// Bit 1:      SH  - Share status (1=shared between processes)
+// Bit 2:      D   - Dirty bit (1=page modified)
+// Bit 3:      C   - Cacheable (1=cacheable)
+// Bits 4-6:   SZ  - Page size: 001=1KB, 010=4KB, 100=64KB, 111=1MB
+// Bit 7:      PR1 - Protection bit 1
+// Bit 8:      V   - Valid bit (1=entry is valid)
+// Bit 9:      PR0 - Protection bit 0
+// Bits 10-28: PPN - Physical Page Number (19 bits)
+// PR[1:0]: 00=kernel R only, 01=kernel R/W, 10=user R/kernel R/W, 11=user R/W
+isa_state ptel[31:0];
+
+// TTB - Translation Table Base Register (0xFF000008)
+// Holds base address of page table (for software use by TLB miss handler)
+isa_state ttb[31:0];
+
+// TEA - TLB Exception Address Register (0xFF00000C)
+// Hardware sets this to the faulting virtual address on TLB exception
+isa_state tea[31:0];
+
+// PTEA - Page Table Entry Assistance Register (0xFF000034) - SH-4 specific
+// Bits 0-2: TC - Timing Control (for external memory access)
+// Bit 3:    SA - Space Attribute (0=PCMCIA, 1=other)
+isa_state ptea[31:0];
+
+// ============================================================================
+// UTLB - Unified TLB (64 entries, fully associative)
+// ============================================================================
+// Each entry is 64 bits:
+// High 32 bits (address tag):
+//   Bits 10-31: VPN[31:10] - Virtual Page Number (22 bits)
+//   Bits 0-7:   ASID - Address Space Identifier (8 bits)
+// Low 32 bits (data):
+//   Bits 10-28: PPN[28:10] - Physical Page Number (19 bits)
+//   Bit 8:      V - Valid
+//   Bit 7:      PR1 - Protection bit 1
+//   Bits 4-6:   SZ - Page size
+//   Bit 3:      C - Cacheable
+//   Bit 2:      D - Dirty
+//   Bit 1:      SH - Shared
+//   Bit 0:      WT - Write-through
+
+// UTLB Address Array (VPN + ASID + V)
+isa_state utlb_vpn[21:0][5:0];   // 64 entries, VPN[31:10] (22 bits)
+isa_state utlb_asid[7:0][5:0];   // 64 entries, ASID (8 bits)
+isa_state utlb_v[0:0][5:0];      // 64 entries, Valid bit
+
+// UTLB Data Array (PPN + protection/attributes)
+isa_state utlb_ppn[18:0][5:0];   // 64 entries, PPN[28:10] (19 bits)
+isa_state utlb_sz[2:0][5:0];     // 64 entries, Page size
+isa_state utlb_pr[1:0][5:0];     // 64 entries, Protection {PR1,PR0}
+isa_state utlb_c[0:0][5:0];      // 64 entries, Cacheable
+isa_state utlb_d[0:0][5:0];      // 64 entries, Dirty
+isa_state utlb_sh[0:0][5:0];     // 64 entries, Shared
+isa_state utlb_wt[0:0][5:0];     // 64 entries, Write-through
+
+// ============================================================================
+// ITLB - Instruction TLB (4 entries, fully associative)
+// ============================================================================
+// Subset of UTLB for instruction fetch, auto-refilled from UTLB on miss
+
+isa_state itlb_vpn[21:0][1:0];   // 4 entries, VPN[31:10] (22 bits)
+isa_state itlb_asid[7:0][1:0];   // 4 entries, ASID (8 bits)
+isa_state itlb_v[0:0][1:0];      // 4 entries, Valid bit
+isa_state itlb_ppn[18:0][1:0];   // 4 entries, PPN[28:10] (19 bits)
+isa_state itlb_sz[2:0][1:0];     // 4 entries, Page size
+isa_state itlb_pr[1:0][1:0];     // 4 entries, Protection
+isa_state itlb_c[0:0][1:0];      // 4 entries, Cacheable
+isa_state itlb_sh[0:0][1:0];     // 4 entries, Shared

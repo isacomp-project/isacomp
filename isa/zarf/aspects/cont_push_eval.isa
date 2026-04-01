@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Push Eval Continuation Aspect
+//
+// Pushes an eval continuation frame onto the continuation stack.
+// Eval continuations are used during primitive operations when we need
+// to evaluate an argument before completing the operation.
+//
+// Continuation frame format (5 words):
+//   Word 0: [31:30]=type(11), [29:0]=saved_pc
+//   Word 1: pending_op (the builtin operation to complete)
+//   Word 2: partial_result (first evaluated argument)
+//   Word 3: [19:0]=saved_lsp
+//   Word 4: [19:0]=saved_lb
+//
+// Requires before inclusion:
+//   eval_pending_op[7:0] - The builtin operation code
+//   eval_partial[31:0]   - The first evaluated argument
+//
+// Gates: pc, lsp, lb, csp, cstack, eval_pending_op, eval_partial
+
+var eval_cont_type[1:0];
+eval_cont_type = 2'b11;  // Eval continuation = type 3
+
+// Build continuation frame
+var eval_cont_word0[31:0];
+eval_cont_word0 = {eval_cont_type, pc[29:0]};
+
+// Push frame to continuation stack
+cstack[csp] = eval_cont_word0;
+cstack[csp + 1] = {{24{1'b0}}, eval_pending_op};
+cstack[csp + 2] = eval_partial;
+cstack[csp + 3] = {{12{1'b0}}, lsp};
+cstack[csp + 4] = {{12{1'b0}}, lb};
+
+// Advance stack pointer
+csp = csp + 5;

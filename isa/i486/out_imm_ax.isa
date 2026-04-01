@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 OUT imm8, AX (0xE7)
+// Output word to port
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state io_ports[7:0][7:0];
+
+var port_num[7:0];
+
+instr = imem[eip];
+assume instr == 0xE7;
+eip = eip + 1;
+
+// Read port number
+port_num = imem[eip];
+eip = eip + 1;
+
+// Write word to I/O port (little-endian)
+io_ports[port_num] = AX[7:0];
+io_ports[port_num + 1] = AX[15:8];

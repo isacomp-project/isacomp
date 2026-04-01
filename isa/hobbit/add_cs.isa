@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: ADD src, dst (immediate, stack offset)
+// One-parcel encoding: opcode 0x14, 2 bytes
+// dst += sign_extend(imm5); sets PSW carry and overflow bits
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state psw[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var opcode[4:0];
+var imm[4:0];
+var dst_off[4:0];
+var dst_addr[31:0];
+var src_val[31:0];
+var dst_val[31:0];
+var result[32:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+opcode = instr[14:10];
+assume opcode == 0x14;
+
+imm = instr[9:5];
+dst_off = instr[4:0];
+
+// Sign-extend 5-bit immediate to 32 bits
+src_val = {{27{imm[4]}}, imm};
+
+dst_addr = sp + {25'b0, dst_off, 2'b00};
+dst_val = umem[dst_addr];
+
+result = {1'b0, dst_val} + {1'b0, src_val};
+
+umem[dst_addr] = result[31:0];
+
+psw[5] = result[32];
+psw[6] = (dst_val[31] == src_val[31]) & (dst_val[31] != result[31]);
+
+pc = pc + 2;

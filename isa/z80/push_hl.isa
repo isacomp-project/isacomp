@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 PUSH HL (0xE5) - Push HL register pair to stack
+// (SP-1) = H, (SP-2) = L, SP = SP - 2
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state sp[15:0];
+isa_state H[7:0];
+isa_state L[7:0];
+mem mainmem[15:0];
+
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xE5;
+pc = pc + 1;
+
+sp_minus_1 = sp - 1;
+mainmem[sp_minus_1] = H;
+
+sp_minus_2 = sp_minus_1 - 1;
+mainmem[sp_minus_2] = L;
+
+sp = sp_minus_2;

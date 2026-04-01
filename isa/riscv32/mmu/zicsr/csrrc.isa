@@ -1,0 +1,212 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[23:0];
+mem csr[11:0];
+
+// Dedicated CSR registers as isa_state (for MMU aspect)
+isa_state priv_mode[1:0];      // Privilege mode: 0=U-mode, 1=S-mode, 3=M-mode
+isa_state satp[31:0];          // Supervisor Address Translation and Protection (0x180)
+isa_state mtvec[31:0];         // Machine Trap-Vector Base-Address (0x305)
+isa_state mepc[31:0];          // Machine Exception Program Counter (0x341)
+isa_state mcause[31:0];        // Machine Cause (0x342)
+isa_state mtval[31:0];         // Machine Trap Value (0x343)
+isa_state medeleg[31:0];       // Machine Exception Delegation (0x302)
+isa_state sepc[31:0];          // Supervisor Exception Program Counter (0x141)
+isa_state stvec[31:0];         // Supervisor Trap-Vector Base-Address (0x105)
+isa_state scause[31:0];        // Supervisor Cause (0x142)
+isa_state stval[31:0];         // Supervisor Trap Value (0x143)
+isa_state sscratch[31:0];      // Supervisor Scratch (0x140)
+isa_state sstatus[31:0];       // Supervisor Status (0x100) - SPP is bit 8
+isa_state mscratch[31:0];      // Machine Scratch (0x340)
+isa_state mie[31:0];           // Machine Interrupt Enable (0x304)
+isa_state mstatus[31:0];       // Machine Status (0x300)
+isa_state stimecmp[31:0];      // Supervisor Time Compare (0x14D) - sstc extension
+isa_state stimecmph[31:0];     // Supervisor Time Compare High (0x15D) - sstc extension
+
+// External timer state from CLINT
+ext isa_state mtime_lo[31:0];        // time CSR low bits (0xC01)
+ext isa_state mtime_hi[31:0];        // timeh CSR high bits (0xC81)
+ext isa_state timer_irq_pending[0:0]; // MTIP for mip derivation
+
+var rs1[4:0];
+var rd[4:0];
+var csr_addr[11:0];
+var rs1_val[31:0];
+var csr_val[31:0];
+var new_csr_val[31:0];
+
+// Address matching flags for dedicated CSR registers
+var is_satp[0:0];
+var is_mtvec[0:0];
+var is_mepc[0:0];
+var is_mcause[0:0];
+var is_mtval[0:0];
+var is_medeleg[0:0];
+var is_sepc[0:0];
+var is_stvec[0:0];
+var is_scause[0:0];
+var is_stval[0:0];
+var is_sscratch[0:0];
+var is_sstatus[0:0];
+var is_mscratch[0:0];
+var is_mie[0:0];
+var is_mstatus[0:0];
+var is_mip[0:0];
+var is_time[0:0];
+var is_timeh[0:0];
+var is_mhartid[0:0];
+var is_misa[0:0];
+var is_stimecmp[0:0];
+var is_stimecmph[0:0];
+var is_sie[0:0];
+var is_sip[0:0];
+var is_dedicated_csr[0:0];
+
+// Derived mip value (MTIP in bit 7)
+var mip_val[31:0];
+
+// sie/sip intermediate values
+var sie_val[31:0];
+var sip_val[31:0];
+var sie_new_mie[31:0];
+
+// Intermediate values for CSR read mux
+var csr_val_sip[31:0];
+var csr_val_sie[31:0];
+var csr_val_mtval[31:0];
+var csr_val_mcause[31:0];
+var csr_val_mepc[31:0];
+var csr_val_mtvec[31:0];
+var csr_val_medeleg[31:0];
+var csr_val_sepc[31:0];
+var csr_val_stvec[31:0];
+var csr_val_scause[31:0];
+var csr_val_stval[31:0];
+var csr_val_sscratch[31:0];
+var csr_val_sstatus[31:0];
+var csr_val_mscratch[31:0];
+var csr_val_mie[31:0];
+var csr_val_mstatus[31:0];
+var csr_val_mip[31:0];
+var csr_val_time[31:0];
+var csr_val_timeh[31:0];
+var csr_val_mhartid[31:0];
+var csr_val_misa[31:0];
+var csr_val_stimecmp[31:0];
+var csr_val_stimecmph[31:0];
+
+// Virtual memory translation
+aspect ../mmu.isa gates pc, priv_mode, mepc, mcause, mtval, sepc, scause, stval, mstatus, sstatus;
+
+instr = umem[pc_pa];
+assume instr[6:0] == 0b1110011;
+assume instr[14:12] == 0b011;
+pc = pc + 4;
+rs1 = instr[19:15];
+rd = instr[11:7];
+csr_addr = instr[31:20];
+
+// Check if CSR address matches a dedicated register
+is_sscratch = (csr_addr == 12'h140);
+is_sstatus = (csr_addr == 12'h100);
+is_sepc = (csr_addr == 12'h141);
+is_scause = (csr_addr == 12'h142);
+is_stval = (csr_addr == 12'h143);
+is_stvec = (csr_addr == 12'h105);
+is_satp = (csr_addr == 12'h180);
+is_medeleg = (csr_addr == 12'h302);
+is_mtvec = (csr_addr == 12'h305);
+is_mepc = (csr_addr == 12'h341);
+is_mcause = (csr_addr == 12'h342);
+is_mtval = (csr_addr == 12'h343);
+is_mscratch = (csr_addr == 12'h340);
+is_mstatus = (csr_addr == 12'h300);
+is_mie = (csr_addr == 12'h304);
+is_mip = (csr_addr == 12'h344);
+is_time = (csr_addr == 12'hC01);
+is_timeh = (csr_addr == 12'hC81);
+is_mhartid = (csr_addr == 12'hf14);
+is_misa = (csr_addr == 12'h301);
+is_stimecmp = (csr_addr == 12'h14D);
+is_stimecmph = (csr_addr == 12'h15D);
+is_sie = (csr_addr == 12'h104);
+is_sip = (csr_addr == 12'h144);
+is_dedicated_csr = is_sscratch | is_sstatus | is_mscratch | is_mie | is_mstatus | is_sepc | is_scause | is_stval | is_stvec | is_satp | is_medeleg | is_mtvec | is_mepc | is_mcause | is_mtval | is_mip | is_time | is_timeh | is_mhartid | is_misa | is_stimecmp | is_stimecmph | is_sie | is_sip;
+
+// Derive mip value: MTIP (bit 7) from timer_irq_pending, STIP (bit 5) from sstc
+// STIP is set when {mtime_hi, mtime_lo} >= {stimecmph, stimecmp}
+var stip[0:0];
+var mtime_full[63:0];
+var stimecmp_full[63:0];
+mtime_full = {mtime_hi, mtime_lo};
+stimecmp_full = {stimecmph, stimecmp};
+stip = (mtime_full >= stimecmp_full) ? 1'b1 : 1'b0;
+mip_val = {24'b0, timer_irq_pending, 1'b0, stip, 5'b0};
+
+// sie (0x104) is a restricted view of mie: only bits 1 (SSIE), 5 (STIE), 9 (SEIE)
+sie_val = mie & 32'h222;
+// sip (0x144) is a restricted view of mip: only bits 1 (SSIP), 5 (STIP), 9 (SEIP)
+sip_val = mip_val & 32'h222;
+
+// Read CSR - build mux chain using intermediate variables
+// mhartid (0xf14) is read-only and returns 0 for hart 0
+csr_val_misa = is_misa ? 32'h40041101 : csr[csr_addr];
+csr_val_mhartid = is_mhartid ? 32'h0 : csr_val_misa;
+csr_val_timeh = is_timeh ? mtime_hi : csr_val_mhartid;
+csr_val_time = is_time ? mtime_lo : csr_val_timeh;
+csr_val_mip = is_mip ? mip_val : csr_val_time;
+csr_val_sip = is_sip ? sip_val : csr_val_mip;
+csr_val_sie = is_sie ? sie_val : csr_val_sip;
+csr_val_mtval = is_mtval ? mtval : csr_val_sie;
+csr_val_mcause = is_mcause ? mcause : csr_val_mtval;
+csr_val_mepc = is_mepc ? mepc : csr_val_mcause;
+csr_val_mtvec = is_mtvec ? mtvec : csr_val_mepc;
+csr_val_mie = is_mie ? mie : csr_val_mtvec;
+csr_val_mstatus = is_mstatus ? mstatus : csr_val_mie;
+csr_val_medeleg = is_medeleg ? medeleg : csr_val_mstatus;
+csr_val_sepc = is_sepc ? sepc : csr_val_medeleg;
+csr_val_stvec = is_stvec ? stvec : csr_val_sepc;
+csr_val_scause = is_scause ? scause : csr_val_stvec;
+csr_val_stval = is_stval ? stval : csr_val_scause;
+csr_val_sscratch = is_sscratch ? sscratch : csr_val_stval;
+csr_val_sstatus = is_sstatus ? sstatus : csr_val_sscratch;
+csr_val_mscratch = is_mscratch ? mscratch : csr_val_sstatus;
+csr_val_stimecmp = is_stimecmp ? stimecmp : csr_val_mscratch;
+csr_val_stimecmph = is_stimecmph ? stimecmph : csr_val_stimecmp;
+csr_val = is_satp ? satp : csr_val_stimecmph;
+
+rs1_val = rf[rs1];
+
+// Clear bits in CSR (AND with negation using XOR)
+new_csr_val = csr_val & (rs1_val ^ 32'hFFFFFFFF);
+
+// Write new value to dedicated CSR if address matches (only if rs1 != 0)
+sscratch when (is_sscratch & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+sstatus when (is_sstatus & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+mscratch when (is_mscratch & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+sepc when (is_sepc & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+scause when (is_scause & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+stval when (is_stval & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+stvec when (is_stvec & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+satp when (is_satp & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+medeleg when (is_medeleg & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+mtvec when (is_mtvec & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+mepc when (is_mepc & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+mcause when (is_mcause & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+mtval when (is_mtval & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+// sie (0x104) maps to S-mode bits (1,5,9) of mie; combine both writes to avoid compiler merge bug
+sie_new_mie = (mie & 32'hFFFFFDDD) | (new_csr_val & 32'h222);
+var mie_combined_val[31:0];
+mie_combined_val = is_mie ? new_csr_val : sie_new_mie;
+mie when ((is_mie | is_sie) & (rs1 != 0) & ~instr_trap_taken) = mie_combined_val;
+mstatus when (is_mstatus & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+stimecmp when (is_stimecmp & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+stimecmph when (is_stimecmph & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+
+// Write to generic csr[] array only if not a dedicated CSR (only if rs1 != 0)
+csr[csr_addr] when ((is_dedicated_csr == 0) & (rs1 != 0) & ~instr_trap_taken) = new_csr_val;
+
+// Write old CSR value to destination register (if rd != 0)
+rf[rd] when (rd != 0 & ~instr_trap_taken) = csr_val;

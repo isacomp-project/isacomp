@@ -1,0 +1,161 @@
+ILAng Build Fixes for Modern GCC (13.x)
+==========================================
+
+This patch fixes compilation errors when building ILAng with modern GCC versions.
+
+Two bugs fixed:
+1. Missing <cstdint> header in str_util.h
+2. GCC -Werror=maybe-uninitialized in googletest
+
+================================================================================
+BUG #1: Missing <cstdint> in str_util.h
+================================================================================
+
+Root cause: str_util.h uses uint64_t but doesn't include <cstdint>
+Modern GCC is stricter about requiring proper includes.
+
+Error:
+  src/util/str_util.cc:19:32: error: 'uint64_t' was not declared in this scope
+  note: 'uint64_t' is defined in header '<cstdint>'; did you forget to '#include <cstdint>'?
+
+Fix: Add #include <cstdint> to the header file
+
+================================================================================
+PATCH 1/2: Add missing <cstdint> include
+================================================================================
+File: ILAng/include/ilang/util/str_util.h
+Line: 9-10
+
+--- a/include/ilang/util/str_util.h
++++ b/include/ilang/util/str_util.h
+@@ -7,6 +7,7 @@
+ #ifndef ILANG_UTIL_STR_UTIL_H__
+ #define ILANG_UTIL_STR_UTIL_H__
+
++#include <cstdint>
+ #include <string>
+ #include <vector>
+
+
+================================================================================
+BUG #2: GCC maybe-uninitialized warning in googletest
+================================================================================
+
+Root cause: GCC 13.x detects potential uninitialized use in gtest-death-test.cc
+The code treats all warnings as errors (-Werror), causing build failure.
+
+Error:
+  gtest-death-test.cc:1224:24: error: 'dummy' may be used uninitialized [-Werror=maybe-uninitialized]
+
+Fix Option 1: Disable the specific warning for this file
+Fix Option 2: Initialize the variable
+Fix Option 3: Disable -Werror for googletest (recommended)
+
+================================================================================
+PATCH 2A/2: Disable -Werror for googletest (RECOMMENDED)
+================================================================================
+File: ILAng/extern/googletest/CMakeLists.txt or ILAng/CMakeLists.txt
+Add after project() or find_package(GTest):
+
+if(TARGET gtest)
+  target_compile_options(gtest PRIVATE -Wno-error=maybe-uninitialized)
+endif()
+
+================================================================================
+PATCH 2B/2: Alternative - Add compiler flag to main CMakeLists.txt
+================================================================================
+File: ILAng/CMakeLists.txt
+Add to compiler flags section:
+
+# Disable specific warnings for external dependencies
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  add_compile_options(-Wno-error=maybe-uninitialized)
+endif()
+
+================================================================================
+APPLYING THE PATCHES
+================================================================================
+
+Method 1: Manual application
+-----------------------------
+cd ila/ILAng
+
+# Fix 1: Add <cstdint> include
+vi include/ilang/util/str_util.h
+# Add "#include <cstdint>" after line 9
+
+# Fix 2: Disable -Werror for googletest
+vi CMakeLists.txt
+# Add the compiler flag disable after project()
+
+Method 2: Using patch command
+-----------------------------
+# Create individual patch files from this document
+# Then apply with:
+cd ila/ILAng
+patch -p1 < ../ilang_str_util.patch
+patch -p1 < ../ilang_cmake.patch
+
+Method 3: CMake override
+-----------------------------
+cd ila/ILAng/build
+cmake .. -DCMAKE_CXX_FLAGS="-Wno-error=maybe-uninitialized"
+make -j$(nproc)
+
+================================================================================
+VERIFICATION
+================================================================================
+
+After applying patches:
+
+cd ila/ILAng
+rm -rf build
+mkdir build && cd build
+cmake ..
+make -j$(nproc)
+
+Expected result:
+  - No compilation errors
+  - libilang.a built successfully
+  - All targets complete
+
+================================================================================
+COMPLETE DIFF FOR str_util.h
+================================================================================
+
+--- a/include/ilang/util/str_util.h
++++ b/include/ilang/util/str_util.h
+@@ -7,6 +7,7 @@
+ #ifndef ILANG_UTIL_STR_UTIL_H__
+ #define ILANG_UTIL_STR_UTIL_H__
+
++#include <cstdint>
+ #include <string>
+ #include <vector>
+
+@@ -14,7 +15,7 @@ namespace ilang {
+
+ /// \brief Convert integer to hex string.
+ std::string IntToStr(const int& value);
+-std::string IntToStrCustomBase(uint64_t value, unsigned base, bool uppercase);
++std::string IntToStrCustomBase(uint64_t value, unsigned base, bool uppercase);  // uint64_t now properly declared
+
+ /// \brief Check if string s1 starts with string s2.
+ bool StrStartsWith(const std::string& s1, const std::string& s2);
+
+================================================================================
+ADDITIONAL NOTES
+================================================================================
+
+These fixes are required for:
+- GCC 13.x and newer
+- Clang 15.x and newer
+- Any compiler with strict header requirements
+
+Without these fixes, ILAng will not compile on modern Linux distributions
+(Ubuntu 24.04, Fedora 38+, etc.)
+
+The fixes are minimal and don't change functionality - they only add missing
+includes and adjust warning levels for external dependencies.
+
+Status: TESTED - These fixes allow successful compilation on Ubuntu 24.04 with GCC 13.3.0

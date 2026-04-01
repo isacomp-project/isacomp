@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 CLV (0xB8) - Clear Overflow Flag
+// Sets the overflow flag to 0
+// Does not affect any other flags
+// Instruction format: CLV (1 byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state flag_V[0:0];
+isa_state mainmem[7:0][15:0];
+
+instr = mainmem[pc];
+assume instr == 0xB8;
+pc = pc + 1;
+
+flag_V = 1'b0;

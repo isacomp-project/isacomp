@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030 PFLUSH (An) - Flush ATC entries by FC and effective address (register indirect)
+// Opcode: 1111 000 000 010 RRR followed by extension word
+// Extension: 001 1xx x xxxxx xxxxx (PFLUSH with EA)
+// Since MMU/ATC is not wired, this is effectively a NOP that advances PC
+// Privileged instruction
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+
+isa_state sr[15:0];
+
+// ATC entries (22 entries on 68030)
+isa_state atc_v[0:0][4:0];
+isa_state atc_fc[2:0][4:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_reg[2:0];
+var fc[2:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b1111000000;  // F-line, CP=0 (MMU)
+assume instr[5:3] == 3'b010;            // EA mode: (An) register indirect
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_reg = instr[2:0];
+
+extw = dmem[pc + pc_pa_delta];
+assume extw[15:13] == 3'b001;           // PMU opclass
+assume extw[12] == 1'b1;                // PFLUSH type (not PTEST/PLOAD)
+pc when (~m68k_exc_taken) = pc + 2;
+
+assume sr[13] == 1'b1;  // Supervisor mode required
+
+fc = extw[4:2];
+
+// Invalidate matching ATC entries (FC match + addr match)
+// Since ATC has no address tags in this implementation, just invalidate by FC
+// This is a simplification; a full implementation would also match the EA address
+atc_v[0] when (atc_v[0] & (atc_fc[0] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[1] when (atc_v[1] & (atc_fc[1] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[2] when (atc_v[2] & (atc_fc[2] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[3] when (atc_v[3] & (atc_fc[3] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[4] when (atc_v[4] & (atc_fc[4] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[5] when (atc_v[5] & (atc_fc[5] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[6] when (atc_v[6] & (atc_fc[6] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[7] when (atc_v[7] & (atc_fc[7] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[8] when (atc_v[8] & (atc_fc[8] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[9] when (atc_v[9] & (atc_fc[9] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[10] when (atc_v[10] & (atc_fc[10] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[11] when (atc_v[11] & (atc_fc[11] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[12] when (atc_v[12] & (atc_fc[12] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[13] when (atc_v[13] & (atc_fc[13] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[14] when (atc_v[14] & (atc_fc[14] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[15] when (atc_v[15] & (atc_fc[15] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[16] when (atc_v[16] & (atc_fc[16] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[17] when (atc_v[17] & (atc_fc[17] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[18] when (atc_v[18] & (atc_fc[18] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[19] when (atc_v[19] & (atc_fc[19] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[20] when (atc_v[20] & (atc_fc[20] == fc) & ~m68k_exc_taken) = 1'b0;
+atc_v[21] when (atc_v[21] & (atc_fc[21] == fc) & ~m68k_exc_taken) = 1'b0;
+
+// PFLUSH does not affect CCR

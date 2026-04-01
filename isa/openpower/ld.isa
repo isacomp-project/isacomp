@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER ld - Load Doubleword (DS-Form)
+// ld RT,DS(RA)
+// Primary opcode 58, XO=0
+// if RA = 0 then b <- 0 else b <- (RA)
+// EA <- b + EXTS(DS || 0b00)
+// RT <- MEM(EA, 8)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var ds[13:0];
+var ra_val[63:0];
+var ra_or_zero[63:0];
+var sign_ext_ds[63:0];
+var ea[63:0];
+var dword_data[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 58
+assume instr[31:26] == 58;
+// XO field = 0 (bits 1:0)
+assume instr[1:0] == 0;
+
+// Extract fields
+rt = instr[25:21];
+ra = instr[20:16];
+ds = instr[15:2];
+
+// Sign-extend displacement (DS || 00)
+sign_ext_ds = {{48{ds[13]}}, ds, 2'b00};
+
+// If RA=0, use 0; otherwise use (RA)
+ra_val = rf[ra];
+ra_or_zero = ra == 0 ? 64'h0 : ra_val;
+
+// Calculate effective address
+ea = ra_or_zero + sign_ext_ds;
+
+// Load doubleword from memory
+#ifdef VM
+aspect mmu_load.isa gates pc, msr, srr0, srr1, dar, dsisr;
+dword_data = umem[ea_pa];
+#else
+dword_data = umem[ea];
+#endif
+
+#ifdef VM
+rf[rt] when (~load_exception_taken & ~instr_trap_taken) = dword_data;
+#else
+rf[rt] = dword_data;
+#endif
+pc = pc + 4;

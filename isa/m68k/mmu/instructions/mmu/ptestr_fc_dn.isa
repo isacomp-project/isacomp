@@ -1,0 +1,264 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030 PTESTR - Test a Logical Address for Read (FC from Data Register)
+// Opcode: 1111 000 000 010 RRR followed by extension word
+// Extension word: 100 LLL 1 A DDD 01 rrr (FC from Dn)
+// Same page table walk as ptestr.isa but FC source is a data register.
+// Privileged instruction.
+
+isa_state pc[31:0];
+var instr[15:0];
+var ptrd_extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+
+isa_state sr[15:0];
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state mmusr[15:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+// Byte sub-registers for FC extraction from Dn
+isa_state dregs_b[7:0][2:0] of dregs[0b***][7:0];
+
+var ptrd_ea_reg[2:0];
+var ptrd_level[2:0];
+var ptrd_has_areg[0:0];
+var ptrd_areg[2:0];
+var ptrd_fc_reg[2:0];
+var ptrd_fc[2:0];
+var ptrd_addr[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch first word
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b1111000000;
+assume instr[5:3] == 3'b010;            // EA mode: (An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+ptrd_ea_reg = instr[2:0];
+
+// Fetch extension word
+ptrd_extw = dmem[pc + pc_pa_delta];
+assume ptrd_extw[15:13] == 3'b100;      // PTEST identifier
+assume ptrd_extw[9] == 1'b1;            // R/W=1 (read = PTESTR)
+assume ptrd_extw[4:3] == 2'b01;         // FC specifier: from data register
+pc when (~m68k_exc_taken) = pc + 2;
+
+ptrd_level = ptrd_extw[12:10];
+ptrd_has_areg = ptrd_extw[8];
+ptrd_areg = ptrd_extw[7:5];
+ptrd_fc_reg = ptrd_extw[2:0];
+ptrd_fc = dregs_b[ptrd_fc_reg][2:0];    // FC from low 3 bits of Dn
+
+assume sr[13] == 1'b1;  // Supervisor mode required
+
+// Address to test
+ptrd_addr = aregs[ptrd_ea_reg];
+
+// ============================================================================
+// Transparent Translation Check
+// ============================================================================
+var ptrd_is_supervisor[0:0];
+ptrd_is_supervisor = sr[13];
+
+var ptrd_mmu_enabled[0:0];
+ptrd_mmu_enabled = tc[31];
+
+var ptrd_tt0_base[7:0];
+var ptrd_tt0_mask[7:0];
+var ptrd_tt0_enable[0:0];
+var ptrd_tt1_base[7:0];
+var ptrd_tt1_mask[7:0];
+var ptrd_tt1_enable[0:0];
+
+ptrd_tt0_base = tt0[31:24];
+ptrd_tt0_mask = tt0[23:16];
+ptrd_tt0_enable = tt0[15];
+ptrd_tt1_base = tt1[31:24];
+ptrd_tt1_mask = tt1[23:16];
+ptrd_tt1_enable = tt1[15];
+
+var ptrd_tt0_sfield[1:0];
+var ptrd_tt1_sfield[1:0];
+var ptrd_tt0_s_ok[0:0];
+var ptrd_tt1_s_ok[0:0];
+ptrd_tt0_sfield = tt0[14:13];
+ptrd_tt1_sfield = tt1[14:13];
+ptrd_tt0_s_ok = (ptrd_tt0_sfield == 2'b00) | ((ptrd_tt0_sfield == 2'b01) & ~ptrd_is_supervisor) | ((ptrd_tt0_sfield == 2'b10) & ptrd_is_supervisor);
+ptrd_tt1_s_ok = (ptrd_tt1_sfield == 2'b00) | ((ptrd_tt1_sfield == 2'b01) & ~ptrd_is_supervisor) | ((ptrd_tt1_sfield == 2'b10) & ptrd_is_supervisor);
+
+var ptrd_tt0_match[0:0];
+var ptrd_tt1_match[0:0];
+ptrd_tt0_match = ptrd_tt0_enable & ptrd_tt0_s_ok & ((ptrd_addr[31:24] & ~ptrd_tt0_mask) == (ptrd_tt0_base & ~ptrd_tt0_mask));
+ptrd_tt1_match = ptrd_tt1_enable & ptrd_tt1_s_ok & ((ptrd_addr[31:24] & ~ptrd_tt1_mask) == (ptrd_tt1_base & ~ptrd_tt1_mask));
+
+var ptrd_transparent[0:0];
+ptrd_transparent = ptrd_tt0_match | ptrd_tt1_match;
+
+// ============================================================================
+// Page Table Walk (same 3-level walk as ATC translation aspects)
+// ============================================================================
+var ptrd_use_srp[0:0];
+ptrd_use_srp = tc[25] & ptrd_is_supervisor;
+
+var ptrd_root_desc[31:0];
+ptrd_root_desc = ptrd_use_srp ? srp[31:0] : crp[31:0];
+
+var ptrd_root_dt[1:0];
+ptrd_root_dt = ptrd_use_srp ? srp[33:32] : crp[33:32];
+var ptrd_root_valid[0:0];
+ptrd_root_valid = (ptrd_root_dt == 2'b10) | (ptrd_root_dt == 2'b11);
+
+// Level A: VA[31:25]
+var ptrd_level_a_idx[6:0];
+ptrd_level_a_idx = ptrd_addr[31:25];
+
+var ptrd_root_table_base[31:0];
+ptrd_root_table_base = {ptrd_root_desc[31:2], 2'b00};
+
+var ptrd_level_a_desc_addr[31:0];
+ptrd_level_a_desc_addr = ptrd_root_table_base + {23'b0, ptrd_level_a_idx, 2'b00};
+
+var ptrd_level_a_desc_hi[15:0];
+var ptrd_level_a_desc_lo[15:0];
+ptrd_level_a_desc_hi = dmem[ptrd_level_a_desc_addr];
+ptrd_level_a_desc_lo = dmem[ptrd_level_a_desc_addr + 2];
+
+var ptrd_level_a_desc[31:0];
+ptrd_level_a_desc = {ptrd_level_a_desc_hi, ptrd_level_a_desc_lo};
+
+var ptrd_level_a_dt[1:0];
+ptrd_level_a_dt = ptrd_level_a_desc[1:0];
+var ptrd_level_a_valid[0:0];
+ptrd_level_a_valid = (ptrd_level_a_dt == 2'b10) | (ptrd_level_a_dt == 2'b11);
+var ptrd_level_a_is_page[0:0];
+ptrd_level_a_is_page = (ptrd_level_a_dt == 2'b01);
+
+// Level B: VA[24:18]
+var ptrd_level_b_idx[6:0];
+ptrd_level_b_idx = ptrd_addr[24:18];
+
+var ptrd_level_b_table_base[31:0];
+ptrd_level_b_table_base = {ptrd_level_a_desc[31:4], 4'b0000};
+
+var ptrd_level_b_desc_addr[31:0];
+ptrd_level_b_desc_addr = ptrd_level_b_table_base + {23'b0, ptrd_level_b_idx, 2'b00};
+
+var ptrd_level_b_desc_hi[15:0];
+var ptrd_level_b_desc_lo[15:0];
+ptrd_level_b_desc_hi = dmem[ptrd_level_b_desc_addr];
+ptrd_level_b_desc_lo = dmem[ptrd_level_b_desc_addr + 2];
+
+var ptrd_level_b_desc[31:0];
+ptrd_level_b_desc = {ptrd_level_b_desc_hi, ptrd_level_b_desc_lo};
+
+var ptrd_level_b_dt[1:0];
+ptrd_level_b_dt = ptrd_level_b_desc[1:0];
+var ptrd_level_b_valid[0:0];
+ptrd_level_b_valid = (ptrd_level_b_dt == 2'b10) | (ptrd_level_b_dt == 2'b11);
+var ptrd_level_b_is_page[0:0];
+ptrd_level_b_is_page = (ptrd_level_b_dt == 2'b01);
+
+// Level C: VA[17:12]
+var ptrd_level_c_idx[5:0];
+ptrd_level_c_idx = ptrd_addr[17:12];
+
+var ptrd_level_c_table_base[31:0];
+ptrd_level_c_table_base = {ptrd_level_b_desc[31:4], 4'b0000};
+
+var ptrd_level_c_desc_addr[31:0];
+ptrd_level_c_desc_addr = ptrd_level_c_table_base + {24'b0, ptrd_level_c_idx, 2'b00};
+
+var ptrd_level_c_desc_hi[15:0];
+var ptrd_level_c_desc_lo[15:0];
+ptrd_level_c_desc_hi = dmem[ptrd_level_c_desc_addr];
+ptrd_level_c_desc_lo = dmem[ptrd_level_c_desc_addr + 2];
+
+var ptrd_level_c_desc[31:0];
+ptrd_level_c_desc = {ptrd_level_c_desc_hi, ptrd_level_c_desc_lo};
+
+var ptrd_level_c_dt[1:0];
+ptrd_level_c_dt = ptrd_level_c_desc[1:0];
+var ptrd_level_c_is_page[0:0];
+ptrd_level_c_is_page = (ptrd_level_c_dt == 2'b01);
+
+// ============================================================================
+// Walk result
+// ============================================================================
+var ptrd_need_walk[0:0];
+ptrd_need_walk = ptrd_mmu_enabled & ~ptrd_transparent;
+
+var ptrd_walk_ok[0:0];
+ptrd_walk_ok = ptrd_root_valid & (ptrd_level_a_is_page | (ptrd_level_a_valid & (ptrd_level_b_is_page | (ptrd_level_b_valid & ptrd_level_c_is_page))));
+
+var ptrd_walk_success[0:0];
+ptrd_walk_success = ptrd_need_walk & ptrd_walk_ok;
+
+var ptrd_final_desc[31:0];
+ptrd_final_desc = ptrd_level_a_is_page ? ptrd_level_a_desc :
+                  (ptrd_level_a_valid & ptrd_level_b_is_page) ? ptrd_level_b_desc :
+                  ptrd_level_c_desc;
+
+var ptrd_wp[0:0];
+ptrd_wp = ptrd_final_desc[2];
+var ptrd_modified[0:0];
+ptrd_modified = ptrd_final_desc[4];
+
+var ptrd_walked_ppn[19:0];
+ptrd_walked_ppn = ptrd_level_a_is_page ? {ptrd_level_a_desc[31:25], ptrd_addr[24:12]} :
+                  (ptrd_level_a_valid & ptrd_level_b_is_page) ? {ptrd_level_b_desc[31:18], ptrd_addr[17:12]} :
+                  ptrd_level_c_desc[31:12];
+
+// ============================================================================
+// Build MMUSR
+// ============================================================================
+var ptrd_resident[0:0];
+ptrd_resident = ptrd_transparent | ptrd_walk_success;
+
+var ptrd_invalid[0:0];
+ptrd_invalid = ptrd_need_walk & ~ptrd_walk_ok;
+
+var ptrd_bus_error[0:0];
+ptrd_bus_error = ptrd_need_walk & ~ptrd_walk_ok;
+
+var ptrd_new_mmusr[15:0];
+ptrd_new_mmusr = {
+    ptrd_bus_error,              // [15] B
+    1'b0,                        // [14] L
+    1'b0,                        // [13] S
+    1'b0,                        // [12]
+    1'b0,                        // [11]
+    ptrd_walk_success,           // [10]
+    ptrd_wp & ptrd_walk_success, // [9] W
+    ptrd_invalid,                // [8] I
+    ptrd_modified & ptrd_walk_success, // [7] M
+    1'b0,                        // [6]
+    ptrd_level,                  // [5:3] N
+    ptrd_transparent,            // [2] T
+    ptrd_resident,               // [1] R
+    1'b0                         // [0]
+};
+
+mmusr when (~m68k_exc_taken) = ptrd_new_mmusr;
+
+aregs[ptrd_areg] when (ptrd_has_areg & ptrd_walk_success & ~m68k_exc_taken) = {ptrd_walked_ppn, ptrd_addr[11:0]};

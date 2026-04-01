@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 OUT imm8, EAX (0x66 0xE7)
+// Output dword to port (with operand size override)
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+isa_state io_ports[7:0][31:0];
+
+var port_num[7:0];
+
+// Read operand size override prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+eip = eip + 1;
+
+instr = imem[eip];
+assume instr == 0xE7;
+eip = eip + 1;
+
+// Read port number
+port_num = imem[eip];
+eip = eip + 1;
+
+// Write dword to I/O port
+io_ports[port_num] = xregs[0];

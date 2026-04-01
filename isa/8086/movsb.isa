@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 MOVSB (0xA4) - WITH PROPER SEGMENTATION
+// Move byte from DS:[SI] to ES:[DI]
+// Uses DS segment for source, ES segment for destination
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment (source)
+isa_state ES[15:0];            // Extra segment (destination)
+isa_state SI[15:0];
+isa_state DI[15:0];
+isa_state flag_DF[0:0];
+
+var physical_addr_src[19:0];
+var physical_addr_dst[19:0];
+var byte_value[7:0];
+
+instr = imem[ip];
+assume instr == 0xA4;
+ip = ip + 1;
+
+// Calculate physical addresses using both segments
+physical_addr_src = (DS << 4) + SI;  // Source from DS:SI
+physical_addr_dst = (ES << 4) + DI;  // Destination to ES:DI
+
+// Move byte from DS:[SI] to ES:[DI]
+byte_value = dmem[physical_addr_src];
+dmem[physical_addr_dst] = byte_value;
+
+// Increment or decrement SI and DI based on direction flag
+SI = flag_DF == 1'b0 ? (SI + 16'h0001) : (SI - 16'h0001);
+DI = flag_DF == 1'b0 ? (DI + 16'h0001) : (DI - 16'h0001);

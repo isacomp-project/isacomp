@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 MULS.L d(An),Dh:Dl - Signed Multiply Long from d(An) (32x32->64)
+// Opcode: 0100 1100 00 101 AAA followed by extension word, then 16-bit displacement
+// Extension: 0 DDD x 1 0000000 HHH where DDD=Dl, HHH=Dh, bit11=1 (signed), bit10=1 (64-bit)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var base_reg_msld64[2:0];
+var msld64_ext[15:0];
+var dl_reg_msld64[2:0];
+var dh_reg_msld64[2:0];
+var disp_msld64[15:0];
+var disp_ext_msld64[31:0];
+var eff_addr_msld64[31:0];
+var src_hi_msld64[15:0];
+var src_lo_msld64[15:0];
+var src_msld64[31:0];
+var dst_msld64[31:0];
+var src_ext_msld64[63:0];
+var dst_ext_msld64[63:0];
+var result_full_msld64[63:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100110000;  // MULU.L/MULS.L
+assume instr[5:3] == 0b101;          // EA mode: d(An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+base_reg_msld64 = instr[2:0];
+
+// Fetch extension word
+msld64_ext = dmem[pc + pc_pa_delta];
+assume msld64_ext[11] == 0b1;    // Signed (MULS)
+assume msld64_ext[10] == 0b1;    // 64-bit result
+pc when (~m68k_exc_taken) = pc + 2;
+
+dl_reg_msld64 = msld64_ext[14:12];
+dh_reg_msld64 = msld64_ext[2:0];
+
+// Fetch 16-bit displacement
+disp_msld64 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+disp_ext_msld64 = {{16{disp_msld64[15]}}, disp_msld64};
+
+// Calculate effective address
+eff_addr_msld64 = aregs[base_reg_msld64] + disp_ext_msld64;
+
+// Read 32-bit source from memory
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = eff_addr_msld64;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+src_hi_msld64 = dmem[ea_pa];
+#else
+src_hi_msld64 = dmem[eff_addr_msld64];
+#endif
+#ifdef MMU
+src_lo_msld64 = dmem[ea_pa + 2];
+#else
+src_lo_msld64 = dmem[eff_addr_msld64 + 2];
+#endif
+src_msld64 = {src_hi_msld64, src_lo_msld64};
+
+// Execute multiply (32x32->64, signed)
+dst_msld64 = dregs[dl_reg_msld64];
+src_ext_msld64 = {{32{src_msld64[31]}}, src_msld64};
+dst_ext_msld64 = {{32{dst_msld64[31]}}, dst_msld64};
+result_full_msld64 = src_ext_msld64 * dst_ext_msld64;
+dregs[dh_reg_msld64] when (~m68k_exc_taken & ~data_exc_taken) = result_full_msld64[63:32];
+dregs[dl_reg_msld64] when (~m68k_exc_taken & ~data_exc_taken) = result_full_msld64[31:0];
+
+// Update CCR
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = result_full_msld64[63];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = result_full_msld64 == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

@@ -1,0 +1,182 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// J4 (SuperH-4) Exception Handling Aspect
+// This aspect handles the mechanics of taking an exception:
+// 1. Save SSR = SR, SPC = PC (SH-4 specific saved registers)
+// 2. Set MD=1 (privileged mode), BL=1 (block exceptions), RB=1 (use bank1)
+// 3. Set EXPEVT to the exception code
+// 4. Set TEA (for TLB and address error exceptions)
+// 5. Jump to handler at VBR + offset
+//
+// NOTE: SH-4 hardware does NOT push to stack - that's done by software handlers
+//
+// SH-4 uses FIXED offsets from VBR, not indirect vectoring:
+//   VBR + 0x100: General exceptions (address error, illegal instruction, TRAPA, etc.)
+//   VBR + 0x400: TLB miss / TLB exceptions (MMU page fault)
+//   VBR + 0x600: Interrupts
+//
+// Exception sources:
+// - exc_taken / exc_vector: set by instruction body or addr_error aspects
+//   for general exceptions (address error, illegal instruction, TRAPA, etc.)
+// - data_tlb_exc_taken / data_tlb_exc_vector: set by mmu_translate_data_inline
+//   for data TLB exceptions. Default to 0 for non-memory instructions.
+//
+// exc_vector encoding:
+//   0x00-0x7F: General exceptions -> VBR + 0x100
+//     0x07 = Address error (read)  -> EXPEVT = 0x0E0
+//     0x08 = Address error (write) -> EXPEVT = 0x100
+//     0x09 = Reserved instruction  -> EXPEVT = 0x180
+//     0x0A = Illegal slot          -> EXPEVT = 0x1A0
+//     0x0B = TRAPA                 -> EXPEVT = 0x160
+//   0x82-0x84: TLB exceptions -> VBR + 0x400
+//     0x82 = TLB miss              -> EXPEVT = 0x040 (read) or 0x060 (write)
+//     0x83 = Initial page write    -> EXPEVT = 0x080
+//     0x84 = TLB protection viol   -> EXPEVT = 0x0A0 (read) or 0x0C0 (write)
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state t[0:0];  // T flag (tracked separately from SR for instruction updates)
+
+// SH-4 specific saved registers
+isa_state ssr[31:0];  // Saved Status Register
+isa_state spc[31:0];  // Saved Program Counter
+
+// SH-4 exception event register (normally at P4 address 0xFF000024)
+isa_state expevt[31:0];
+
+// TLB Exception Address Register (normally at P4 address 0xFF00000C)
+isa_state tea[31:0];
+
+// Page Table Entry High register (normally at P4 address 0xFF000000)
+// Hardware updates PTEH.VPN on TLB miss (Linux handler relies on this)
+// LDTLB reads PTEH from umem at P4-mapped address, so we must update umem.
+isa_state pteh[31:0];
+
+// Memory declaration for P4-mapped register writes
+mem umem[23:0];
+
+// General exception variables - set by instruction body or addr_error aspects.
+// Default to 0 when unassigned.
+var exc_taken[0:0];
+var exc_vector[7:0];
+
+// Data TLB exception variables - set by mmu_translate_data_inline.isa.
+// Default to 0 for non-memory instructions (no TLB exception).
+var data_tlb_exc_taken[0:0];
+var data_tlb_exc_vector[7:0];
+
+// Second data TLB exception variables - set by mmu_translate_data_inline2.isa.
+// Used only by dual-access instructions (MAC.L, MAC.W). Default to 0.
+var data_m_tlb_exc_taken[0:0];
+var data_m_tlb_exc_vector[7:0];
+
+// TEA source address - set by mmu_translate_data_inline or addr_error aspects.
+// Defaults to 0 when unassigned.
+var exc_tea_addr[31:0];
+var exc_tea_addr_m[31:0];
+
+// is_write flag - needed for correct EXPEVT code for TLB miss/protection.
+// Set by instruction before including data translation.
+// Defaults to 0 (read) when unassigned.
+var is_write[0:0];
+var is_write_m[0:0];
+
+// Merge exception sources: TLB exceptions take priority over general exceptions
+// (TLB miss must be resolved before the load/store can check alignment)
+// For dual-access instructions (MAC.L/MAC.W), first access exception takes priority.
+var final_exc_taken[0:0];
+var final_exc_vector[7:0];
+// Suppress data/general exceptions when ITLB exception is taken.
+// On ITLB miss, the fetched instruction is garbage (wrong physical address),
+// so any data TLB exception it triggers is spurious.
+// itlb_exc_actually_taken is assigned by mmu_translate_instr_cam.isa;
+// declare here with default 0 for instructions without ITLB aspect.
+var itlb_exc_actually_taken[0:0];
+final_exc_taken = (data_tlb_exc_taken | data_m_tlb_exc_taken | exc_taken) & ~itlb_exc_actually_taken;
+final_exc_vector = data_tlb_exc_taken ? data_tlb_exc_vector :
+                   data_m_tlb_exc_taken ? data_m_tlb_exc_vector : exc_vector;
+
+// Internal variables
+var exc_code[31:0];
+var exc_handler_addr[31:0];
+var exc_saved_sr[31:0];
+var exc_saved_pc[31:0];
+var exc_new_sr[31:0];
+
+// Save current PC and SR
+// Include T flag in bit 0 of saved SR (T is tracked separately from SR)
+exc_saved_pc = pc;
+exc_saved_sr = {sr[31:1], t};
+
+// Route to appropriate handler based on final_exc_vector
+var exc_is_interrupt[0:0];
+var exc_is_tlb[0:0];
+exc_is_interrupt = (final_exc_vector == 8'hFF);
+// TLB exceptions: 0x82 = miss, 0x83 = initial write, 0x84 = protection violation
+exc_is_tlb = (final_exc_vector == 8'h82) | (final_exc_vector == 8'h83) | (final_exc_vector == 8'h84);
+exc_handler_addr = exc_is_interrupt ? (vbr + 32'h600) :
+                   exc_is_tlb ? (vbr + 32'h400) :
+                   (vbr + 32'h100);
+
+// Map final_exc_vector to SH4 EXPEVT codes:
+// General exceptions: exc_code = exc_vector << 5
+//   0x07 -> 0x0E0 (address error read)
+//   0x08 -> 0x100 (address error write)
+// TLB exceptions: use proper SH4 codes
+//   0x82 (TLB miss):       0x040 (read) or 0x060 (write)
+//   0x83 (initial write):  0x080
+//   0x84 (protection viol): 0x0A0 (read) or 0x0C0 (write)
+var exc_is_tlb_miss[0:0];
+var exc_is_tlb_iw[0:0];
+var exc_is_tlb_pv[0:0];
+exc_is_tlb_miss = (final_exc_vector == 8'h82);
+exc_is_tlb_iw = (final_exc_vector == 8'h83);
+exc_is_tlb_pv = (final_exc_vector == 8'h84);
+
+exc_code = exc_is_tlb_miss ? (is_write ? 32'h060 : 32'h040) :
+           exc_is_tlb_iw ? 32'h080 :
+           exc_is_tlb_pv ? (is_write ? 32'h0C0 : 32'h0A0) :
+           ({24'b0, final_exc_vector[7:0]} << 5);
+
+// Compute new SR: set MD=1 (privileged), BL=1 (block exceptions), RB=1 (bank1)
+// Keep FD and interrupt mask unchanged
+exc_new_sr = {sr[31], 3'b111, sr[27:0]};
+
+// SH-4 specific: Save SR and PC to SSR and SPC
+ssr when (final_exc_taken) = exc_saved_sr;
+spc when (final_exc_taken) = exc_saved_pc;
+
+// Write exception code to EXPEVT register (isa_state)
+expevt when (final_exc_taken) = exc_code;
+// Also write EXPEVT to umem so kernel can read via P4 load from 0xFF000024
+var exc_expevt_umem_addr[31:0];
+exc_expevt_umem_addr = 32'h03FF0024;
+umem[exc_expevt_umem_addr] when (final_exc_taken) = exc_code;
+
+// Write TEA (TLB Exception Address) for TLB and address error exceptions
+// Use faulting address from whichever translation triggered the exception
+var final_tea_addr[31:0];
+final_tea_addr = data_tlb_exc_taken ? exc_tea_addr :
+                 data_m_tlb_exc_taken ? exc_tea_addr_m : exc_tea_addr;
+tea when (final_exc_taken) = final_tea_addr;
+// Also write TEA to umem so kernel can read via P4 load from 0xFF00000C
+var exc_tea_umem_addr[31:0];
+exc_tea_umem_addr = 32'h03FF000C;
+umem[exc_tea_umem_addr] when (final_exc_taken) = final_tea_addr;
+
+// SH4 hardware updates PTEH.VPN on TLB miss exceptions
+// Read current PTEH from umem (to preserve ASID in bits 7:0)
+var pteh_p4_addr[31:0];
+pteh_p4_addr = 32'h03FF0000;
+var pteh_old_mem[31:0];
+pteh_old_mem = umem[pteh_p4_addr];
+var pteh_new_val[31:0];
+pteh_new_val = {final_tea_addr[31:10], pteh_old_mem[9:0]};
+pteh when (final_exc_taken & exc_is_tlb) = pteh_new_val;
+umem[pteh_p4_addr] when (final_exc_taken & exc_is_tlb) = pteh_new_val;
+
+// Update SR (enter privileged mode, block exceptions, select bank1)
+sr when (final_exc_taken) = exc_new_sr;
+
+// Jump to exception handler
+pc when (final_exc_taken) = exc_handler_addr;

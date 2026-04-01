@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 XCHG r32, r/m32 (0x87 with ModR/M)
+// Exchange register with register/memory (this version: register-to-register)
+// Note: This is different from XCHG EAX, r32 (0x90-0x97)
+
+isa_state eip[31:0];
+var instr[7:0];
+var modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var mod[1:0];
+var reg_idx[2:0];
+var rm_idx[2:0];
+var reg_val[31:0];
+var rm_val[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x87;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+eip = eip + 2;
+
+// Decode ModR/M byte
+mod = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_idx = modrm[2:0];
+
+// This implementation handles register-to-register mode (MOD=11)
+assume mod == 2'b11;
+
+// Read both register values
+reg_val = xregs[reg_idx];
+rm_val = xregs[rm_idx];
+
+// Exchange: reg gets rm_val, rm gets reg_val
+xregs[reg_idx] = rm_val;
+xregs[rm_idx] = reg_val;
+
+// XCHG does not affect flags

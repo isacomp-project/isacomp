@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mulli - Multiply Low Immediate (D-Form)
+// mulli RT,RA,SI
+// Primary opcode 7
+// RT <- (RA) * EXTS(SI) (low 64 bits)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var si[15:0];
+var ra_val[63:0];
+var sign_ext_si[63:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 7
+assume instr[31:26] == 7;
+
+// Extract fields
+rt = instr[25:21];
+ra = instr[20:16];
+si = instr[15:0];
+
+// Sign-extend SI to 64 bits
+sign_ext_si = {{48{si[15]}}, si};
+ra_val = rf[ra];
+
+// Multiply - low 64 bits of product
+result = ra_val * sign_ext_si;
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

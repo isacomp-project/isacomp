@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER rlwimi - Rotate Left Word Immediate then Mask Insert (M-Form)
+// rlwimi rA, rS, sh, mb, me
+// Primary opcode 20, Rc=0
+// Rotates rS, applies mask, then inserts into rA (preserving non-masked bits)
+// n <- sh; r <- ROTL32(rS[32:63], n); m <- MASK(mb+32, me+32); rA <- (r & m) | (rA & ~m)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var rlwimi_ra[4:0];
+var rlwimi_sh[4:0];
+var rlwimi_mb[4:0];
+var rlwimi_me[4:0];
+var rlwimi_me_plus1[5:0];
+var rs_val[63:0];
+var ra_val[63:0];
+var rlwimi_rs_val[31:0];
+var rlwimi_rotated[31:0];
+var rlwimi_mask[31:0];
+var rlwimi_masked_rotated[31:0];
+var rlwimi_masked_ra[31:0];
+var rlwimi_result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 20
+assume instr[31:26] == 20;
+// Rc = 0 (don't update CR)
+assume instr[0] == 0;
+
+// Extract fields
+rs = instr[25:21];
+rlwimi_ra = instr[20:16];
+rlwimi_sh = instr[15:11];
+rlwimi_mb = instr[10:6];
+rlwimi_me = instr[5:1];
+
+// Read registers (64-bit) and extract lower 32 bits
+rs_val = rf[rs];
+ra_val = rf[rlwimi_ra];
+rlwimi_rs_val = rs_val[31:0];
+
+// Rotate left by rlwimi_sh (32-bit rotation)
+rlwimi_rotated = rlwimi_sh == 0 ? rlwimi_rs_val : ((rlwimi_rs_val << rlwimi_sh) | (rlwimi_rs_val >> (32 - rlwimi_sh)));
+
+// Build mask from rlwimi_mb to rlwimi_me (inclusive)
+// MASK(mb, me) sets bits from mb to me
+// Use 6-bit value for me+1 to handle me=31 case
+rlwimi_me_plus1 = {1'b0, rlwimi_me} + 6'd1;
+rlwimi_mask = rlwimi_me >= rlwimi_mb ?
+    ((32'hFFFFFFFF >> rlwimi_mb) & ~(32'hFFFFFFFF >> rlwimi_me_plus1)) :
+    ((32'hFFFFFFFF >> rlwimi_mb) | ~(32'hFFFFFFFF >> rlwimi_me_plus1));
+
+// Insert: (rotated & mask) | (ra & ~mask)
+rlwimi_masked_rotated = rlwimi_rotated & rlwimi_mask;
+rlwimi_masked_ra = ra_val[31:0] & ~rlwimi_mask;
+rlwimi_result = {32'h0, rlwimi_masked_rotated | rlwimi_masked_ra};
+
+// Write result
+#ifdef VM
+rf[rlwimi_ra] when (~instr_trap_taken) = rlwimi_result;
+#else
+rf[rlwimi_ra] = rlwimi_result;
+#endif
+
+pc = pc + 4;

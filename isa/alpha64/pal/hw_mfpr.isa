@@ -1,0 +1,229 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HW_MFPR - Hardware Move From Processor Register
+//
+// Format: opcode[31:26] = 0x19, ra[25:21], rb[20:16], index[15:0]
+//
+// Ra = IPR[index]
+//
+// This instruction is only valid in PAL mode. It reads an internal
+// processor register (IPR) into a general-purpose register.
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[63:0];
+
+// PAL mode check
+isa_state pal_mode[0:0];
+
+// All IPRs that can be read
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+isa_state sirr[63:0];
+isa_state astrr[63:0];
+isa_state aster[63:0];
+isa_state exc_sum[63:0];
+isa_state exc_mask[63:0];
+isa_state va[63:0];
+isa_state va_form[63:0];
+isa_state mm_stat[63:0];
+isa_state ptbr[63:0];
+isa_state vptptr[63:0];
+isa_state dtb_cm[63:0];
+isa_state dtb_asn[63:0];
+isa_state itb_asn[63:0];
+isa_state whami[63:0];
+isa_state pcbb[63:0];
+isa_state unique[63:0];
+isa_state sysval[63:0];
+ext isa_state pcc[63:0];
+isa_state implver[63:0];
+isa_state amask_val[63:0];
+isa_state mces[63:0];
+isa_state fen[0:0];
+
+// ITB translation state (makes ITB signals global across all instructions)
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn_entry[7:0][2:0];
+
+// Exception state
+isa_state lock_flag[0:0];
+
+// PAL temporaries
+isa_state pt0[63:0];
+isa_state pt1[63:0];
+isa_state pt2[63:0];
+isa_state pt3[63:0];
+isa_state pt4[63:0];
+isa_state pt5[63:0];
+isa_state pt6[63:0];
+isa_state pt7[63:0];
+isa_state pt8[63:0];
+isa_state pt9[63:0];
+isa_state pt10[63:0];
+isa_state pt11[63:0];
+isa_state pt12[63:0];
+isa_state pt13[63:0];
+isa_state pt14[63:0];
+isa_state pt15[63:0];
+isa_state pt16[63:0];
+isa_state pt17[63:0];
+isa_state pt18[63:0];
+isa_state pt19[63:0];
+isa_state pt20[63:0];
+isa_state pt21[63:0];
+isa_state pt22[63:0];
+isa_state pt23[63:0];
+
+// ITB translation for instruction fetch
+aspect ../vm/aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect ../vm/aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+var ra[4:0];
+var ipr_idx[15:0];
+var ipr_val[63:0];
+
+instr = umem[pc_pa];
+assume instr[31:26] == 25;
+assume pal_mode == 1;
+
+ra = instr[25:21];
+ipr_idx = instr[15:0];
+
+// IPR read mux - build chain from least to most common
+// Core IPRs (0x08 - 0x1F)
+var v_pal_base[63:0];
+var v_exc_addr[63:0];
+var v_ps[63:0];
+var v_ipl[63:0];
+var v_isr[63:0];
+var v_hier[63:0];
+var v_sirr[63:0];
+var v_astrr[63:0];
+var v_aster[63:0];
+var v_exc_sum[63:0];
+var v_exc_mask[63:0];
+var v_va[63:0];
+var v_va_form[63:0];
+var v_mm_stat[63:0];
+var v_ptbr[63:0];
+var v_vptptr[63:0];
+var v_dtb_cm[63:0];
+var v_dtb_asn[63:0];
+var v_itb_asn[63:0];
+var v_whami[63:0];
+var v_pcbb[63:0];
+var v_unique[63:0];
+var v_sysval[63:0];
+var v_pcc[63:0];
+
+v_pal_base = (ipr_idx == 16'h0008) ? pal_base : 64'b0;
+v_exc_addr = (ipr_idx == 16'h0009) ? exc_addr : v_pal_base;
+// PS[2:0] must always reflect current IPL (they are architecturally the same field)
+v_ps = (ipr_idx == 16'h000A) ? {ps[63:3], ipl[2:0]} : v_exc_addr;
+v_ipl = (ipr_idx == 16'h000B) ? {{58{1'b0}}, ipl} : v_ps;
+v_isr = (ipr_idx == 16'h000C) ? isr : v_ipl;
+v_hier = (ipr_idx == 16'h000D) ? hier : v_isr;
+v_sirr = (ipr_idx == 16'h000E) ? sirr : v_hier;
+v_astrr = (ipr_idx == 16'h000F) ? astrr : v_sirr;
+v_aster = (ipr_idx == 16'h0010) ? aster : v_astrr;
+v_exc_sum = (ipr_idx == 16'h0011) ? exc_sum : v_aster;
+v_exc_mask = (ipr_idx == 16'h0012) ? exc_mask : v_exc_sum;
+v_va = (ipr_idx == 16'h0013) ? va : v_exc_mask;
+v_va_form = (ipr_idx == 16'h0014) ? va_form : v_va;
+v_mm_stat = (ipr_idx == 16'h0015) ? mm_stat : v_va_form;
+v_ptbr = (ipr_idx == 16'h0016) ? ptbr : v_mm_stat;
+v_vptptr = (ipr_idx == 16'h0017) ? vptptr : v_ptbr;
+v_dtb_cm = (ipr_idx == 16'h0018) ? dtb_cm : v_vptptr;
+v_dtb_asn = (ipr_idx == 16'h0019) ? dtb_asn : v_dtb_cm;
+v_itb_asn = (ipr_idx == 16'h001C) ? itb_asn : v_dtb_asn;
+v_whami = (ipr_idx == 16'h0020) ? whami : v_itb_asn;
+v_pcbb = (ipr_idx == 16'h0021) ? pcbb : v_whami;
+v_unique = (ipr_idx == 16'h0022) ? unique : v_pcbb;
+v_sysval = (ipr_idx == 16'h0023) ? sysval : v_unique;
+v_pcc = (ipr_idx == 16'h0024) ? pcc : v_sysval;
+var v_implver[63:0];
+var v_amask_val[63:0];
+var v_mces[63:0];
+var v_fen[63:0];
+v_implver = (ipr_idx == 16'h0025) ? implver : v_pcc;
+v_amask_val = (ipr_idx == 16'h0026) ? amask_val : v_implver;
+v_mces = (ipr_idx == 16'h0027) ? mces : v_amask_val;
+v_fen = (ipr_idx == 16'h0028) ? {{63{1'b0}}, fen} : v_mces;
+
+// PAL temporaries (0x40 - 0x57)
+var v_pt0[63:0];
+var v_pt1[63:0];
+var v_pt2[63:0];
+var v_pt3[63:0];
+var v_pt4[63:0];
+var v_pt5[63:0];
+var v_pt6[63:0];
+var v_pt7[63:0];
+var v_pt8[63:0];
+var v_pt9[63:0];
+var v_pt10[63:0];
+var v_pt11[63:0];
+var v_pt12[63:0];
+var v_pt13[63:0];
+var v_pt14[63:0];
+var v_pt15[63:0];
+var v_pt16[63:0];
+var v_pt17[63:0];
+var v_pt18[63:0];
+var v_pt19[63:0];
+var v_pt20[63:0];
+var v_pt21[63:0];
+var v_pt22[63:0];
+var v_pt23[63:0];
+
+v_pt0 = (ipr_idx == 16'h0040) ? pt0 : v_fen;
+v_pt1 = (ipr_idx == 16'h0041) ? pt1 : v_pt0;
+v_pt2 = (ipr_idx == 16'h0042) ? pt2 : v_pt1;
+v_pt3 = (ipr_idx == 16'h0043) ? pt3 : v_pt2;
+v_pt4 = (ipr_idx == 16'h0044) ? pt4 : v_pt3;
+v_pt5 = (ipr_idx == 16'h0045) ? pt5 : v_pt4;
+v_pt6 = (ipr_idx == 16'h0046) ? pt6 : v_pt5;
+v_pt7 = (ipr_idx == 16'h0047) ? pt7 : v_pt6;
+v_pt8 = (ipr_idx == 16'h0048) ? pt8 : v_pt7;
+v_pt9 = (ipr_idx == 16'h0049) ? pt9 : v_pt8;
+v_pt10 = (ipr_idx == 16'h004A) ? pt10 : v_pt9;
+v_pt11 = (ipr_idx == 16'h004B) ? pt11 : v_pt10;
+v_pt12 = (ipr_idx == 16'h004C) ? pt12 : v_pt11;
+v_pt13 = (ipr_idx == 16'h004D) ? pt13 : v_pt12;
+v_pt14 = (ipr_idx == 16'h004E) ? pt14 : v_pt13;
+v_pt15 = (ipr_idx == 16'h004F) ? pt15 : v_pt14;
+v_pt16 = (ipr_idx == 16'h0050) ? pt16 : v_pt15;
+v_pt17 = (ipr_idx == 16'h0051) ? pt17 : v_pt16;
+v_pt18 = (ipr_idx == 16'h0052) ? pt18 : v_pt17;
+v_pt19 = (ipr_idx == 16'h0053) ? pt19 : v_pt18;
+v_pt20 = (ipr_idx == 16'h0054) ? pt20 : v_pt19;
+v_pt21 = (ipr_idx == 16'h0055) ? pt21 : v_pt20;
+v_pt22 = (ipr_idx == 16'h0056) ? pt22 : v_pt21;
+v_pt23 = (ipr_idx == 16'h0057) ? pt23 : v_pt22;
+
+ipr_val = v_pt23;
+
+// Interrupt handling (higher priority than ITB fault)
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+
+// ITB fault handling (when no interrupt)
+va when (take_interrupt == 0 && itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+
+// Normal execution (gated by no fault)
+rf[ra] when (ra != 31 && take_interrupt == 0 && itb_fault == 0) = ipr_val;
+pc when (take_interrupt == 0 && itb_fault == 0) = pc + 4;

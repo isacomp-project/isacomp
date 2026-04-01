@@ -1,0 +1,14 @@
+# Allow test hex files in isa/ directory (unignore)
+!isa/*.hex
+
+# Allow testbench SystemVerilog file (unignore)
+!simple_tb.sv
+
+# Ignore simulation artifacts
+*.vcd
+*.vvp
+rf.hex
+umem.hex
+
+# Ignore generated Verilog
+pdp11_complete.v

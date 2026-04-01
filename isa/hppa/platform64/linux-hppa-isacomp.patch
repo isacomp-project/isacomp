@@ -1,0 +1,88 @@
+diff --git a/drivers/tty/serial/8250/8250_parisc.c b/drivers/tty/serial/8250/8250_parisc.c
+index 4ba05a987..46a8bc06f 100644
+--- a/drivers/tty/serial/8250/8250_parisc.c
++++ b/drivers/tty/serial/8250/8250_parisc.c
+@@ -32,17 +32,15 @@ static int __init serial_init_chip(struct parisc_device *dev)
+ #endif
+ 
+ 	if (!dev->irq) {
+-		/* We find some unattached serial ports by walking native
+-		 * busses.  These should be silently ignored.  Otherwise,
+-		 * what we have here is a missing parent device, so tell
+-		 * the user what they're missing.
++		/* Allow polled-mode operation for devices without IRQ
++		 * (e.g. ISAComp simulation without interrupt controller).
++		 * Real hardware with a missing parent should still warn.
+ 		 */
+-		if (parisc_parent(dev)->id.hw_type != HPHW_IOA)
++		if (parisc_parent(dev)->id.hw_type != HPHW_IOA &&
++		    parisc_parent(dev)->id.hw_type != HPHW_BCPORT)
+ 			dev_info(&dev->dev,
+-				"Serial: device 0x%llx not configured.\n"
+-				"Enable support for Wax, Lasi, Asp or Dino.\n",
++				"Serial: device 0x%llx using polled mode (no IRQ).\n",
+ 				(unsigned long long)dev->hpa.start);
+-		return -ENODEV;
+ 	}
+ 
+ 	address = dev->hpa.start;
+@@ -50,12 +48,13 @@ static int __init serial_init_chip(struct parisc_device *dev)
+ 		address += 0x800;
+ 
+ 	memset(&uart, 0, sizeof(uart));
+-	uart.port.iotype	= UPIO_MEM;
++	uart.port.iotype	= UPIO_MEM32;
++	uart.port.regshift	= 2;
+ 	/* 7.272727MHz on Lasi.  Assumed the same for Dino, Wax and Timi. */
+ 	uart.port.uartclk	= (dev->id.sversion != 0xad) ?
+ 					7272727 : 1843200;
+ 	uart.port.mapbase	= address;
+-	uart.port.membase	= ioremap(address, 16);
++	uart.port.membase	= ioremap(address, 16 << 2);
+ 	if (!uart.port.membase) {
+ 		dev_warn(&dev->dev, "Failed to map memory\n");
+ 		return -ENOMEM;
+@@ -63,6 +62,8 @@ static int __init serial_init_chip(struct parisc_device *dev)
+ 	uart.port.irq	= dev->irq;
+ 	uart.port.flags	= UPF_BOOT_AUTOCONF;
+ 	uart.port.dev	= &dev->dev;
++	if (!dev->irq)
++		uart.bugs = UART_BUG_TXEN;
+ 
+ 	err = serial8250_register_8250_port(&uart);
+ 	if (err < 0) {
+diff --git a/drivers/tty/serial/8250/8250_port.c b/drivers/tty/serial/8250/8250_port.c
+index 03aca7eac..17d0e41d3 100644
+--- a/drivers/tty/serial/8250/8250_port.c
++++ b/drivers/tty/serial/8250/8250_port.c
+@@ -1519,15 +1519,25 @@ static inline void __start_tx(struct uart_port *port)
+ 	if (up->dma && !up->dma->tx_dma(up))
+ 		return;
+ 
+-	if (serial8250_set_THRI(up)) {
+-		if (up->bugs & UART_BUG_TXEN) {
++	if (up->bugs & UART_BUG_TXEN) {
++		/*
++		 * For UART_BUG_TXEN ports without IRQs (polled mode),
++		 * drain the entire transmit buffer since no THRE interrupt
++		 * will trigger subsequent tx_chars calls.
++		 */
++		serial8250_set_THRI(up);
++		do {
+ 			u16 lsr = serial_lsr_in(up);
+ 
+-			if (lsr & UART_LSR_THRE)
+-				serial8250_tx_chars(up);
+-		}
++			if (!(lsr & UART_LSR_THRE))
++				break;
++			serial8250_tx_chars(up);
++		} while (!kfifo_is_empty(&port->state->port.xmit_fifo));
++		return;
+ 	}
+ 
++	serial8250_set_THRI(up);
++
+ 	/*
+ 	 * Re-enable the transmitter if we disabled it.
+ 	 */

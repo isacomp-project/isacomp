@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: GPL-2.0
+// Device tree for J4 (SH-4) processor with MMU support
+// For full SH4 Linux boot (not J2 NOMMU backwards-compatible mode)
+/dts-v1/;
+
+/ {
+	compatible = "jcore,j4-soc";
+	model = "J4 (SH-4) MMU Linux Platform (ISAComp)";
+
+	#address-cells = <1>;
+	#size-cells = <1>;
+
+	interrupt-parent = <&aic>;
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu@0 {
+			device_type = "cpu";
+			// Use SH7750 compatible for full SH4 with MMU
+			// This ensures Linux uses proper MMU code paths
+			compatible = "renesas,sh7750";
+			reg = <0>;
+			clock-frequency = <50000000>;  // 50 MHz
+		};
+	};
+
+	// Physical memory at 0x00000000, 63MB (1MB reserved for peripherals)
+	// This MUST be declared here so early_init_dt_scan_memory() adds it to
+	// memblock BEFORE unflatten_device_tree() needs to allocate from it.
+	// generic_mem_init() will later add the same range, but memblock merges it.
+	memory@0 {
+		device_type = "memory";
+		reg = <0x00000000 0x3F00000>;
+	};
+
+	aliases {
+		serial0 = &uart0;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		// earlycon uses P2 address for uncached MMIO access
+		// lpj=250000 skips timer calibration for faster boot
+		// random.trust_bootloader=1 trusts the rng-seed below
+		bootargs = "earlycon=uartlite,mmio,0xa3f00100 console=ttyUL0,115200 lpj=250000 random.trust_bootloader=1";
+		// Provide initial entropy for random number generator
+		// Without this, kernel may block waiting for entropy
+		rng-seed = <0xdeadbeef 0xcafebabe 0x12345678 0x87654321
+		            0xfeedface 0xbaadf00d 0xdeadc0de 0x0badc0de>;
+	};
+
+	// Peripheral region in P2 space (uncached, untranslated)
+	// P2 address 0xA3F00000 = physical 0x03F00000
+	// Using P2 ensures uncached access to hardware registers
+	soc@a3f00000 {
+		compatible = "simple-bus";
+		ranges = <0 0xa3f00000 0x100000>;
+
+		#address-cells = <1>;
+		#size-cells = <1>;
+
+		// JCORE AIC (Advanced Interrupt Controller)
+		// Compatible with Linux irq-jcore-aic driver
+		aic: interrupt-controller@200 {
+			compatible = "jcore,aic1";
+			reg = <0x200 0x10>;
+			interrupt-controller;
+			#interrupt-cells = <1>;
+		};
+
+		// JCORE PIT (Programmable Interval Timer)
+		// Compatible with Linux jcore-pit driver
+		timer@200 {
+			compatible = "jcore,pit";
+			reg = <0x200 0x30>;
+			interrupts = <0x48>;  // IRQ 72 (0x48)
+		};
+
+		// Xilinx UARTLite serial port
+		// Compatible with Linux uartlite driver
+		uart0: serial@100 {
+			compatible = "xlnx,xps-uartlite-1.00.a";
+			reg = <0x100 0x10>;
+			interrupts = <0x12>;  // IRQ 18
+			clock-frequency = <50000000>;
+			current-speed = <115200>;
+			device_type = "serial";
+			port-number = <0>;
+		};
+	};
+};

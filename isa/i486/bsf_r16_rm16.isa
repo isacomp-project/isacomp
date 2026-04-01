@@ -1,0 +1,126 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BSF r16, r/m16 (0x0F BC) - Bit Scan Forward
+// Find lowest set bit (LSB to MSB) in source
+// If source is 0: ZF=1, dest undefined
+// If source is non-zero: ZF=0, dest=bit position of lowest set bit
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file (lower 16 bits used for 16-bit operations)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_ZF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var src_val[15:0];
+var result[15:0];
+var is_zero[0:0];
+
+// Intermediate bit priority flags for first 8 bits
+var found0[0:0];
+var found1[0:0];
+var found2[0:0];
+var found3[0:0];
+var found4[0:0];
+var found5[0:0];
+var found6[0:0];
+var found7[0:0];
+
+// Fetch first opcode byte
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+// Fetch second opcode byte
+instr2 = imem[eip];
+assume instr2 == 0xBC;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Register-direct mode only
+assume mod_bits == 0b11;
+
+// Read source value (lower 16 bits)
+src_val = xregs[rm_bits];
+
+// Check if source is zero
+is_zero = (src_val == 16'h0000) ? 1'b1 : 1'b0;
+
+// Set ZF based on whether source is zero
+case (is_zero) {
+    1'b1: flag_ZF = 1'b1;
+    1'b0: flag_ZF = 1'b0;
+}
+
+// Compute priority flags - each checks if it's the first set bit
+found0 = src_val[0];
+found1 = src_val[1] & ~src_val[0];
+found2 = src_val[2] & ~src_val[1] & ~src_val[0];
+found3 = src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+found4 = src_val[4] & ~src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+found5 = src_val[5] & ~src_val[4] & ~src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+found6 = src_val[6] & ~src_val[5] & ~src_val[4] & ~src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+found7 = src_val[7] & ~src_val[6] & ~src_val[5] & ~src_val[4] & ~src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+
+// Select result for bits 0-7
+case (found0) { 1'b1: result = 16'd0; }
+case (found1) { 1'b1: result = 16'd1; }
+case (found2) { 1'b1: result = 16'd2; }
+case (found3) { 1'b1: result = 16'd3; }
+case (found4) { 1'b1: result = 16'd4; }
+case (found5) { 1'b1: result = 16'd5; }
+case (found6) { 1'b1: result = 16'd6; }
+case (found7) { 1'b1: result = 16'd7; }
+
+// For bits 8-15 (only reachable if bits 0-7 all zero)
+var low_byte_zero[0:0];
+low_byte_zero = (src_val[7:0] == 8'h00) ? 1'b1 : 1'b0;
+
+var found8[0:0];
+var found9[0:0];
+var found10[0:0];
+var found11[0:0];
+var found12[0:0];
+var found13[0:0];
+var found14[0:0];
+var found15[0:0];
+
+found8 = low_byte_zero & src_val[8];
+found9 = low_byte_zero & src_val[9] & ~src_val[8];
+found10 = low_byte_zero & src_val[10] & ~src_val[9] & ~src_val[8];
+found11 = low_byte_zero & src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+found12 = low_byte_zero & src_val[12] & ~src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+found13 = low_byte_zero & src_val[13] & ~src_val[12] & ~src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+found14 = low_byte_zero & src_val[14] & ~src_val[13] & ~src_val[12] & ~src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+found15 = low_byte_zero & src_val[15] & ~src_val[14] & ~src_val[13] & ~src_val[12] & ~src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+
+case (found8) { 1'b1: result = 16'd8; }
+case (found9) { 1'b1: result = 16'd9; }
+case (found10) { 1'b1: result = 16'd10; }
+case (found11) { 1'b1: result = 16'd11; }
+case (found12) { 1'b1: result = 16'd12; }
+case (found13) { 1'b1: result = 16'd13; }
+case (found14) { 1'b1: result = 16'd14; }
+case (found15) { 1'b1: result = 16'd15; }
+
+// Write result to destination register (only when source is non-zero)
+case (is_zero) {
+    1'b0: xregs[reg_idx][15:0] = result;
+}
+
+// CF, OF, SF, AF, PF are undefined

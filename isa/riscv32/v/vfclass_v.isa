@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vfclass.v - Classify FP Value
+// Encoding: vfclass.v vd, vs2, vm
+// Operation: vd[i] = classify(vs2[i]) - returns 10-bit classification
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v2[127:0];
+var res[127:0];
+var class0[9:0];
+var class1[9:0];
+var class2[9:0];
+var class3[9:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b001;
+assume instr[31:26] == 0b010011;
+assume instr[19:15] == 0b10000;
+
+pc = pc + 4;
+
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v2 = vrf[vs2];
+
+// Classify each 32-bit float element (fp_class returns 10-bit mask)
+class0 = fp_class(v2[31:0]);
+class1 = fp_class(v2[63:32]);
+class2 = fp_class(v2[95:64]);
+class3 = fp_class(v2[127:96]);
+
+res[31:0] = {22'b0, class0};
+res[63:32] = {22'b0, class1};
+res[95:64] = {22'b0, class2};
+res[127:96] = {22'b0, class3};
+
+vrf[vd] = res;

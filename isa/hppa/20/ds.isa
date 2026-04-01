@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA 2.0 DS instruction
+// DS r1,r2,t - Divide Step (non-restoring division)
+// Used to implement software division via millicode
+// Opcode: 0x02 (bits 31:26), sub-opcode: 0x20 (bits 11:5)
+//
+// Algorithm (verified against QEMU trans_ds):
+//   1. add1 = (R1 << 1) | old_CB[0]       -- shift partial remainder, insert carry
+//   2. If old_V=0: result = add1 + R2      -- restore (add divisor)
+//      If old_V=1: result = add1 - R2      -- trial subtract (sub divisor)
+//   3. New CB[0] = carry_out               -- raw carry/borrow
+//   4. New V = carry_out XOR R2[63]        -- determines next step's operation
+
+isa_state pc[63:0];
+isa_state rf[63:0][4:0];
+isa_state psw[63:0];  // V bit (17) and CB[0] bit (15) used for division
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var t[4:0];
+var src1[63:0];
+var src2[63:0];
+var old_v[0:0];
+var old_carry[0:0];
+var add1[63:0];
+var result[63:0];
+var carry_out[0:0];
+var new_v[0:0];
+
+instr = umem[pc_pa];
+
+// DS encoding: opcode=0x02, sub-opcode=0x20 (bits 11:5)
+assume instr[31:26] == 0b000010;
+assume instr[11:6] == 0b010001;
+
+// PA-RISC opcode 0x02 convention: bits[25:21]=r2, bits[20:16]=r1
+r2 = instr[25:21];
+r1 = instr[20:16];
+t = instr[4:0];
+
+// DS is always a 32-bit operation (no d bit / no 64-bit variant)
+src1 = (r1 == 0) ? 64'h0 : rf[r1];
+src2 = (r2 == 0) ? 64'h0 : rf[r2];
+
+// Read old V (bit 17) and old carry from word boundary (bit 14)
+// DS always reads carry from bit 31 (word boundary), not MSB carry (psw[15])
+// This is critical for millicode division: ADD,C writes MSB carry to psw[15]
+// but word carry (from bit 31) to psw[14]. DS needs the word carry.
+old_v = psw[17];
+old_carry = psw[14];
+
+// Step 1: Shift partial remainder left by 1, insert old carry bit (32-bit)
+add1 = {32'h0, src1[30:0], old_carry};
+
+// Step 2: Add or subtract based on old V (32-bit arithmetic)
+// V=0 -> ADD R2 (restore step), V=1 -> SUBTRACT R2 (trial subtract)
+var add1_lo[31:0];
+var src2_lo[31:0];
+var ta32[32:0];
+var ts32[32:0];
+add1_lo = add1[31:0];
+src2_lo = src2[31:0];
+ta32 = {1'b0, add1_lo} + {1'b0, src2_lo};
+ts32 = {1'b0, add1_lo} + {1'b0, ~src2_lo} + 33'h1;
+
+// Result sign-extended from 32 bits; carry from bit 32
+result = old_v ? {{32{ts32[31]}}, ts32[31:0]} : {{32{ta32[31]}}, ta32[31:0]};
+carry_out = old_v ? ts32[32] : ta32[32];
+
+// New V = carry_out XOR sign bit of divisor (always bit 31, 32-bit)
+new_v = carry_out ^ src2[31];
+
+// Update PSW: V bit (17), MSB carry (15), and word carry (14)
+// DS is always 32-bit, so MSB carry = word carry = carry_out
+psw when (~instr_trap_taken & ~in_nullified) = {psw[63:18], new_v, psw[16], carry_out, carry_out, psw[13:0]};
+
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = result;
+pc = pc + 4;

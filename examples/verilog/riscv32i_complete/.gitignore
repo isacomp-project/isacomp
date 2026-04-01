@@ -1,0 +1,10 @@
+*.mem
+*.o
+*.vpi
+sim
+sim_rt1
+sim_rt2
+sim_rt3
+sim_test
+test_add
+test_*_sim

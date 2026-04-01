@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 INSW (0x66 0x6D)
+// Input word from port DX to [EDI], adjust EDI by 2 based on DF
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state EDI[31:0] of xregs[7];
+isa_state DX[15:0] of xregs[2][15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state io_ports[7:0][15:0];
+isa_state flag_DF[0:0];
+
+var new_edi[31:0];
+var val_b0[7:0];
+var val_b1[7:0];
+
+// Fetch operand-size override prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0x6D;
+
+// Read word from I/O port DX (little-endian)
+val_b0 = io_ports[DX];
+val_b1 = io_ports[DX + 1];
+
+// Store word to [EDI] (little-endian)
+dmem[EDI] = val_b0;
+dmem[EDI + 1] = val_b1;
+
+// Adjust EDI based on direction flag
+new_edi = flag_DF == 1'b0 ? EDI + 2 : EDI - 2;
+EDI = new_edi;
+
+// INSW does not affect flags
+
+// Update EIP after all imem reads are complete (2 bytes: prefix + opcode)
+eip = eip + 2;

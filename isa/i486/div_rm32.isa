@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 DIV r/m32 (0xF7 /6)
+// Unsigned divide: EAX = EDX:EAX / r/m32, EDX = remainder
+// Flags are undefined after DIV
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+isa_state EDX[31:0] of xregs[2];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var divisor[31:0];
+var dividend[63:0];
+var quotient[31:0];
+var remainder[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xF7;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is DIV (reg_bits = 110)
+assume reg_bits == 0b110;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read divisor
+divisor = xregs[rm_bits];
+
+// Update EIP
+eip = eip + 2;
+
+// Construct 64-bit dividend from EDX:EAX
+dividend = {EDX, EAX};
+
+// Perform unsigned division
+quotient = dividend / divisor;
+remainder = dividend % divisor;
+
+// Store results
+EAX = quotient;
+EDX = remainder;
+
+// Flags are undefined after DIV (no flag updates)

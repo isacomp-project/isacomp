@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER rlwnm - Rotate Left Word then AND with Mask (M-Form)
+// rlwnm rA, rS, rB, mb, me
+// Primary opcode 23, Rc=0
+// n <- rB[59:63]; r <- ROTL32(rS[32:63], n); m <- MASK(mb+32, me+32); rA <- r & m
+// Like rlwinm but shift amount comes from register rB (low 5 bits)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var rlwnm_ra[4:0];
+var rb[4:0];
+var rlwnm_mb[4:0];
+var rlwnm_me[4:0];
+var rlwnm_me_plus1[5:0];
+var rs_val[63:0];
+var rb_val[63:0];
+var rlwnm_rs_val[31:0];
+var rlwnm_sh[4:0];
+var rlwnm_rotated[31:0];
+var rlwnm_mask[31:0];
+var rlwnm_result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 23
+assume instr[31:26] == 23;
+// Rc = 0 (don't update CR)
+assume instr[0] == 0;
+
+// Extract fields
+rs = instr[25:21];
+rlwnm_ra = instr[20:16];
+rb = instr[15:11];
+rlwnm_mb = instr[10:6];
+rlwnm_me = instr[5:1];
+
+// Read registers
+rs_val = rf[rs];
+rb_val = rf[rb];
+rlwnm_rs_val = rs_val[31:0];
+
+// Extract shift amount from low 5 bits of rB
+rlwnm_sh = rb_val[4:0];
+
+// Rotate left by rlwnm_sh (32-bit rotation)
+rlwnm_rotated = rlwnm_sh == 0 ? rlwnm_rs_val : ((rlwnm_rs_val << rlwnm_sh) | (rlwnm_rs_val >> (32 - rlwnm_sh)));
+
+// Build mask from rlwnm_mb to rlwnm_me (inclusive)
+// Use 6-bit value for me+1 to handle me=31 case
+rlwnm_me_plus1 = {1'b0, rlwnm_me} + 6'd1;
+rlwnm_mask = rlwnm_me >= rlwnm_mb ?
+    ((32'hFFFFFFFF >> rlwnm_mb) & ~(32'hFFFFFFFF >> rlwnm_me_plus1)) :
+    ((32'hFFFFFFFF >> rlwnm_mb) | ~(32'hFFFFFFFF >> rlwnm_me_plus1));
+
+// Apply mask and zero-extend to 64 bits
+rlwnm_result = {32'h0, rlwnm_rotated & rlwnm_mask};
+
+// Write result
+#ifdef VM
+rf[rlwnm_ra] when (~instr_trap_taken) = rlwnm_result;
+#else
+rf[rlwnm_ra] = rlwnm_result;
+#endif
+
+pc = pc + 4;

@@ -1,0 +1,193 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 DIVS.L Ds,Dr:Dq - Signed Divide Long (64/32->32r:32q)
+// Opcode: 0100 1100 01 000 SSS followed by extension word
+// Extension: 0 qqq 1 1 0000000 rrr  (bit11=1 signed, bit10=1 64-bit dividend)
+// Divides Dr:Dq (signed 64-bit) by Ds, quotient in Dq, remainder in Dr
+// Division by zero generates exception (vector 5, format 2)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+isa_state sr[15:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var divs64_ext[15:0];
+var src_reg[2:0];
+var dq_reg[2:0];
+var dr_reg[2:0];
+var divisor[31:0];
+var dividend_hi[31:0];
+var dividend_lo[31:0];
+var dividend[63:0];
+var divisor_ext[63:0];
+var dividend_neg[0:0];
+var divisor_neg[0:0];
+var dividend_abs[63:0];
+var divisor_abs[63:0];
+var quotient_full[63:0];
+var remainder_abs[63:0];
+var quotient_neg[0:0];
+var quotient[31:0];
+var remainder[31:0];
+
+// Divide-by-zero exception variables
+var divzero_detected[0:0];
+var divzero_instr_pc[31:0];
+var divzero_old_sr[15:0];
+var divzero_was_user[0:0];
+var divzero_base_sp[31:0];
+var divzero_new_sp[31:0];
+var divzero_vector_addr[31:0];
+var divzero_handler_hi[15:0];
+var divzero_handler_lo[15:0];
+var divzero_handler[31:0];
+var divzero_new_sr[15:0];
+var divzero_format_vec[15:0];
+var divzero_frame_w0[31:0];
+var divzero_frame_w1[31:0];
+var divzero_frame_w2[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Save instruction PC before fetch
+divzero_instr_pc = pc;
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100110001;  // DIVU.L/DIVS.L
+assume instr[5:3] == 0b000;          // EA mode: Dn
+pc when (~m68k_exc_taken) = pc + 2;
+
+src_reg = instr[2:0];
+
+// Fetch extension word
+divs64_ext = dmem[pc + pc_pa_delta];
+assume divs64_ext[11] == 0b1;    // Signed (DIVS.L) - bit 11 distinguishes signed/unsigned
+assume divs64_ext[10] == 0b1;    // 64-bit dividend
+pc when (~m68k_exc_taken) = pc + 2;
+
+dq_reg = divs64_ext[14:12];
+dr_reg = divs64_ext[2:0];
+
+// Build 64-bit dividend from Dr:Dq
+divisor = dregs[src_reg];
+dividend_hi = dregs[dr_reg];
+dividend_lo = dregs[dq_reg];
+dividend = {dividend_hi, dividend_lo};
+divisor_ext = {{32{divisor[31]}}, divisor};
+
+// Check for divide by zero
+divzero_detected = (divisor == 0);
+
+// Determine signs
+dividend_neg = dividend[63];
+divisor_neg = divisor[31];
+
+// Get absolute values (64-bit)
+dividend_abs = dividend_neg ? (~dividend + 1) : dividend;
+divisor_abs = divisor_neg ? (~divisor_ext + 1) : divisor_ext;
+
+// Perform unsigned division on absolute values
+quotient_full = divisor_abs != 0 ? dividend_abs / divisor_abs : dividend_abs;
+remainder_abs = divisor_abs != 0 ? dividend_abs - (quotient_full * divisor_abs) : 0;
+
+// Apply sign to quotient (negative if signs differ)
+quotient_neg = dividend_neg ^ divisor_neg;
+quotient = quotient_neg ? (~quotient_full[31:0] + 1) : quotient_full[31:0];
+
+// Apply sign to remainder (same sign as dividend)
+remainder = dividend_neg ? (~remainder_abs[31:0] + 1) : remainder_abs[31:0];
+
+// Store results (guarded: no write on divide-by-zero)
+dregs[dq_reg] when (~divzero_detected & ~m68k_exc_taken) = quotient;
+dregs[dr_reg] when (~divzero_detected & ~m68k_exc_taken) = remainder;
+
+// Update CCR (guarded: no flag change on divide-by-zero, X not affected)
+flag_N when (~divzero_detected & ~m68k_exc_taken) = quotient[31];
+flag_Z when (~divzero_detected & ~m68k_exc_taken) = quotient == 0;
+flag_V when (~divzero_detected & ~m68k_exc_taken) = 1'b0;
+flag_C when (~divzero_detected & ~m68k_exc_taken) = 1'b0;
+
+// Divide-by-zero exception (vector 5, format 2 frame = 12 bytes)
+divzero_old_sr = {sr[15:5], flag_X, flag_N, flag_Z, flag_V, flag_C};
+divzero_was_user = ~sr[13];
+usp when (divzero_detected & divzero_was_user & ~m68k_exc_taken) = aregs[7];
+
+divzero_base_sp = (divzero_detected & divzero_was_user) ? ssp : aregs[7];
+divzero_new_sp = divzero_base_sp - 32'd12;
+
+// Format 2 stack frame: SR, PC, format/vector, instruction address
+divzero_format_vec = {4'b0010, 12'h014};
+// Push Format 2 frame as three 32-bit writes to avoid dual-half collision
+divzero_frame_w0 = {divzero_old_sr, divzero_instr_pc[31:16]};
+divzero_frame_w1 = {divzero_instr_pc[15:0], divzero_format_vec};
+divzero_frame_w2 = {divzero_instr_pc[31:16], divzero_instr_pc[15:0]};
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = divzero_new_sp;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+dmem[ea_pa] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w0;
+#else
+dmem[divzero_new_sp] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w0;
+#endif
+#ifdef MMU
+dmem[ea_pa + 4] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w1;
+#else
+dmem[divzero_new_sp + 4] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w1;
+#endif
+#ifdef MMU
+dmem[ea_pa + 8] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w2;
+#else
+dmem[divzero_new_sp + 8] when (divzero_detected & ~m68k_exc_taken) = divzero_frame_w2;
+#endif
+
+ssp when (divzero_detected & ~m68k_exc_taken) = divzero_new_sp;
+aregs[7] when (divzero_detected & ~m68k_exc_taken) = divzero_new_sp;
+
+// Enter supervisor mode, clear trace bits
+divzero_new_sr = {2'b00, 1'b1, divzero_old_sr[12:0]};
+sr when (divzero_detected & ~m68k_exc_taken) = divzero_new_sr;
+
+// Jump to handler
+divzero_vector_addr = vbr + 32'h14;
+divzero_handler_hi = dmem[divzero_vector_addr];
+divzero_handler_lo = dmem[divzero_vector_addr + 2];
+divzero_handler = {divzero_handler_hi, divzero_handler_lo};
+pc when (divzero_detected & ~m68k_exc_taken) = divzero_handler;

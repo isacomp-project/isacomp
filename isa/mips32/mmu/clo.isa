@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 CLO - Count Leading Ones
+// Counts the number of leading ones in rs, stores in rd
+// Encoding: 011100 rs rt rd 00000 100001
+//           SPECIAL2          CLO
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rs[4:0];
+var rd[4:0];
+var rs_val[31:0];
+var inv_val[31:0];
+var count[5:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// CLO encoding
+assume instr[31:26] == 6'b011100;  // SPECIAL2 opcode
+assume instr[5:0] == 6'b100001;    // CLO function
+assume instr[10:6] == 5'b00000;    // sa = 0
+
+rs = instr[25:21];
+rd = instr[15:11];
+rs_val = rf[rs];
+
+// Invert and count leading zeros (same as CLZ on inverted value)
+inv_val = ~rs_val;
+
+// Count leading zeros on inverted value
+var c16[0:0]; var c8[0:0]; var c4[0:0]; var c2[0:0]; var c1[0:0];
+var v16[31:0]; var v8[31:0]; var v4[31:0]; var v2[31:0];
+var n16[4:0]; var n8[4:0]; var n4[4:0]; var n2[4:0]; var n1[4:0];
+
+c16 = (inv_val[31:16] == 16'h0000);
+v16 = c16 ? {inv_val[15:0], 16'b0} : inv_val;
+n16 = c16 ? 16 : 0;
+
+c8 = (v16[31:24] == 8'h00);
+v8 = c8 ? {v16[23:0], 8'b0} : v16;
+n8 = c8 ? 8 : 0;
+
+c4 = (v8[31:28] == 4'b0);
+v4 = c4 ? {v8[27:0], 4'b0} : v8;
+n4 = c4 ? 4 : 0;
+
+c2 = (v4[31:30] == 2'b00);
+v2 = c2 ? {v4[29:0], 2'b00} : v4;
+n2 = c2 ? 2 : 0;
+
+c1 = (v2[31] == 1'b0);
+n1 = c1 ? 1 : 0;
+
+var all_ones[0:0];
+all_ones = (rs_val == 0xFFFFFFFF);
+count = all_ones ? 32 : {1'b0, n16 + n8 + n4 + n2 + n1};
+
+// Write result
+rf[rd] = {1'b0, count};
+
+pc = pc + 4;

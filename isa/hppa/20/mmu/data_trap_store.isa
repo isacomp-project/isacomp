@@ -1,0 +1,328 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// HPPA PA-RISC 2.0 Data TLB Miss / Protection Fault Aspect for Stores (64-bit)
+// =============================================================================
+//
+// 64-bit version: addresses, CRs, and space registers widened to 64 bits.
+// Store-specific: checks write permission and dirty bit.
+//
+// =============================================================================
+
+// =========================================================================
+// ISA STATE: DTLB - 16 entries, fully associative CAM
+// =========================================================================
+isa_state cam dtlb_vpn[51:0]@[3:0][];
+isa_state dtlb_space[63:0][3:0];
+isa_state dtlb_valid[0:0][3:0];
+isa_state dtlb_ppn[51:0][3:0];
+isa_state dtlb_prot[63:0][3:0];
+
+// =========================================================================
+// ISA STATE: Block TLB (BTLB) - 8 entries
+// =========================================================================
+isa_state btlb_valid[0:0][2:0];
+isa_state btlb_va_base[63:0][2:0];
+isa_state btlb_pa_base[63:0][2:0];
+isa_state btlb_page_mask[63:0][2:0];
+isa_state btlb_space[63:0][2:0];
+isa_state btlb_type_i[0:0][2:0];
+isa_state btlb_type_d[0:0][2:0];
+
+// =========================================================================
+// ISA STATE: Space registers (64-bit)
+// =========================================================================
+isa_state sr0[63:0];
+isa_state sr1[63:0];
+isa_state sr2[63:0];
+isa_state sr3[63:0];
+isa_state sr4[63:0];
+isa_state sr5[63:0];
+isa_state sr6[63:0];
+isa_state sr7[63:0];
+
+// =========================================================================
+// ISA STATE: Written on trap
+// =========================================================================
+isa_state psw[63:0];
+isa_state pc[63:0];
+isa_state cr14[63:0];
+isa_state cr17[63:0];
+isa_state cr17_back[63:0];
+isa_state cr18[63:0];
+isa_state cr18_back[63:0];
+isa_state cr19[63:0];
+isa_state cr20[63:0];
+isa_state cr21[63:0];
+isa_state cr22[63:0];
+isa_state priv_level[1:0];
+isa_state shadow_r1[63:0];
+isa_state shadow_r8[63:0];
+isa_state shadow_r9[63:0];
+isa_state shadow_r16[63:0];
+isa_state shadow_r17[63:0];
+isa_state shadow_r24[63:0];
+isa_state shadow_r25[63:0];
+
+// =========================================================================
+// Data translation control
+// =========================================================================
+var psw_D[0:0];
+psw_D = psw[1];
+
+// =========================================================================
+// Narrow mode (PSW.W=0): mask data addresses to 32 bits
+// PA-RISC 2.0 narrow mode: 32-bit kernel uses 32-bit virtual addresses
+// =========================================================================
+var psw_W[0:0];
+psw_W = psw[27];
+var eff_addr[63:0];
+eff_addr = psw_W ? addr : {32'h0, addr[31:0]};
+
+// =========================================================================
+// DTLB CAM Lookup (64-bit addresses)
+// =========================================================================
+var dvpn[51:0];
+var doffset[11:0];
+dvpn = eff_addr[63:12];
+doffset = eff_addr[11:0];
+
+// PA-RISC 2.0 data space register selection:
+// - Short format (opcodes 0x03, 0x09, 0x0B): explicit 2-bit space field at instr[15:14]
+// - Long format (all others): in narrow mode (PSW.W=0), instr[15:14] used as space field;
+//   in wide mode (PSW.W=1), space field forced to 0
+// - When space field = 0: select SR4-SR7 based on top 2 bits of BASE REGISTER value
+//   (bits 31:30 in narrow mode, bits 63:62 in wide mode)
+// - When space field = 1/2/3: select SR1/SR2/SR3
+var major_op[5:0];
+major_op = instr[31:26];
+var has_space_field[0:0];
+has_space_field = (major_op == 6'b000011) | (major_op == 6'b001001) | (major_op == 6'b001011)
+                | (major_op == 6'b010100) | (major_op == 6'b011100);
+
+// Effective space selector: short format always uses instr[15:14];
+// long format uses instr[15:14] in narrow mode, 0 in wide mode
+var eff_space_sel[1:0];
+eff_space_sel = (~has_space_field & psw_W) ? 2'd0 : instr[15:14];
+
+// Base register value for SR4-SR7 selection when space field = 0
+var b_reg[4:0];
+b_reg = instr[25:21];
+var base_val[63:0];
+base_val = (b_reg == 0) ? 64'h0 : rf[b_reg];
+
+// Top 2 bits of base register select SR4-SR7
+var space_idx[1:0];
+space_idx = psw_W ? base_val[63:62] : base_val[31:30];
+
+var sr4567_space[63:0];
+sr4567_space = (space_idx == 2'd0) ? sr4 :
+               (space_idx == 2'd1) ? sr5 :
+               (space_idx == 2'd2) ? sr6 : sr7;
+
+// Final data space: s=0 -> SR4-SR7 from base reg; s=1/2/3 -> SR1/SR2/SR3
+var dspace[63:0];
+dspace = (eff_space_sel == 2'd0) ? sr4567_space :
+         (eff_space_sel == 2'd1) ? sr1 :
+         (eff_space_sel == 2'd2) ? sr2 : sr3;
+
+var dtlb_vpn_matches[15:0];
+dtlb_vpn_matches = dtlb_vpn@[dvpn];
+
+var dv_0[0:0];  dv_0  = dtlb_valid[0]  & (dtlb_space[0]  == dspace);
+var dv_1[0:0];  dv_1  = dtlb_valid[1]  & (dtlb_space[1]  == dspace);
+var dv_2[0:0];  dv_2  = dtlb_valid[2]  & (dtlb_space[2]  == dspace);
+var dv_3[0:0];  dv_3  = dtlb_valid[3]  & (dtlb_space[3]  == dspace);
+var dv_4[0:0];  dv_4  = dtlb_valid[4]  & (dtlb_space[4]  == dspace);
+var dv_5[0:0];  dv_5  = dtlb_valid[5]  & (dtlb_space[5]  == dspace);
+var dv_6[0:0];  dv_6  = dtlb_valid[6]  & (dtlb_space[6]  == dspace);
+var dv_7[0:0];  dv_7  = dtlb_valid[7]  & (dtlb_space[7]  == dspace);
+var dv_8[0:0];  dv_8  = dtlb_valid[8]  & (dtlb_space[8]  == dspace);
+var dv_9[0:0];  dv_9  = dtlb_valid[9]  & (dtlb_space[9]  == dspace);
+var dv_10[0:0]; dv_10 = dtlb_valid[10] & (dtlb_space[10] == dspace);
+var dv_11[0:0]; dv_11 = dtlb_valid[11] & (dtlb_space[11] == dspace);
+var dv_12[0:0]; dv_12 = dtlb_valid[12] & (dtlb_space[12] == dspace);
+var dv_13[0:0]; dv_13 = dtlb_valid[13] & (dtlb_space[13] == dspace);
+var dv_14[0:0]; dv_14 = dtlb_valid[14] & (dtlb_space[14] == dspace);
+var dv_15[0:0]; dv_15 = dtlb_valid[15] & (dtlb_space[15] == dspace);
+
+var dm_0[0:0];  dm_0  = dtlb_vpn_matches[0]  & dv_0;
+var dm_1[0:0];  dm_1  = dtlb_vpn_matches[1]  & dv_1;
+var dm_2[0:0];  dm_2  = dtlb_vpn_matches[2]  & dv_2;
+var dm_3[0:0];  dm_3  = dtlb_vpn_matches[3]  & dv_3;
+var dm_4[0:0];  dm_4  = dtlb_vpn_matches[4]  & dv_4;
+var dm_5[0:0];  dm_5  = dtlb_vpn_matches[5]  & dv_5;
+var dm_6[0:0];  dm_6  = dtlb_vpn_matches[6]  & dv_6;
+var dm_7[0:0];  dm_7  = dtlb_vpn_matches[7]  & dv_7;
+var dm_8[0:0];  dm_8  = dtlb_vpn_matches[8]  & dv_8;
+var dm_9[0:0];  dm_9  = dtlb_vpn_matches[9]  & dv_9;
+var dm_10[0:0]; dm_10 = dtlb_vpn_matches[10] & dv_10;
+var dm_11[0:0]; dm_11 = dtlb_vpn_matches[11] & dv_11;
+var dm_12[0:0]; dm_12 = dtlb_vpn_matches[12] & dv_12;
+var dm_13[0:0]; dm_13 = dtlb_vpn_matches[13] & dv_13;
+var dm_14[0:0]; dm_14 = dtlb_vpn_matches[14] & dv_14;
+var dm_15[0:0]; dm_15 = dtlb_vpn_matches[15] & dv_15;
+
+var dtlb_hit[0:0];
+dtlb_hit = dm_0 | dm_1 | dm_2 | dm_3 | dm_4 | dm_5 | dm_6 | dm_7 |
+           dm_8 | dm_9 | dm_10 | dm_11 | dm_12 | dm_13 | dm_14 | dm_15;
+
+var dtlb_ppn_result[51:0];
+dtlb_ppn_result = dm_0 ? dtlb_ppn[0] : dm_1 ? dtlb_ppn[1] :
+                  dm_2 ? dtlb_ppn[2] : dm_3 ? dtlb_ppn[3] :
+                  dm_4 ? dtlb_ppn[4] : dm_5 ? dtlb_ppn[5] :
+                  dm_6 ? dtlb_ppn[6] : dm_7 ? dtlb_ppn[7] :
+                  dm_8 ? dtlb_ppn[8] : dm_9 ? dtlb_ppn[9] :
+                  dm_10 ? dtlb_ppn[10] : dm_11 ? dtlb_ppn[11] :
+                  dm_12 ? dtlb_ppn[12] : dm_13 ? dtlb_ppn[13] :
+                  dm_14 ? dtlb_ppn[14] : dtlb_ppn[15];
+var dtlb_prot_result[63:0];
+dtlb_prot_result = dm_0 ? dtlb_prot[0] : dm_1 ? dtlb_prot[1] :
+                   dm_2 ? dtlb_prot[2] : dm_3 ? dtlb_prot[3] :
+                   dm_4 ? dtlb_prot[4] : dm_5 ? dtlb_prot[5] :
+                   dm_6 ? dtlb_prot[6] : dm_7 ? dtlb_prot[7] :
+                   dm_8 ? dtlb_prot[8] : dm_9 ? dtlb_prot[9] :
+                   dm_10 ? dtlb_prot[10] : dm_11 ? dtlb_prot[11] :
+                   dm_12 ? dtlb_prot[12] : dm_13 ? dtlb_prot[13] :
+                   dm_14 ? dtlb_prot[14] : dtlb_prot[15];
+
+// =========================================================================
+// D-BTLB LOOKUP for stores
+// =========================================================================
+var dbp_mask_0[63:0]; dbp_mask_0 = btlb_page_mask[0];
+var dbp_masked_addr_0[63:0]; dbp_masked_addr_0 = eff_addr & dbp_mask_0;
+var dbm_0[0:0]; dbm_0 = btlb_valid[0] & btlb_type_d[0] & (dbp_masked_addr_0 == btlb_va_base[0]) & (dspace == btlb_space[0]);
+var dbp_pa_0[63:0]; dbp_pa_0 = btlb_pa_base[0] | (eff_addr & (dbp_mask_0 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var dbp_mask_1[63:0]; dbp_mask_1 = btlb_page_mask[1];
+var dbp_masked_addr_1[63:0]; dbp_masked_addr_1 = eff_addr & dbp_mask_1;
+var dbm_1[0:0]; dbm_1 = btlb_valid[1] & btlb_type_d[1] & (dbp_masked_addr_1 == btlb_va_base[1]) & (dspace == btlb_space[1]);
+var dbp_pa_1[63:0]; dbp_pa_1 = btlb_pa_base[1] | (eff_addr & (dbp_mask_1 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var dbp_mask_2[63:0]; dbp_mask_2 = btlb_page_mask[2];
+var dbp_masked_addr_2[63:0]; dbp_masked_addr_2 = eff_addr & dbp_mask_2;
+var dbm_2[0:0]; dbm_2 = btlb_valid[2] & btlb_type_d[2] & (dbp_masked_addr_2 == btlb_va_base[2]) & (dspace == btlb_space[2]);
+var dbp_pa_2[63:0]; dbp_pa_2 = btlb_pa_base[2] | (eff_addr & (dbp_mask_2 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var dbp_mask_3[63:0]; dbp_mask_3 = btlb_page_mask[3];
+var dbp_masked_addr_3[63:0]; dbp_masked_addr_3 = eff_addr & dbp_mask_3;
+var dbm_3[0:0]; dbm_3 = btlb_valid[3] & btlb_type_d[3] & (dbp_masked_addr_3 == btlb_va_base[3]) & (dspace == btlb_space[3]);
+var dbp_pa_3[63:0]; dbp_pa_3 = btlb_pa_base[3] | (eff_addr & (dbp_mask_3 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var dbp_mask_4[63:0]; dbp_mask_4 = btlb_page_mask[4];
+var dbp_masked_addr_4[63:0]; dbp_masked_addr_4 = eff_addr & dbp_mask_4;
+var dbm_4[0:0]; dbm_4 = btlb_valid[4] & btlb_type_d[4] & (dbp_masked_addr_4 == btlb_va_base[4]) & (dspace == btlb_space[4]);
+var dbp_pa_4[63:0]; dbp_pa_4 = btlb_pa_base[4] | (eff_addr & (dbp_mask_4 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var dbp_mask_5[63:0]; dbp_mask_5 = btlb_page_mask[5];
+var dbp_masked_addr_5[63:0]; dbp_masked_addr_5 = eff_addr & dbp_mask_5;
+var dbm_5[0:0]; dbm_5 = btlb_valid[5] & btlb_type_d[5] & (dbp_masked_addr_5 == btlb_va_base[5]) & (dspace == btlb_space[5]);
+var dbp_pa_5[63:0]; dbp_pa_5 = btlb_pa_base[5] | (eff_addr & (dbp_mask_5 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var dbp_mask_6[63:0]; dbp_mask_6 = btlb_page_mask[6];
+var dbp_masked_addr_6[63:0]; dbp_masked_addr_6 = eff_addr & dbp_mask_6;
+var dbm_6[0:0]; dbm_6 = btlb_valid[6] & btlb_type_d[6] & (dbp_masked_addr_6 == btlb_va_base[6]) & (dspace == btlb_space[6]);
+var dbp_pa_6[63:0]; dbp_pa_6 = btlb_pa_base[6] | (eff_addr & (dbp_mask_6 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var dbp_mask_7[63:0]; dbp_mask_7 = btlb_page_mask[7];
+var dbp_masked_addr_7[63:0]; dbp_masked_addr_7 = eff_addr & dbp_mask_7;
+var dbm_7[0:0]; dbm_7 = btlb_valid[7] & btlb_type_d[7] & (dbp_masked_addr_7 == btlb_va_base[7]) & (dspace == btlb_space[7]);
+var dbp_pa_7[63:0]; dbp_pa_7 = btlb_pa_base[7] | (eff_addr & (dbp_mask_7 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var btlb_d_hit[0:0];
+btlb_d_hit = dbm_0 | dbm_1 | dbm_2 | dbm_3 | dbm_4 | dbm_5 | dbm_6 | dbm_7;
+
+var btlb_d_pa[63:0];
+btlb_d_pa = dbm_0 ? dbp_pa_0 : dbm_1 ? dbp_pa_1 :
+            dbm_2 ? dbp_pa_2 : dbm_3 ? dbp_pa_3 :
+            dbm_4 ? dbp_pa_4 : dbm_5 ? dbp_pa_5 :
+            dbm_6 ? dbp_pa_6 : dbp_pa_7;
+
+// =========================================================================
+// Physical address computation
+// =========================================================================
+var da_pa[63:0];
+var da_translated[63:0];
+da_translated = {dtlb_ppn_result, doffset};
+da_pa = psw_D ? (dtlb_hit ? da_translated : (btlb_d_hit ? btlb_d_pa : eff_addr)) : eff_addr;
+
+// =========================================================================
+// Trap detection (store-specific)
+// =========================================================================
+var dtlb_miss[0:0];
+dtlb_miss = psw_D & ~dtlb_hit & ~btlb_d_hit;
+
+var store_prot_viol[0:0];
+store_prot_viol = psw_D & dtlb_hit & ~dtlb_prot_result[56];
+
+var dirty_trap[0:0];
+dirty_trap = psw_D & dtlb_hit & dtlb_prot_result[56] & ~dtlb_prot_result[60];
+
+var data_trap_taken[0:0];
+data_trap_taken = (dtlb_miss | store_prot_viol | dirty_trap) & ~instr_trap_taken & ~in_nullified;
+
+// =========================================================================
+// Trap dispatch
+// =========================================================================
+var store_trap_number[4:0];
+store_trap_number = dtlb_miss ? 5'd15 : store_prot_viol ? 5'd18 : 5'd20;
+
+var store_trap_offset[63:0];
+store_trap_offset = {54'b0, store_trap_number, 5'b0};
+
+var store_trap_target[63:0];
+store_trap_target = cr14 + store_trap_offset;
+
+// =========================================================================
+// State save on data trap
+// =========================================================================
+cr22 when (data_trap_taken) = psw;
+var store_pc_with_priv[63:0];
+var store_pc_p4[63:0];
+var store_pc_p4_with_priv[63:0];
+store_pc_with_priv = {pc[63:2], priv_level};
+store_pc_p4 = pc + 4;
+store_pc_p4_with_priv = {store_pc_p4[63:2], priv_level};
+// IAOQ save: if in a delay slot, save branch_target in cr18_back so RFI
+// detects the delay slot resume (cr18_back != cr18+4) and restores delay_slot=1.
+var store_in_ds[0:0];
+store_in_ds = delay_slot;
+var store_bt_with_priv[63:0];
+store_bt_with_priv = {branch_target[63:2], priv_level};
+cr18 when (data_trap_taken) = store_pc_with_priv;
+cr18_back when (data_trap_taken & ~store_in_ds) = store_pc_p4_with_priv;
+cr18_back when (data_trap_taken & store_in_ds) = store_bt_with_priv;
+cr17 when (data_trap_taken) = code_iasq;
+cr17_back when (data_trap_taken) = code_iasq;
+cr19 when (data_trap_taken) = {32'h0, instr};
+// In wide mode (PSW.W=1), PA-RISC 2.0 hardware packs the upper VA bits
+// (bits [41:32]) into the lower SPACEID_SHIFT=10 bits of ISR (CR20),
+// and IOR (CR21) only holds the lower 32 bits of the virtual address.
+// This matches the kernel's space_adjust macro which extracts ISR[9:0]
+// and deposits into IOR[41:32] to reconstruct the full 42-bit address.
+var store_isr_encoded[63:0];
+store_isr_encoded = psw_W ? {dspace[63:10], eff_addr[41:32]} : dspace;
+var store_ior_encoded[63:0];
+store_ior_encoded = psw_W ? {32'h0, eff_addr[31:0]} : eff_addr;
+cr20 when (data_trap_taken) = store_isr_encoded;
+cr21 when (data_trap_taken) = store_ior_encoded;
+
+psw when (data_trap_taken) = psw & 64'h0000000000010000;
+priv_level when (data_trap_taken) = 2'b00;
+
+isa_state code_iasq[63:0];
+code_iasq when (data_trap_taken) = 64'h0;
+pc when (data_trap_taken) = store_trap_target;
+
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// =========================================================================
+// Shadow register save
+// =========================================================================
+shadow_r1 when (data_trap_taken) = rf[1];
+shadow_r8 when (data_trap_taken) = rf[8];
+shadow_r9 when (data_trap_taken) = rf[9];
+shadow_r16 when (data_trap_taken) = rf[16];
+shadow_r17 when (data_trap_taken) = rf[17];
+shadow_r24 when (data_trap_taken) = rf[24];
+shadow_r25 when (data_trap_taken) = rf[25];

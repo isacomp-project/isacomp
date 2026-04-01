@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: MOV src, dst (indirect stack offset, stack offset)
+// One-parcel encoding: opcode 0x19, 2 bytes
+// dst = *(SP + src_off*4)  -- load through pointer on stack
+// I=5-bit indirect stack offset, S=5-bit word-aligned stack offset
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var opcode[4:0];
+var src_off[4:0];
+var dst_off[4:0];
+var src_ptr_addr[31:0];
+var src_ptr[31:0];
+var src_val[31:0];
+var dst_addr[31:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+opcode = instr[14:10];
+assume opcode == 0x19;
+
+src_off = instr[9:5];
+dst_off = instr[4:0];
+
+// Indirect stack offset: fetch pointer from stack, then dereference
+src_ptr_addr = sp + {25'b0, src_off, 2'b00};
+src_ptr = umem[src_ptr_addr];
+
+// Load value from address pointed to by the stack entry
+src_val = umem[src_ptr];
+
+// Store to destination stack offset
+dst_addr = sp + {25'b0, dst_off, 2'b00};
+umem[dst_addr] = src_val;
+
+pc = pc + 2;

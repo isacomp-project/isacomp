@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 IMUL r/m32 (0xF7 /5)
+// Signed multiply: EDX:EAX = EAX * r/m32
+// Sets CF/OF if sign extension of low 32 bits doesn't equal full result
+// SF, ZF, AF, PF are undefined
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+isa_state EDX[31:0] of xregs[2];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var src_val[31:0];
+var result[63:0];
+var sign_extend[63:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xF7;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is IMUL (reg_bits = 101)
+assume reg_bits == 0b101;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read source value
+src_val = xregs[rm_bits];
+
+// Update EIP
+eip = eip + 2;
+
+// Perform signed multiply: EDX:EAX = EAX * src_val
+result = EAX * src_val;
+
+// Store result
+EAX = result[31:0];   // Low 32 bits
+EDX = result[63:32];  // High 32 bits
+
+// Set flags: CF and OF set if sign extension of low 32 bits != full result
+// Sign extend the low 32 bits to 64 bits
+sign_extend = result[31] ? {32'hFFFFFFFF, result[31:0]} : {32'h00000000, result[31:0]};
+
+flag_CF = (result != sign_extend);
+flag_OF = (result != sign_extend);

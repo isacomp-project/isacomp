@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Zicsr - CSRRS (Atomic Read and Set CSR) with F extension fcsr aliasing
+// Encoding: csr[11:0], rs1, funct3=010, rd, opcode=1110011
+// Sets bits in CSR according to rs1 mask
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state fcsr[31:0];
+isa_state csr[63:0][11:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var csr_addr[11:0];
+var rs1_val[63:0];
+var csr_val[63:0];
+var new_csr_val[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1110011;
+assume instr[14:12] == 0b010;
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+csr_addr = instr[31:20];
+rs1_val = rf[rs1];
+
+// CSR address matching
+var csrs_addr_is_fflags[0:0];
+var csrs_addr_is_frm[0:0];
+var csrs_addr_is_fcsr[0:0];
+var csrs_addr_is_f_csr[0:0];
+
+csrs_addr_is_fflags = (csr_addr == 12'h001);
+csrs_addr_is_frm = (csr_addr == 12'h002);
+csrs_addr_is_fcsr = (csr_addr == 12'h003);
+csrs_addr_is_f_csr = csrs_addr_is_fflags | csrs_addr_is_frm | csrs_addr_is_fcsr;
+
+// Read CSR value with aliasing - mux chain pattern
+var csrs_rd_base[63:0];
+var csrs_rd_s3[63:0];
+var csrs_rd_s2[63:0];
+var csrs_rd_s1[63:0];
+
+csrs_rd_base = csr[csr_addr];
+csrs_rd_s3 = csrs_addr_is_fcsr ? {56'b0, fcsr[7:0]} : csrs_rd_base;
+csrs_rd_s2 = csrs_addr_is_frm ? {61'b0, fcsr[7:5]} : csrs_rd_s3;
+csrs_rd_s1 = csrs_addr_is_fflags ? {59'b0, fcsr[4:0]} : csrs_rd_s2;
+csr_val = csrs_rd_s1;
+
+// Compute new value (set bits according to mask)
+new_csr_val = csr_val | rs1_val;
+
+// Compute new fcsr values with aliasing (set bits)
+var csrs_wr_fflags[31:0];
+var csrs_wr_frm[31:0];
+var csrs_wr_full[31:0];
+var csrs_wr_val[31:0];
+
+csrs_wr_fflags = {fcsr[31:5], fcsr[4:0] | rs1_val[4:0]};
+csrs_wr_frm = {fcsr[31:8], fcsr[7:5] | rs1_val[2:0], fcsr[4:0]};
+csrs_wr_full = {24'b0, fcsr[7:0] | rs1_val[7:0]};  // fcsr is only 8 bits wide
+
+// Build mux chain to select correct fcsr write value
+csrs_wr_val = csrs_addr_is_fcsr ? csrs_wr_full :
+              (csrs_addr_is_frm ? csrs_wr_frm :
+              (csrs_addr_is_fflags ? csrs_wr_fflags : fcsr));
+
+// Only write if rs1 != 0 (rs1=0 means read-only) and addressing F extension CSR
+fcsr when (csrs_addr_is_f_csr & (rs1 != 0)) = csrs_wr_val;
+
+csr[csr_addr] when ((csrs_addr_is_f_csr == 0) & (rs1 != 0)) = new_csr_val;
+
+rf[rd] when (rd != 0) = csr_val;

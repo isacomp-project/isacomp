@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.lbs - Load Byte and Extend with Sign
+// Format: l.lbs rD, I(rA)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rD[4:0];
+var rA[4:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var base[31:0];
+var data[31:0];
+var byte_data[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x24;
+pc = pc + 4;
+rD = instr[25:21];
+rA = instr[20:16];
+imm = instr[15:0];
+
+base = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+addr = base + sign_ext_imm;
+
+data = dmem[addr];
+
+// Big-endian byte extraction based on addr[1:0]
+var byte_offset[1:0];
+byte_offset = addr[1:0];
+
+var selected_byte[7:0];
+selected_byte = (byte_offset == 2'b00) ? data[31:24] :
+                ((byte_offset == 2'b01) ? data[23:16] :
+                 ((byte_offset == 2'b10) ? data[15:8] : data[7:0]));
+
+byte_data = {{24{selected_byte[7]}}, selected_byte};
+rf[rD] = byte_data;

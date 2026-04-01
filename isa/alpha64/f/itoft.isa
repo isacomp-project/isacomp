@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 - ITOFT (Integer to Floating, move bits)
+// Opcode: 0x14, Function: 0x24
+// Format: ITOFT Ra, Fc
+// Moves 64 bits from integer register to FP register
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit)
+isa_state fpcr[63:0];          // FP control register
+mem umem[13:0];
+
+var ra[4:0];
+var fc[4:0];
+
+instr = umem[pc];
+assume instr[31:26] == 20;     // Opcode 0x14
+assume instr[15:5] == 11'h024; // ITOFT function code
+
+ra = instr[25:21];
+fc = instr[4:0];
+
+// Move bits from integer to FP register
+frf[fc] when (fc != 31) = rf[ra];
+pc = pc + 4;

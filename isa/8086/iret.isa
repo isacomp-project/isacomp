@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 IRET (0xCF) - WITH PROPER SEGMENTATION
+// Interrupt return
+// Pops IP, CS, FLAGS from SS:[SP] and restores them
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state SS[15:0];            // Stack segment register
+isa_state CS[15:0];            // Code segment register
+isa_state xregs[15:0][7:0];    // General purpose registers (xregs[4] is SP)
+isa_state flag_OF[0:0];
+isa_state flag_DF[0:0];
+isa_state flag_IF[0:0];
+isa_state flag_TF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_CF[0:0];
+
+var new_ip_lo[7:0];
+var new_ip_hi[7:0];
+var new_cs_lo[7:0];
+var new_cs_hi[7:0];
+var new_flags_lo[7:0];
+var new_flags_hi[7:0];
+var new_ip[15:0];
+var new_cs[15:0];
+var new_flags[15:0];
+var stack_offset_lo[15:0];
+var stack_offset_hi[15:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+
+instr = imem[ip];
+assume instr == 0xCF;
+ip = ip + 1;
+
+// Pop IP from stack
+// Calculate stack offsets for IP
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = {SS, 4'b0} + {4'b0, stack_offset_lo};
+physical_addr_hi = {SS, 4'b0} + {4'b0, stack_offset_hi};
+
+// Pop IP from stack (little-endian)
+new_ip_lo = dmem[physical_addr_lo];
+new_ip_hi = dmem[physical_addr_hi];
+new_ip = {new_ip_hi, new_ip_lo};
+
+// Increment SP by 2
+xregs[4] = xregs[4] + 16'h0002;
+
+// Pop CS from stack
+// Calculate stack offsets for CS
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = {SS, 4'b0} + {4'b0, stack_offset_lo};
+physical_addr_hi = {SS, 4'b0} + {4'b0, stack_offset_hi};
+
+// Pop CS from stack (little-endian)
+new_cs_lo = dmem[physical_addr_lo];
+new_cs_hi = dmem[physical_addr_hi];
+new_cs = {new_cs_hi, new_cs_lo};
+
+// Increment SP by 2
+xregs[4] = xregs[4] + 16'h0002;
+
+// Pop FLAGS from stack
+// Calculate stack offsets for FLAGS
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = {SS, 4'b0} + {4'b0, stack_offset_lo};
+physical_addr_hi = {SS, 4'b0} + {4'b0, stack_offset_hi};
+
+// Pop FLAGS from stack (little-endian)
+new_flags_lo = dmem[physical_addr_lo];
+new_flags_hi = dmem[physical_addr_hi];
+new_flags = {new_flags_hi, new_flags_lo};
+
+// Increment SP by 2
+xregs[4] = xregs[4] + 16'h0002;
+
+// Restore IP, CS, and FLAGS
+ip = new_ip;
+CS = new_cs;
+
+// Restore individual flags from FLAGS register
+flag_CF = new_flags[0];
+flag_PF = new_flags[2];
+flag_AF = new_flags[4];
+flag_ZF = new_flags[6];
+flag_SF = new_flags[7];
+flag_TF = new_flags[8];
+flag_IF = new_flags[9];
+flag_DF = new_flags[10];
+flag_OF = new_flags[11];

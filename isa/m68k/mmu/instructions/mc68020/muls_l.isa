@@ -1,0 +1,162 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 MULS.L - Signed Long Multiply
+// Opcode: 0100 1100 00 mmm rrr (4C00-4C3F) followed by extension word
+// Extension: 0 RRR 1 s 00 0000 0 DDD
+//   RRR = Dh (high result register for 64-bit result, or same as Dl for 32-bit)
+//   s = size (0 = 32-bit result, 1 = 64-bit result)
+//   DDD = Dl (low result register / multiplier register)
+// Operation: Dl * <ea> -> Dl (32-bit) or Dh:Dl (64-bit)
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+#ifdef MMU
+// MMU state for ATC instruction fetch translation
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state cam atc_va[19:0]@[4:0][];
+isa_state atc_fc[2:0][4:0];
+isa_state atc_v[0:0][4:0];
+isa_state atc_pa[19:0][4:0];
+isa_state atc_wp[0:0][4:0];
+isa_state atc_m[0:0][4:0];
+isa_state atc_u[0:0][4:0];
+isa_state atc_s[0:0][4:0];
+isa_state atc_next[4:0];
+#endif
+mem dmem[23:0];
+
+// Status Register
+isa_state sr[15:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_mode[2:0];
+var ea_reg[2:0];
+var dl_reg[2:0];
+var dh_reg[2:0];
+var size_64[0:0];
+
+var multiplicand[31:0];
+var multiplier[31:0];
+
+// For signed multiply, work with absolute values then apply sign
+var mc_neg[0:0];
+var mp_neg[0:0];
+var result_neg[0:0];
+var mc_abs[31:0];
+var mp_abs[31:0];
+
+// 64-bit result
+var result_hi[31:0];
+var result_lo[31:0];
+var result_abs_hi[31:0];
+var result_abs_lo[31:0];
+
+// Partial products for 64-bit unsigned multiply
+var a_lo[15:0];
+var a_hi[15:0];
+var b_lo[15:0];
+var b_hi[15:0];
+var p0[31:0];
+var p1[31:0];
+var p2[31:0];
+var p3[31:0];
+var mid[32:0];
+var overflow[0:0];
+
+// Fetch instruction
+#ifdef MMU
+aspect ../mmu/atc_translate_instr.isa gates pc, atc_va, atc_fc, atc_v, atc_pa, atc_wp, atc_m, atc_u, atc_s, atc_next, dmem;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#endif
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+instr = imem[pc_pa];
+assume instr[15:6] == 10'b0100110000;  // MULS.L opcode
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode EA
+ea_mode = instr[5:3];
+ea_reg = instr[2:0];
+
+// Fetch extension word
+extw = imem[pc + pc_pa_delta];
+assume extw[15] == 1'b0;        // Must be 0 for MULS.L
+assume extw[11] == 1'b1;        // Signed multiply
+assume extw[9:4] == 6'b000000;  // Reserved bits
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode extension
+dh_reg = extw[14:12];
+size_64 = extw[10];
+dl_reg = extw[2:0];
+
+// Get multiplicand from EA (this variant: Dn)
+assume instr[5:3] == 3'b000;
+multiplicand = dregs[ea_reg];
+
+// Get multiplier from Dl
+multiplier = dregs[dl_reg];
+
+// Determine signs
+mc_neg = multiplicand[31];
+mp_neg = multiplier[31];
+result_neg = mc_neg ^ mp_neg;
+
+// Get absolute values
+mc_abs = mc_neg ? (~multiplicand + 1) : multiplicand;
+mp_abs = mp_neg ? (~multiplier + 1) : multiplier;
+
+// Perform 32x32 -> 64 unsigned multiply using partial products
+a_lo = mc_abs[15:0];
+a_hi = mc_abs[31:16];
+b_lo = mp_abs[15:0];
+b_hi = mp_abs[31:16];
+
+p0 = {16'b0, a_lo} * {16'b0, b_lo};  // bits 0-31
+p1 = {16'b0, a_lo} * {16'b0, b_hi};  // bits 16-47
+p2 = {16'b0, a_hi} * {16'b0, b_lo};  // bits 16-47
+p3 = {16'b0, a_hi} * {16'b0, b_hi};  // bits 32-63
+
+// Combine partial products
+mid = {1'b0, p1} + {1'b0, p2};
+result_abs_lo = p0 + {mid[15:0], 16'b0};
+result_abs_hi = p3 + {16'b0, mid[32:16]} +
+                ((result_abs_lo < p0) ? 32'b1 : 32'b0) +
+                {16'b0, (p0[31:16] + mid[15:0] < p0[31:16]) ? 16'b1 : 16'b0};
+
+// Apply sign to result
+result_lo = result_neg ? (~result_abs_lo + 1) : result_abs_lo;
+result_hi = result_neg ?
+            (~result_abs_hi + ((result_abs_lo == 0) ? 1 : 0)) :
+            result_abs_hi;
+
+// Store result
+dregs[dl_reg] when (~m68k_exc_taken) = result_lo;
+dregs[dh_reg] when (size_64 & ~m68k_exc_taken) = result_hi;
+
+// Check for overflow (32-bit result only)
+// Overflow if high 32 bits don't match sign extension of low 32 bits
+overflow = size_64 ? 1'b0 : (result_hi != {32{result_lo[31]}});
+
+// Update CCR
+flag_N when (~m68k_exc_taken) = size_64 ? result_hi[31] : result_lo[31];
+flag_Z when (~m68k_exc_taken) = size_64 ? ((result_hi == 0) & (result_lo == 0)) : (result_lo == 0);
+flag_V when (~m68k_exc_taken) = overflow;
+flag_C when (~m68k_exc_taken) = 1'b0;
+// X not affected

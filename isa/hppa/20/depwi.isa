@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 DEPWI instruction (64-bit)
+// DEPWI sa,pos,len,t - Deposit Word Immediate
+// Deposits a sign-extended 5-bit immediate into the lower 32 bits of target,
+// preserving non-deposited bits (merge), zero-extended to 64.
+// Opcode: 0x35 (bits 31:26), bits[12:10]=0b111 (immediate, fixed position, non-zero/merge)
+// bits[9:5] = cp = 31-pos (shift amount, already in standard bit ordering)
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var t[4:0];
+var im5[63:0];
+var cp[4:0];
+var clen[4:0];
+var len[5:0];
+var dst[63:0];
+var mask[63:0];
+var field_mask[63:0];
+var deposited[63:0];
+var preserved[63:0];
+var res[63:0];
+var cond_eq[0:0];
+var cond_lt[0:0];
+var cond_od[0:0];
+var cond_base[0:0];
+var cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// DEPWI encoding: opcode=0x35 (bits 31:26), bits[12:10]=0b111
+assume instr[31:26] == 0b110101;
+assume instr[12:10] == 0b111;
+
+// Extract fields
+t = instr[25:21];
+// Low-sign-extend 5-bit immediate: PA-RISC puts sign bit in im5[0], value in im5[4:1]
+// instr[16] = sign bit, instr[20:17] = 4-bit value
+im5 = instr[16] ? {60'hFFFFFFFFFFFFFFF, instr[20:17]} : {60'h0, instr[20:17]};
+// cp encodes the shift amount directly (cp = 31 - pos in PA-RISC encoding)
+cp = instr[9:5];
+// clen field: len = 32 - clen
+clen = instr[4:0];
+len = 6'd32 - {1'b0, clen};
+
+// Read destination register (for merging non-deposited bits)
+dst = (t == 0) ? 64'h0 : rf[t];
+
+// Mask of 'len' ones
+mask = (64'h1 << len) - 64'h1;
+field_mask = mask << cp;
+
+// Deposit: place low 'len' bits of im5 at position, preserve rest from dst
+deposited = (im5 & mask) << cp;
+preserved = dst & ~field_mask;
+res = {32'h0, (deposited[31:0] | preserved[31:0])};
+
+// Conditional nullification (3-bit condition: bits[15:13])
+cond_eq = (res == 0);
+cond_lt = res[63];
+cond_od = res[0];
+cond_base = (instr[13] & ~instr[14] & cond_eq) | (~instr[13] & instr[14] & cond_lt) | (instr[13] & instr[14] & cond_od);
+cond_met = cond_base ^ instr[15];
+psw when (cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target (r0 writes are discarded)
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC by 4
+pc = pc + 4;

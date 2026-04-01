@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mtfsfi - Move To FPSCR Field Immediate (X-Form)
+// mtfsfi BF,U (Rc=0)
+// Primary opcode 63, XO=134
+// FPSCR[field BF] <- U
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state fpscr[31:0];
+mem umem[14:0];
+
+var bf[2:0];
+var u[3:0];
+var shift[4:0];
+var mask[31:0];
+var value[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 63;     // Primary opcode 63
+assume instr[10:1] == 134;     // XO = 134 (mtfsfi)
+assume instr[0] == 0;          // Rc = 0
+
+pc = pc + 4;
+
+bf = instr[25:23];
+u = instr[15:12];
+
+// Calculate shift amount for field BF (each field is 4 bits)
+// Field 0 is bits 0-3 (MSB), field 7 is bits 28-31 (LSB)
+shift = (7 - bf) << 2;
+
+// Create mask and value
+mask = 32'hF << shift;
+value = {28'b0, u} << shift;
+
+// Update FPSCR field
+fpscr = (fpscr & ~mask) | value;

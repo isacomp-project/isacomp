@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Negate Builtin (0x12)
+//
+// Negates a primitive integer and returns the result.
+// Takes one argument which must be a primitive (eval_tag = 1).
+
+// State declarations
+isa_state pc[31:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_args[31:0];
+isa_state csp[19:0];
+isa_state lsp[19:0];
+isa_state env_clo[31:0];
+mem imem[14:0];
+mem heap[19:0];
+mem cstack[19:0];
+
+// Read argument from environment
+var arg1[31:0];
+arg1 = heap[env_args];
+
+// Perform negation (two's complement)
+var result[31:0];
+result = ~arg1 + 1;
+
+// Set return value as primitive
+eval_reg = result;
+eval_tag = 1'b1;
+
+// Pop continuation and return
+aspect ../aspects/cont_pop.isa gates pc, csp, cstack, env_clo, env_args, lsp, eval_reg, eval_tag, heap;

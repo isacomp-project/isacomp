@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LAR r16, r/m16 (0x0F 0x02 with 66h prefix in 32-bit mode)
+// Load Access Rights byte into 16-bit register
+// If segment selector is valid, loads access rights into r16 and sets ZF=1
+// Otherwise, clears ZF
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+
+// 16-bit register views
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state CX[15:0] of xregs[1][15:0];
+isa_state DX[15:0] of xregs[2][15:0];
+isa_state BX[15:0] of xregs[3][15:0];
+isa_state SP[15:0] of xregs[4][15:0];
+isa_state BP[15:0] of xregs[5][15:0];
+isa_state SI[15:0] of xregs[6][15:0];
+isa_state DI[15:0] of xregs[7][15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+isa_state flag_ZF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var selector[15:0];
+var access_rights[15:0];
+var is_valid[0:0];
+
+// Fetch instruction bytes
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+instr2 = imem[eip];
+assume instr2 == 0x02;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];   // Destination register
+rm_bits = modrm[2:0];   // Source (selector)
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read selector from source register (low 16 bits)
+selector = xregs[rm_bits][15:0];
+
+// Simplified: assume selector is valid and load access rights
+// In real implementation, would check descriptor table
+is_valid = 1'b1;
+access_rights = 16'h9A00;  // Typical code segment access rights (low 16 bits)
+
+// If valid, load access rights into 16-bit register and set ZF
+xregs[reg_idx][15:0] = access_rights;
+flag_ZF = is_valid;

@@ -1,0 +1,12 @@
+# Simulation outputs
+sim
+*.vcd
+
+# Test files
+tests/
+imem.hex
+dmem.hex
+
+# Object files
+*.o
+*.a

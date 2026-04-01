@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 DIVU - Divide Unsigned
+// Divides rs by rt (unsigned), quotient in LO, remainder in HI
+// Encoding: 000000 rs rt 00000 00000 011011
+//           SPECIAL rs rt 0     0     DIVU
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state hi[31:0];
+isa_state lo[31:0];
+mem umem[17:0];
+
+var rs[4:0];
+var rt[4:0];
+var dividend[31:0];
+var divisor[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and HI/LO state
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// DIVU encoding
+assume instr[31:26] == 6'b000000;
+assume instr[5:0] == 6'b011011;
+assume instr[15:6] == 10'b0000000000;
+
+rs = instr[25:21];
+rt = instr[20:16];
+
+dividend = rf[rs];
+divisor = rf[rt];
+
+// Unsigned division
+var quotient[31:0];
+var remainder[31:0];
+
+quotient = divisor != 0 ? dividend / divisor : 0x0;
+remainder = divisor != 0 ? dividend % divisor : dividend;
+
+// Write to HI (remainder) and LO (quotient)
+hi = remainder;
+lo = quotient;
+
+// Update PC
+pc = pc + 4;

@@ -1,0 +1,112 @@
+#
+# ISAComp Alpha64 Linux Kernel Configuration
+# Minimal configuration for initial boot on ISAComp-generated processor
+#
+
+# Architecture
+CONFIG_ALPHA=y
+CONFIG_64BIT=y
+CONFIG_MMU=y
+
+# Platform - ISAComp
+# CONFIG_ALPHA_GENERIC is not set
+CONFIG_ALPHA_ISACOMP=y
+# CONFIG_ALPHA_ALCOR is not set
+# CONFIG_ALPHA_XL is not set
+# CONFIG_ALPHA_BOOK1 is not set
+# CONFIG_ALPHA_AVANTI is not set
+# CONFIG_ALPHA_CABRIOLET is not set
+# CONFIG_ALPHA_DP264 is not set
+# CONFIG_ALPHA_EB164 is not set
+# CONFIG_ALPHA_EB64P is not set
+# CONFIG_ALPHA_EB66 is not set
+# CONFIG_ALPHA_EB66P is not set
+# CONFIG_ALPHA_EIGER is not set
+# CONFIG_ALPHA_JENSEN is not set
+# CONFIG_ALPHA_LX164 is not set
+# CONFIG_ALPHA_LYNX is not set
+# CONFIG_ALPHA_MARVEL is not set
+# CONFIG_ALPHA_MIATA is not set
+# CONFIG_ALPHA_MIKASA is not set
+# CONFIG_ALPHA_NAUTILUS is not set
+# CONFIG_ALPHA_NONAME is not set
+# CONFIG_ALPHA_NORITAKE is not set
+# CONFIG_ALPHA_PC164 is not set
+# CONFIG_ALPHA_PRIMO is not set
+# CONFIG_ALPHA_RAWHIDE is not set
+# CONFIG_ALPHA_RUFFIAN is not set
+# CONFIG_ALPHA_RX164 is not set
+# CONFIG_ALPHA_SX164 is not set
+# CONFIG_ALPHA_SABLE is not set
+# CONFIG_ALPHA_SHARK is not set
+# CONFIG_ALPHA_TAKARA is not set
+# CONFIG_ALPHA_TITAN is not set
+# CONFIG_ALPHA_WILDFIRE is not set
+
+# Processor
+CONFIG_ALPHA_EV56=y
+# CONFIG_ALPHA_EV67 is not set
+# CONFIG_SMP is not set
+CONFIG_NR_CPUS=1
+
+# No PCI (critical - ISAComp has no PCI bus)
+# CONFIG_PCI is not set
+# CONFIG_PCI_DOMAINS is not set
+
+# Memory
+CONFIG_PAGE_OFFSET=0xFFFFFC0000000000
+# CONFIG_DISCONTIGMEM is not set
+CONFIG_FLATMEM=y
+
+# Console
+CONFIG_SERIAL_8250=y
+CONFIG_SERIAL_8250_CONSOLE=y
+CONFIG_SERIAL_8250_NR_UARTS=1
+CONFIG_SERIAL_8250_RUNTIME_UARTS=1
+# CONFIG_SERIAL_8250_PCI is not set
+CONFIG_CONSOLE_TRANSLATIONS=y
+
+# Initial ramdisk - built-in initramfs with /init (uncompressed)
+CONFIG_BLK_DEV_INITRD=y
+CONFIG_INITRAMFS_SOURCE="../isa/alpha64/platform/initramfs/initramfs_list"
+CONFIG_INITRAMFS_COMPRESSION_NONE=y
+# CONFIG_INITRAMFS_COMPRESSION_GZIP is not set
+CONFIG_BLK_DEV_RAM=y
+
+# File systems (minimal)
+CONFIG_TMPFS=y
+CONFIG_PROC_FS=y
+CONFIG_SYSFS=y
+CONFIG_DEVTMPFS=y
+CONFIG_DEVTMPFS_MOUNT=y
+# CONFIG_EXT2_FS is not set
+# CONFIG_EXT3_FS is not set
+# CONFIG_EXT4_FS is not set
+
+# Networking (disabled for initial boot)
+# CONFIG_NET is not set
+
+# Debugging
+CONFIG_PRINTK=y
+CONFIG_BUG=y
+CONFIG_DEBUG_KERNEL=y
+CONFIG_DEBUG_INFO=y
+CONFIG_EARLY_PRINTK=y
+# CONFIG_DEBUG_SLAB is not set
+# CONFIG_DEBUG_SPINLOCK is not set
+CONFIG_PANIC_TIMEOUT=0
+
+# Disable unnecessary features
+# CONFIG_MODULES is not set
+# CONFIG_HOTPLUG is not set
+# CONFIG_SWAP is not set
+# CONFIG_INPUT is not set
+# CONFIG_VT is not set
+# CONFIG_HW_RANDOM is not set
+# CONFIG_HWMON is not set
+# CONFIG_USB_SUPPORT is not set
+# CONFIG_SOUND is not set
+# CONFIG_SCSI is not set
+# CONFIG_ATA is not set
+# CONFIG_MD is not set
+# CONFIG_CRYPTO is not set

@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV32 Zfinx - FSGNJX.S (XOR sign injection using integer registers)
+// Encoding: funct7=0010000, rs2, rs1, funct3=010, rd, opcode=1010011
+// Result has magnitude of rs1 and sign = rs1.sign XOR rs2.sign
+// Zfinx: Uses integer register file instead of dedicated FP registers
+// Note: Sign injection does not raise any FP exceptions
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];       // Integer register file (holds FP values in Zfinx)
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var f1[31:0];
+var f2[31:0];
+var sgnjx_result[31:0];        // Result
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;
+assume instr[31:27] == 0b00100;   // FSGNJX funct5
+assume instr[26:25] == 0b00;
+assume instr[14:12] == 0b010;     // FSGNJX.S funct3
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+
+// Read operands from integer register file
+f1 = rf[rs1];
+f2 = rf[rs2];
+
+// XOR sign injection - combinational, no exceptions
+sgnjx_result = fp_sgnjx(f1, f2);
+
+// Write result to integer register file (skip x0)
+rf[rd] when (rd != 0) = sgnjx_result;

@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 65C02 STZ Absolute,X (0x9E) - Store Zero to Absolute Indexed with X
+// Stores the value $00 to absolute address + X
+// Does not affect any flags
+// Instruction format: STZ $hhll,X (3 bytes)
+// NOTE: This is a 65C02-only instruction
+
+#ifdef CPU_65C02
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state X[7:0];
+isa_state mainmem[7:0][15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var base_addr[15:0];
+var abs_x_addr[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x9E;
+pc = pc + 1;
+
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+base_addr = {addr_hi, addr_lo};
+abs_x_addr = base_addr + X;
+
+mainmem[abs_x_addr] = 8'h00;
+
+#endif

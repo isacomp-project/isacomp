@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 STOSW with 67 prefix (0x67 0xAB) - 32-bit addressing mode
+// Store AX to [EDI] with 32-bit addressing
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state ES[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+
+var dst_addr[31:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xAB;
+
+dst_addr = (ES << 4) + xregs[7];
+
+dmem[dst_addr] = xregs[0][7:0];
+dmem[dst_addr + 1] = xregs[0][15:8];
+
+case (flag_DF) {
+  1'b0: xregs[7] = xregs[7] + 32'h00000002;
+  1'b1: xregs[7] = xregs[7] - 32'h00000002;
+}
+
+eip = eip + 2;

@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+mem umem[12:0];
+
+var idx_reg[3:0];
+var displacement[15:0];
+var sign_ext_disp[31:0];
+var idx_val[31:0];
+var new_val[31:0];
+var cond[0:0];
+var target[31:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xF4;
+
+idx_reg = instr[23:20];
+displacement = instr[15:0];
+
+idx_val = rf[idx_reg];
+new_val = idx_val - 1;
+
+sign_ext_disp = {{16{displacement[15]}}, displacement};
+target = pc + sign_ext_disp;
+
+cond = new_val >=s 0;
+
+rf[idx_reg] = new_val;
+pc = cond ? target : pc + 4;

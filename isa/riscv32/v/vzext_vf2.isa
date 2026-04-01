@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vzext.vf2 - Zero-extend by 2 (SEW/2 to SEW)
+// Encoding: vzext.vf2 vd, vs2, vm
+// Operation: vd[i] = zero_extend(vs2[i]) (16-bit to 32-bit)
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v2[127:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b010;
+assume instr[31:26] == 0b010010;
+assume instr[19:15] == 0b00110;  // vs1 field encodes variant
+
+pc = pc + 4;
+
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v2 = vrf[vs2];
+
+// Zero-extend 16-bit to 32-bit (4 source elements become 2 destination elements)
+res[31:0] = {16'b0, v2[15:0]};
+res[63:32] = {16'b0, v2[31:16]};
+res[95:64] = {16'b0, v2[47:32]};
+res[127:96] = {16'b0, v2[63:48]};
+
+vrf[vd] = res;

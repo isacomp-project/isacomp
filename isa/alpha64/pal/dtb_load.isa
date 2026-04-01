@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha DTB (Data Translation Buffer) Aspect for Load Operations
+//
+// This aspect provides address translation for data loads.
+// It checks the architectural DTB first, and on miss, triggers a
+// trap to PALcode which handles the page table walk.
+//
+// Requires: 'addr' variable must be defined before including this aspect
+//
+// Alpha Virtual Address Format (43-bit VA, 8KB pages):
+//   [42:13] Virtual Page Number (VPN) - 30 bits
+//   [12:0]  Page offset - 13 bits (8KB pages)
+//
+// Alpha PTE Format (64-bit, Linux kernel layout):
+//   [63:32] PFN (Physical Frame Number)
+//   [13]    UWE (User Write Enable)
+//   [12]    URE (User Read Enable)
+//   [10]    KWE (Kernel Write Enable)
+//   [8]     KRE (Kernel Read Enable)
+//   [6:5]   GH (Granularity Hint)
+//   [4]     ASM (Address Space Match)
+//   [3]     FOE (Fault on Execute)
+//   [2]     FOW (Fault on Write)
+//   [1]     FOR (Fault on Read)
+//   [0]     V (Valid)
+//
+// On TLB miss: Trap to PAL_dtb_miss entry
+// On permission fault: Trap to PAL_mm_fault entry
+
+// Output: Physical address for data load
+var addr_pa[63:0];
+
+// Exception tracking
+var dtb_load_exception[0:0];
+var dtb_load_miss[0:0];
+var dtb_load_fault[0:0];
+
+// Extract address components
+var addr_vpn[29:0];
+var addr_offset[12:0];
+addr_vpn = addr[42:13];
+addr_offset = addr[12:0];
+
+// TLB lookup - check all 32 entries in parallel
+// For each entry: check valid bit and tag match
+var dtb_hit_any[0:0];
+var dtb_hit_pte[63:0];
+
+// Check each TLB entry
+var dhit0[0:0];
+var dhit1[0:0];
+var dhit2[0:0];
+var dhit3[0:0];
+var dhit4[0:0];
+var dhit5[0:0];
+var dhit6[0:0];
+var dhit7[0:0];
+
+dhit0 = dtb_valid[0] & (dtb_tag[0][29:0] == addr_vpn);
+dhit1 = dtb_valid[1] & (dtb_tag[1][29:0] == addr_vpn);
+dhit2 = dtb_valid[2] & (dtb_tag[2][29:0] == addr_vpn);
+dhit3 = dtb_valid[3] & (dtb_tag[3][29:0] == addr_vpn);
+dhit4 = dtb_valid[4] & (dtb_tag[4][29:0] == addr_vpn);
+dhit5 = dtb_valid[5] & (dtb_tag[5][29:0] == addr_vpn);
+dhit6 = dtb_valid[6] & (dtb_tag[6][29:0] == addr_vpn);
+dhit7 = dtb_valid[7] & (dtb_tag[7][29:0] == addr_vpn);
+
+dtb_hit_any = dhit0 | dhit1 | dhit2 | dhit3 | dhit4 | dhit5 | dhit6 | dhit7;
+
+// Select matching PTE (priority encoder)
+var dsel_pte[63:0];
+dsel_pte = dhit0 ? dtb_pte[0] :
+           dhit1 ? dtb_pte[1] :
+           dhit2 ? dtb_pte[2] :
+           dhit3 ? dtb_pte[3] :
+           dhit4 ? dtb_pte[4] :
+           dhit5 ? dtb_pte[5] :
+           dhit6 ? dtb_pte[6] :
+           dhit7 ? dtb_pte[7] : 64'b0;
+
+dtb_hit_pte = dsel_pte;
+
+// Extract PTE fields
+var dpte_pfn[31:0];
+var dpte_valid[0:0];
+var dpte_for[0:0];
+var dpte_kre[0:0];
+var dpte_ure[0:0];
+
+dpte_pfn = dtb_hit_pte[63:32];
+dpte_valid = dtb_hit_pte[0];
+dpte_for = dtb_hit_pte[1];     // Fault on Read
+dpte_kre = dtb_hit_pte[8];    // Kernel Read Enable
+dpte_ure = dtb_hit_pte[12];    // User Read Enable
+
+// Check permissions based on current mode
+// ps[3] = CM (current mode): 0=kernel, 1=user
+var load_is_user_mode[0:0];
+var has_read_permission[0:0];
+
+load_is_user_mode = ps[3];
+has_read_permission = load_is_user_mode ? dpte_ure : dpte_kre;
+
+// Determine exception type
+// In PAL mode, translation is bypassed
+var load_vm_enabled[0:0];
+load_vm_enabled = (pal_mode == 0);
+
+dtb_load_miss = load_vm_enabled & (dtb_hit_any == 0);
+dtb_load_fault = load_vm_enabled & dtb_hit_any & ((dpte_valid == 0) | (has_read_permission == 0) | dpte_for);
+dtb_load_exception = dtb_load_miss | dtb_load_fault;
+
+// PAL entry points for exceptions
+// DTB miss single: 0x08 (offset 0x200) - single miss, no nested fault
+// DTB miss double: 0x09 (offset 0x240) - miss during miss handling
+// DFAULT: 0x0A (offset 0x280) - data fault (permission violation)
+var dtb_miss_entry[63:0];
+var dtb_fault_entry[63:0];
+
+dtb_miss_entry = pal_base + 64'h200;    // DTB miss handler
+dtb_fault_entry = pal_base + 64'h280;   // Data fault handler
+
+// On exception, save state and jump to PALcode
+// Record faulting VA and memory status
+exc_addr when (dtb_load_exception) = pc;
+va when (dtb_load_exception) = addr;
+mm_stat when (dtb_load_exception) = 64'h0;  // 0 = read access
+pal_mode when (dtb_load_exception) = 1;
+
+// Compute physical address
+// If PAL mode: use physical address directly (identity map)
+// If TLB hit: translate using PTE
+// If TLB miss/fault: will redirect to PAL handler
+var addr_translated[63:0];
+addr_translated = {dpte_pfn, addr_offset};
+
+// Final address for load
+// If PAL mode: identity map
+// If TLB hit: use translated address
+// If miss/fault: doesn't matter, will trap
+addr_pa = pal_mode ? addr :
+          dtb_hit_any ? addr_translated :
+          addr;  // Will trap before use
+
+// Update PC on exception (redirect to PAL handler)
+pc when (dtb_load_miss & (pal_mode == 0)) = dtb_miss_entry;
+pc when (dtb_load_fault & (pal_mode == 0)) = dtb_fault_entry;

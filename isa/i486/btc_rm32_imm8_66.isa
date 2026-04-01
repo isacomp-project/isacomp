@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BTC r/m32, imm8 with 66 prefix (0x66 0x0F 0xBA /7)
+// Bit Test and Complement - tests bit, sets CF, then complements bit
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var base_val[31:0];
+var imm8[7:0];
+var bit_pos[4:0];
+var bit_val[0:0];
+var mask[31:0];
+var result[31:0];
+
+prefix = imem[eip];
+assume prefix == 0x66;
+
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+instr2 = imem[eip + 2];
+assume instr2 == 0xBA;
+
+modrm = imem[eip + 3];
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_idx == 0b111;  // /7
+assume mod_bits == 0b11;  // register direct mode
+
+// Read immediate
+imm8 = imem[eip + 4];
+
+eip = eip + 5;
+
+base_val = xregs[rm_bits];
+bit_pos = imm8[4:0];
+bit_val = base_val[bit_pos];
+flag_CF = bit_val;
+
+// Create mask and complement bit
+case (bit_pos) {
+  5'd0: mask = 32'h00000001; 5'd1: mask = 32'h00000002;
+  5'd2: mask = 32'h00000004; 5'd3: mask = 32'h00000008;
+  5'd4: mask = 32'h00000010; 5'd5: mask = 32'h00000020;
+  5'd6: mask = 32'h00000040; 5'd7: mask = 32'h00000080;
+  5'd8: mask = 32'h00000100; 5'd9: mask = 32'h00000200;
+  5'd10: mask = 32'h00000400; 5'd11: mask = 32'h00000800;
+  5'd12: mask = 32'h00001000; 5'd13: mask = 32'h00002000;
+  5'd14: mask = 32'h00004000; 5'd15: mask = 32'h00008000;
+  5'd16: mask = 32'h00010000; 5'd17: mask = 32'h00020000;
+  5'd18: mask = 32'h00040000; 5'd19: mask = 32'h00080000;
+  5'd20: mask = 32'h00100000; 5'd21: mask = 32'h00200000;
+  5'd22: mask = 32'h00400000; 5'd23: mask = 32'h00800000;
+  5'd24: mask = 32'h01000000; 5'd25: mask = 32'h02000000;
+  5'd26: mask = 32'h04000000; 5'd27: mask = 32'h08000000;
+  5'd28: mask = 32'h10000000; 5'd29: mask = 32'h20000000;
+  5'd30: mask = 32'h40000000; 5'd31: mask = 32'h80000000;
+}
+
+result = base_val ^ mask;
+xregs[rm_bits] = result;

@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 MOVE An,USP - Move Address Register to User Stack Pointer
+// Opcode: 0100 1110 0110 0 rrr (4E60-4E67)
+// where rrr is the source address register
+// Privileged instruction - copies An to USP
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[23:0];
+
+// Full Status Register
+isa_state sr[15:0];
+isa_state usp[31:0];
+isa_state ssp[31:0];
+
+// CCR flags (not modified)
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:3] == 13'b0100111001100;  // MOVE An to USP opcode
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Must be in supervisor mode
+assume sr[13] == 1'b1;
+
+// Decode source register
+src_reg = instr[2:0];
+
+// Copy source address register to USP
+usp when (~m68k_exc_taken) = aregs[src_reg];
+
+// Does not affect CCR flags

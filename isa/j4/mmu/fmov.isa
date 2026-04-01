@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// FMOV FRm,FRn - Floating-Point Move
+// FRn = FRm
+isa_state pc[31:0];
+var instr[15:0];
+mem umem[23:0];
+
+isa_state fr[31:0][3:0];
+isa_state fpscr[31:0];
+isa_state fpul[31:0];
+
+var frn[3:0];
+var frm[3:0];
+var FRm[31:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0xF;
+assume instr[3:0] == 0xC;
+frn = instr[11:8];
+frm = instr[7:4];
+
+FRm = fr[frm];
+
+fr[frn] when (~int_should_take & ~itlb_exc_actually_taken) = FRm;
+pc = pc + 2;

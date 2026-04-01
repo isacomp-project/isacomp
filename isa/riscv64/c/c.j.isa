@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64C C.J - Unconditional jump
+
+isa_state pc[63:0];
+var c_instr[15:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var imm[11:0];
+var sign_ext_imm[63:0];
+var jump_offset[63:0];
+var jump_dest[63:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.J format: CJ-type
+// Encoding: 101 imm[11|4|9:8|10|6|7|3:1|5] 01
+assume c_instr[1:0] == 0b01;
+assume c_instr[15:13] == 0b101;
+
+// Immediate is imm[11:1] = {c_instr[12], c_instr[8], c_instr[10:9], c_instr[6], c_instr[7], c_instr[2], c_instr[11], c_instr[5:3]}
+imm = {c_instr[12], c_instr[8], c_instr[10:9], c_instr[6], c_instr[7], c_instr[2], c_instr[11], c_instr[5:3], 1'b0};
+sign_ext_imm = {{52{imm[11]}}, imm};
+jump_offset = sign_ext_imm;
+
+jump_dest = pc + jump_offset;
+
+pc = jump_dest;

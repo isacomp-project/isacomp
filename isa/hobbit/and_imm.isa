@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: AND src, dst (immediate source, stack offset dest)
+// Three-parcel encoding: opcode 0x22, smode=0xF, dmode=0xD, 6 bytes
+// dst &= sign_extend(imm16)
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+mem umem[31:0];
+
+var parcel0[15:0];
+var parcel1[15:0];
+var parcel2[15:0];
+var opcode6[5:0];
+var smode[3:0];
+var dmode[3:0];
+var imm16[15:0];
+var dst_field[15:0];
+var dst_addr[31:0];
+var dst_val[31:0];
+
+parcel0 = umem[pc];
+parcel1 = umem[pc + 2];
+parcel2 = umem[pc + 4];
+
+assume parcel0[15:14] == 0b10;
+opcode6 = parcel0[13:8];
+assume opcode6 == 0x22;
+
+smode = parcel0[7:4];
+dmode = parcel0[3:0];
+
+assume smode == 0xF;
+imm16 = parcel1;
+
+assume dmode == 0xD;
+dst_field = parcel2;
+dst_addr = sp + {{16{dst_field[15]}}, dst_field};
+dst_val = umem[dst_addr];
+
+umem[dst_addr] = dst_val & {{16{imm16[15]}}, imm16};
+
+pc = pc + 6;

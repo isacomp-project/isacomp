@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 ADDIB,UV instruction (64-bit)
+// ADDIB,UV im5,r,target - Add Immediate and Branch if unsigned overflow (carry)
+// Opcode: 0x2B (bits 31:26) (negated conditions)
+// im5=instr[25:21] (5-bit signed immediate), r=instr[20:16], 12-bit displacement
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var im5[4:0];
+var imm[63:0];
+var src[63:0];
+var res[63:0];
+var carry[0:0];
+var w[11:0];
+var target_offset[63:0];
+var target[63:0];
+var taken[0:0];
+
+instr = umem[pc_pa];
+
+// ADDIB,UV encoding: opcode=0x2B, condition = NUV (c=instr[15:13]=100) negated
+assume instr[31:26] == 0b101011;
+assume instr[15:13] == 0b100;
+
+im5 = instr[20:16];
+r = instr[25:21];
+
+imm = {{60{im5[0]}}, im5[0], im5[4:1]};
+// instr[15] = width bit: 0=32-bit, 1=64-bit
+var wide[0:0];
+wide = 1'b0;
+src = (r == 0) ? 64'h0 : (wide ? rf[r] : {{32{rf[r][31]}}, rf[r][31:0]});
+var res_raw[63:0];
+res_raw = imm + src;
+res = wide ? res_raw : {{32{res_raw[31]}}, res_raw[31:0]};
+
+// Carry out of addition (unsigned overflow)
+carry = (imm[63] & src[63]) | ((imm[63] ^ src[63]) & ~res[63]);
+
+w = {instr[0], instr[2], instr[12:4], instr[3]};
+target_offset = {{50{w[11]}}, w, 2'b00};
+target = pc + 8 + target_offset;
+
+// Condition: unsigned overflow (carry, negated NUV)
+taken = carry;
+
+rf[r] when (r != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+delay_slot when (taken & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (taken & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+
+var n_nullify[0:0];
+n_nullify = instr[1] & (taken ^ w[11]);
+psw when (n_nullify & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+pc = pc + 4;

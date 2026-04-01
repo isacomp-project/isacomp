@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 NOP (0xEA) - No Operation
+// Does nothing except increment PC
+// Does not affect any flags or registers
+// Instruction format: NOP (1 byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state mainmem[7:0][15:0];
+
+instr = mainmem[pc];
+assume instr == 0xEA;
+pc = pc + 1;

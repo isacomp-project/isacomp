@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 PUSH CS with 66 prefix (0x66 0x0E)
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];
+isa_state CS[15:0];
+
+var offset[31:0];
+var physical_addr[31:0];
+var physical_addr_1[31:0];
+var physical_addr_2[31:0];
+var physical_addr_3[31:0];
+
+prefix = imem[eip];
+assume prefix == 0x66;
+
+instr = imem[eip + 1];
+assume instr == 0x0E;
+
+eip = eip + 2;
+
+xregs[4] = xregs[4] - 32'h00000004;
+
+offset = xregs[4];
+
+physical_addr = (SS << 4) + offset;
+physical_addr_1 = physical_addr + 1;
+physical_addr_2 = physical_addr + 2;
+physical_addr_3 = physical_addr + 3;
+
+dmem[physical_addr] = CS[7:0];
+dmem[physical_addr_1] = CS[15:8];
+dmem[physical_addr_2] = 8'h00;
+dmem[physical_addr_3] = 8'h00;

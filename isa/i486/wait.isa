@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 WAIT (0x9B)
+// Wait for coprocessor
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+
+instr = imem[eip];
+assume instr == 0x9B;
+eip = eip + 1;
+
+// WAIT is essentially a NOP in this simple model
+// In a real implementation, it would wait for the coprocessor

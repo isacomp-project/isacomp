@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 SCASB (0xAE) - WITH PROPER SEGMENTATION
+// Scan byte string - compare AL with ES:[DI]
+// Uses ES segment for destination
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state ES[15:0];            // Extra segment register
+isa_state AX[15:0];
+isa_state AL[7:0] of AX[7:0];
+isa_state DI[15:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_PF[0:0];
+
+var physical_addr[19:0];
+var byte_value[7:0];
+var result[8:0];
+
+instr = imem[ip];
+assume instr == 0xAE;
+ip = ip + 1;
+
+// Calculate physical address using ES segment
+physical_addr = (ES << 4) + DI;  // ES:DI
+
+// Compare AL with byte at ES:[DI] (subtraction)
+byte_value = dmem[physical_addr];
+result = AL - byte_value;
+
+// Set flags based on result
+flag_CF = AL < byte_value ? 1'b1 : 1'b0;
+flag_ZF = result[7:0] == 8'h00 ? 1'b1 : 1'b0;
+flag_SF = result[7];
+flag_PF = result[0];
+flag_OF = ((AL[7] != byte_value[7]) & (result[7] != AL[7])) ? 1'b1 : 1'b0;
+
+// Increment or decrement DI based on direction flag
+DI = flag_DF == 1'b0 ? (DI + 16'h0001) : (DI - 16'h0001);

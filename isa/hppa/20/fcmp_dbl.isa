@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 FCMP,DBL instruction
+// FCMP,DBL fr1,fr2,c - Double-precision floating-point compare
+// Compares fr1 and fr2, sets FP status bits based on condition c
+// Opcode: 0x0C (bits 31:26), sub-bits[12:9]=0100, fmt bits[5:4]=01 (double)
+// Condition field: instr[4:0] specifies the comparison type
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+isa_state fpsr[63:0];           // FP status register
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var fr1[4:0];
+var fr2[4:0];
+var cond[4:0];
+
+instr = umem[pc_pa];
+
+// FCMP,DBL encoding: opcode=0x0C, sub[12:9]=0100, fmt[5:4]=01
+assume instr[31:26] == 0b001100;
+assume instr[12:9] == 0b0100;
+assume instr[5:4] == 0b01;     // DBL format
+
+// Extract register fields
+fr1 = instr[25:21];
+fr2 = instr[20:16];
+cond = instr[4:0];
+
+// Read source FP registers (full 64-bit for double-precision)
+var src1[63:0]; src1 = frf[fr1];
+var src2[63:0]; src2 = frf[fr2];
+
+// Extract sign, exponent, mantissa for NaN detection
+var s1_exp[10:0]; s1_exp = src1[62:52];
+var s1_man[51:0]; s1_man = src1[51:0];
+var s2_exp[10:0]; s2_exp = src2[62:52];
+var s2_man[51:0]; s2_man = src2[51:0];
+
+// NaN detection: exponent all 1s and mantissa non-zero
+var is_nan1[0:0]; is_nan1 = (s1_exp == 11'h7FF) & (s1_man != 0);
+var is_nan2[0:0]; is_nan2 = (s2_exp == 11'h7FF) & (s2_man != 0);
+var is_unordered[0:0]; is_unordered = is_nan1 | is_nan2;
+
+// Floating-point comparison
+var is_equal[0:0]; is_equal = ~is_unordered & (src1 == src2);
+var is_less[0:0]; is_less = ~is_unordered & ~is_equal &
+    ((src1[63] & ~src2[63]) |
+     (src1[63] & src2[63] & (src1[62:0] > src2[62:0])) |
+     (~src1[63] & ~src2[63] & (src1[62:0] < src2[62:0])));
+var is_greater[0:0]; is_greater = ~is_unordered & ~is_equal & ~is_less;
+
+// Evaluate condition based on cond field
+var cond_result[0:0];
+cond_result = (cond[0] & is_unordered) | (cond[1] & is_equal) |
+              (cond[2] & is_less) | (cond[3] & is_greater);
+
+// Update FP status register - set condition bit
+var new_fpsr[63:0];
+new_fpsr = cond_result ? (fpsr | 64'h0000000000000020) : (fpsr & 64'hFFFFFFFFFFFFFFDF);
+fpsr when (~instr_trap_taken & ~in_nullified) = new_fpsr;
+
+// Advance PC by 4
+pc = pc + 4;

@@ -1,0 +1,565 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Apply Instruction
+//
+// Opcode: 0x1 (binary 001)
+// Format: [31:29]=opcode, [28:19]=n_args, [18:16]=source, [15:0]=index
+//
+// Creates a thunk (lazy application) or applies arguments to a function.
+// The instruction word is followed by n_args argument words, each with format:
+//   [31:29]=source, [28:0]=index
+//
+// The function reference is decoded from source/index.
+// Arguments are decoded and stored in a new heap object.
+//
+// For constructors: immediately creates a data structure
+// For functions: creates a thunk for lazy evaluation
+
+// State declarations
+isa_state pc[31:0];
+isa_state fp[19:0];
+isa_state lsp[19:0];
+isa_state lb[19:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_clo[31:0];
+isa_state env_args[31:0];
+mem imem[14:0];
+mem heap[19:0];
+mem lstack[19:0];
+
+// Instruction decode
+var instr[31:0];
+var opcode[2:0];
+var n_args[9:0];
+var source[2:0];
+var index[15:0];
+
+// Fetch instruction
+instr = imem[pc];
+opcode = instr[31:29];
+
+// Verify this is an apply instruction
+assume opcode == 3'b001;
+
+// Extract fields
+n_args = instr[28:19];
+source = instr[18:16];
+index = instr[15:0];
+
+// Decode the function reference
+aspect ../aspects/source_decode.isa gates source, index, env_clo, env_args, lsp, lb, eval_reg, eval_tag, heap, lstack;
+
+var func_ref[31:0];
+func_ref = decoded_value;
+
+// Determine if function reference is static (source=7, itable) or dynamic (heap ref)
+var is_static_func[0:0];
+is_static_func = (source == 3'b111);
+
+// Read function info table (only valid for static functions)
+var func_info[31:0];
+func_info = imem[func_ref];
+
+var func_is_cons[0:0];
+var func_arity[10:0];
+var func_nfree[7:0];
+
+// For dynamic apply, func_ref is a heap address, not an imem address.
+// Constructors always come from source=7 (itable), so dynamic refs are never constructors.
+func_is_cons = is_static_func ? func_info[31] : 1'b0;
+func_arity = func_info[30:20];
+func_nfree = func_info[19:12];
+
+// Allocate heap object: header + arguments
+// For thunks: header contains function address
+// For constructors: header contains constructor info
+var obj_addr[19:0];
+obj_addr = fp;
+
+// Build header
+// For constructors: [31]=1, [30]=0, [29:16]={0,arity[10:0]}, [15:0]=tag
+// For static thunks:  [31:30]=00, [29]=0, [28:19]=n_args, [18:4]=func_addr[14:0], [3:0]=0
+// For dynamic thunks: [31:30]=00, [29]=1, [28:19]=n_args, [18:0]=0
+var obj_header[31:0];
+var static_thunk_header[31:0];
+var dynamic_thunk_header[31:0];
+static_thunk_header = {2'b00, 1'b0, n_args, func_ref[14:0], 4'b0};
+dynamic_thunk_header = {2'b00, 1'b1, n_args, 19'b0};
+obj_header = func_is_cons ? {1'b1, {4'b0, func_arity}, index} : (is_static_func ? static_thunk_header : dynamic_thunk_header);
+
+// Write header
+heap[obj_addr] = obj_header;
+
+// For dynamic thunks, store the function reference (heap addr) at obj_addr+1
+// This shifts all argument data by +1 compared to static thunks
+heap[obj_addr + 1] when (~is_static_func & ~func_is_cons) = func_ref;
+
+// Compute addresses for argument words
+var arg_addr_0[31:0];
+var arg_addr_1[31:0];
+var arg_addr_2[31:0];
+var arg_addr_3[31:0];
+var arg_addr_4[31:0];
+var arg_addr_5[31:0];
+var arg_addr_6[31:0];
+var arg_addr_7[31:0];
+var arg_addr_8[31:0];
+var arg_addr_9[31:0];
+var arg_addr_10[31:0];
+var arg_addr_11[31:0];
+var arg_addr_12[31:0];
+var arg_addr_13[31:0];
+var arg_addr_14[31:0];
+var arg_addr_15[31:0];
+
+arg_addr_0 = pc + 1;
+arg_addr_1 = pc + 2;
+arg_addr_2 = pc + 3;
+arg_addr_3 = pc + 4;
+arg_addr_4 = pc + 5;
+arg_addr_5 = pc + 6;
+arg_addr_6 = pc + 7;
+arg_addr_7 = pc + 8;
+arg_addr_8 = pc + 9;
+arg_addr_9 = pc + 10;
+arg_addr_10 = pc + 11;
+arg_addr_11 = pc + 12;
+arg_addr_12 = pc + 13;
+arg_addr_13 = pc + 14;
+arg_addr_14 = pc + 15;
+arg_addr_15 = pc + 16;
+
+// Read argument words from instruction memory
+var arg_word_0[31:0];
+var arg_word_1[31:0];
+var arg_word_2[31:0];
+var arg_word_3[31:0];
+var arg_word_4[31:0];
+var arg_word_5[31:0];
+var arg_word_6[31:0];
+var arg_word_7[31:0];
+var arg_word_8[31:0];
+var arg_word_9[31:0];
+var arg_word_10[31:0];
+var arg_word_11[31:0];
+var arg_word_12[31:0];
+var arg_word_13[31:0];
+var arg_word_14[31:0];
+var arg_word_15[31:0];
+
+arg_word_0 = imem[arg_addr_0];
+arg_word_1 = imem[arg_addr_1];
+arg_word_2 = imem[arg_addr_2];
+arg_word_3 = imem[arg_addr_3];
+arg_word_4 = imem[arg_addr_4];
+arg_word_5 = imem[arg_addr_5];
+arg_word_6 = imem[arg_addr_6];
+arg_word_7 = imem[arg_addr_7];
+arg_word_8 = imem[arg_addr_8];
+arg_word_9 = imem[arg_addr_9];
+arg_word_10 = imem[arg_addr_10];
+arg_word_11 = imem[arg_addr_11];
+arg_word_12 = imem[arg_addr_12];
+arg_word_13 = imem[arg_addr_13];
+arg_word_14 = imem[arg_addr_14];
+arg_word_15 = imem[arg_addr_15];
+
+// Extract source and index from each argument word
+var arg_src_0[2:0];
+var arg_src_1[2:0];
+var arg_src_2[2:0];
+var arg_src_3[2:0];
+var arg_src_4[2:0];
+var arg_src_5[2:0];
+var arg_src_6[2:0];
+var arg_src_7[2:0];
+var arg_src_8[2:0];
+var arg_src_9[2:0];
+var arg_src_10[2:0];
+var arg_src_11[2:0];
+var arg_src_12[2:0];
+var arg_src_13[2:0];
+var arg_src_14[2:0];
+var arg_src_15[2:0];
+
+arg_src_0 = arg_word_0[31:29];
+arg_src_1 = arg_word_1[31:29];
+arg_src_2 = arg_word_2[31:29];
+arg_src_3 = arg_word_3[31:29];
+arg_src_4 = arg_word_4[31:29];
+arg_src_5 = arg_word_5[31:29];
+arg_src_6 = arg_word_6[31:29];
+arg_src_7 = arg_word_7[31:29];
+arg_src_8 = arg_word_8[31:29];
+arg_src_9 = arg_word_9[31:29];
+arg_src_10 = arg_word_10[31:29];
+arg_src_11 = arg_word_11[31:29];
+arg_src_12 = arg_word_12[31:29];
+arg_src_13 = arg_word_13[31:29];
+arg_src_14 = arg_word_14[31:29];
+arg_src_15 = arg_word_15[31:29];
+
+var arg_idx_0[28:0];
+var arg_idx_1[28:0];
+var arg_idx_2[28:0];
+var arg_idx_3[28:0];
+var arg_idx_4[28:0];
+var arg_idx_5[28:0];
+var arg_idx_6[28:0];
+var arg_idx_7[28:0];
+var arg_idx_8[28:0];
+var arg_idx_9[28:0];
+var arg_idx_10[28:0];
+var arg_idx_11[28:0];
+var arg_idx_12[28:0];
+var arg_idx_13[28:0];
+var arg_idx_14[28:0];
+var arg_idx_15[28:0];
+
+arg_idx_0 = arg_word_0[28:0];
+arg_idx_1 = arg_word_1[28:0];
+arg_idx_2 = arg_word_2[28:0];
+arg_idx_3 = arg_word_3[28:0];
+arg_idx_4 = arg_word_4[28:0];
+arg_idx_5 = arg_word_5[28:0];
+arg_idx_6 = arg_word_6[28:0];
+arg_idx_7 = arg_word_7[28:0];
+arg_idx_8 = arg_word_8[28:0];
+arg_idx_9 = arg_word_9[28:0];
+arg_idx_10 = arg_word_10[28:0];
+arg_idx_11 = arg_word_11[28:0];
+arg_idx_12 = arg_word_12[28:0];
+arg_idx_13 = arg_word_13[28:0];
+arg_idx_14 = arg_word_14[28:0];
+arg_idx_15 = arg_word_15[28:0];
+
+// Extended indices for address calculations
+var arg_idx_ext_0[31:0];
+var arg_idx_ext_1[31:0];
+var arg_idx_ext_2[31:0];
+var arg_idx_ext_3[31:0];
+var arg_idx_ext_4[31:0];
+var arg_idx_ext_5[31:0];
+var arg_idx_ext_6[31:0];
+var arg_idx_ext_7[31:0];
+var arg_idx_ext_8[31:0];
+var arg_idx_ext_9[31:0];
+var arg_idx_ext_10[31:0];
+var arg_idx_ext_11[31:0];
+var arg_idx_ext_12[31:0];
+var arg_idx_ext_13[31:0];
+var arg_idx_ext_14[31:0];
+var arg_idx_ext_15[31:0];
+
+arg_idx_ext_0 = {{3{1'b0}}, arg_idx_0};
+arg_idx_ext_1 = {{3{1'b0}}, arg_idx_1};
+arg_idx_ext_2 = {{3{1'b0}}, arg_idx_2};
+arg_idx_ext_3 = {{3{1'b0}}, arg_idx_3};
+arg_idx_ext_4 = {{3{1'b0}}, arg_idx_4};
+arg_idx_ext_5 = {{3{1'b0}}, arg_idx_5};
+arg_idx_ext_6 = {{3{1'b0}}, arg_idx_6};
+arg_idx_ext_7 = {{3{1'b0}}, arg_idx_7};
+arg_idx_ext_8 = {{3{1'b0}}, arg_idx_8};
+arg_idx_ext_9 = {{3{1'b0}}, arg_idx_9};
+arg_idx_ext_10 = {{3{1'b0}}, arg_idx_10};
+arg_idx_ext_11 = {{3{1'b0}}, arg_idx_11};
+arg_idx_ext_12 = {{3{1'b0}}, arg_idx_12};
+arg_idx_ext_13 = {{3{1'b0}}, arg_idx_13};
+arg_idx_ext_14 = {{3{1'b0}}, arg_idx_14};
+arg_idx_ext_15 = {{3{1'b0}}, arg_idx_15};
+
+// Decode argument values
+var arg_val_0[31:0];
+var arg_val_1[31:0];
+var arg_val_2[31:0];
+var arg_val_3[31:0];
+var arg_val_4[31:0];
+var arg_val_5[31:0];
+var arg_val_6[31:0];
+var arg_val_7[31:0];
+var arg_val_8[31:0];
+var arg_val_9[31:0];
+var arg_val_10[31:0];
+var arg_val_11[31:0];
+var arg_val_12[31:0];
+var arg_val_13[31:0];
+var arg_val_14[31:0];
+var arg_val_15[31:0];
+
+// Write-forwarding for local variable reads (source=2):
+// When `let x = F ... x` creates a circular reference, the apply instruction
+// reads lstack[lb+i] (to get x) before writing lstack[lsp] (= obj_addr).
+// If lb+i == lsp, the read gets stale/uninitialized data. These forwarding
+// variables detect this case and substitute obj_addr.
+var local_fwd_0[31:0];
+var local_fwd_1[31:0];
+var local_fwd_2[31:0];
+var local_fwd_3[31:0];
+var local_fwd_4[31:0];
+var local_fwd_5[31:0];
+var local_fwd_6[31:0];
+var local_fwd_7[31:0];
+var local_fwd_8[31:0];
+var local_fwd_9[31:0];
+var local_fwd_10[31:0];
+var local_fwd_11[31:0];
+var local_fwd_12[31:0];
+var local_fwd_13[31:0];
+var local_fwd_14[31:0];
+var local_fwd_15[31:0];
+
+local_fwd_0 = (lb + arg_idx_ext_0[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_0];
+local_fwd_1 = (lb + arg_idx_ext_1[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_1];
+local_fwd_2 = (lb + arg_idx_ext_2[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_2];
+local_fwd_3 = (lb + arg_idx_ext_3[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_3];
+local_fwd_4 = (lb + arg_idx_ext_4[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_4];
+local_fwd_5 = (lb + arg_idx_ext_5[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_5];
+local_fwd_6 = (lb + arg_idx_ext_6[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_6];
+local_fwd_7 = (lb + arg_idx_ext_7[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_7];
+local_fwd_8 = (lb + arg_idx_ext_8[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_8];
+local_fwd_9 = (lb + arg_idx_ext_9[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_9];
+local_fwd_10 = (lb + arg_idx_ext_10[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_10];
+local_fwd_11 = (lb + arg_idx_ext_11[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_11];
+local_fwd_12 = (lb + arg_idx_ext_12[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_12];
+local_fwd_13 = (lb + arg_idx_ext_13[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_13];
+local_fwd_14 = (lb + arg_idx_ext_14[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_14];
+local_fwd_15 = (lb + arg_idx_ext_15[19:0] == lsp) ? {{12{1'b0}}, obj_addr} : lstack[lb + arg_idx_ext_15];
+
+// Argument 0
+case (arg_src_0) {
+    0: arg_val_0 = heap[env_args + arg_idx_ext_0];
+    1: arg_val_0 = heap[env_clo + arg_idx_ext_0];
+    2: arg_val_0 = local_fwd_0;
+    3: arg_val_0 = 32'b0;
+    4: arg_val_0 = {{3{arg_idx_0[28]}}, arg_idx_0};
+    5: arg_val_0 = eval_reg;
+    6: arg_val_0 = heap[eval_reg + arg_idx_ext_0 + 1];
+    7: arg_val_0 = arg_idx_ext_0;
+}
+
+// Argument 1
+case (arg_src_1) {
+    0: arg_val_1 = heap[env_args + arg_idx_ext_1];
+    1: arg_val_1 = heap[env_clo + arg_idx_ext_1];
+    2: arg_val_1 = local_fwd_1;
+    3: arg_val_1 = 32'b0;
+    4: arg_val_1 = {{3{arg_idx_1[28]}}, arg_idx_1};
+    5: arg_val_1 = eval_reg;
+    6: arg_val_1 = heap[eval_reg + arg_idx_ext_1 + 1];
+    7: arg_val_1 = arg_idx_ext_1;
+}
+
+// Argument 2
+case (arg_src_2) {
+    0: arg_val_2 = heap[env_args + arg_idx_ext_2];
+    1: arg_val_2 = heap[env_clo + arg_idx_ext_2];
+    2: arg_val_2 = local_fwd_2;
+    3: arg_val_2 = 32'b0;
+    4: arg_val_2 = {{3{arg_idx_2[28]}}, arg_idx_2};
+    5: arg_val_2 = eval_reg;
+    6: arg_val_2 = heap[eval_reg + arg_idx_ext_2 + 1];
+    7: arg_val_2 = arg_idx_ext_2;
+}
+
+// Argument 3
+case (arg_src_3) {
+    0: arg_val_3 = heap[env_args + arg_idx_ext_3];
+    1: arg_val_3 = heap[env_clo + arg_idx_ext_3];
+    2: arg_val_3 = local_fwd_3;
+    3: arg_val_3 = 32'b0;
+    4: arg_val_3 = {{3{arg_idx_3[28]}}, arg_idx_3};
+    5: arg_val_3 = eval_reg;
+    6: arg_val_3 = heap[eval_reg + arg_idx_ext_3 + 1];
+    7: arg_val_3 = arg_idx_ext_3;
+}
+
+// Argument 4
+case (arg_src_4) {
+    0: arg_val_4 = heap[env_args + arg_idx_ext_4];
+    1: arg_val_4 = heap[env_clo + arg_idx_ext_4];
+    2: arg_val_4 = local_fwd_4;
+    3: arg_val_4 = 32'b0;
+    4: arg_val_4 = {{3{arg_idx_4[28]}}, arg_idx_4};
+    5: arg_val_4 = eval_reg;
+    6: arg_val_4 = heap[eval_reg + arg_idx_ext_4 + 1];
+    7: arg_val_4 = arg_idx_ext_4;
+}
+
+// Argument 5
+case (arg_src_5) {
+    0: arg_val_5 = heap[env_args + arg_idx_ext_5];
+    1: arg_val_5 = heap[env_clo + arg_idx_ext_5];
+    2: arg_val_5 = local_fwd_5;
+    3: arg_val_5 = 32'b0;
+    4: arg_val_5 = {{3{arg_idx_5[28]}}, arg_idx_5};
+    5: arg_val_5 = eval_reg;
+    6: arg_val_5 = heap[eval_reg + arg_idx_ext_5 + 1];
+    7: arg_val_5 = arg_idx_ext_5;
+}
+
+// Argument 6
+case (arg_src_6) {
+    0: arg_val_6 = heap[env_args + arg_idx_ext_6];
+    1: arg_val_6 = heap[env_clo + arg_idx_ext_6];
+    2: arg_val_6 = local_fwd_6;
+    3: arg_val_6 = 32'b0;
+    4: arg_val_6 = {{3{arg_idx_6[28]}}, arg_idx_6};
+    5: arg_val_6 = eval_reg;
+    6: arg_val_6 = heap[eval_reg + arg_idx_ext_6 + 1];
+    7: arg_val_6 = arg_idx_ext_6;
+}
+
+// Argument 7
+case (arg_src_7) {
+    0: arg_val_7 = heap[env_args + arg_idx_ext_7];
+    1: arg_val_7 = heap[env_clo + arg_idx_ext_7];
+    2: arg_val_7 = local_fwd_7;
+    3: arg_val_7 = 32'b0;
+    4: arg_val_7 = {{3{arg_idx_7[28]}}, arg_idx_7};
+    5: arg_val_7 = eval_reg;
+    6: arg_val_7 = heap[eval_reg + arg_idx_ext_7 + 1];
+    7: arg_val_7 = arg_idx_ext_7;
+}
+
+// Argument 8
+case (arg_src_8) {
+    0: arg_val_8 = heap[env_args + arg_idx_ext_8];
+    1: arg_val_8 = heap[env_clo + arg_idx_ext_8];
+    2: arg_val_8 = local_fwd_8;
+    3: arg_val_8 = 32'b0;
+    4: arg_val_8 = {{3{arg_idx_8[28]}}, arg_idx_8};
+    5: arg_val_8 = eval_reg;
+    6: arg_val_8 = heap[eval_reg + arg_idx_ext_8 + 1];
+    7: arg_val_8 = arg_idx_ext_8;
+}
+
+// Argument 9
+case (arg_src_9) {
+    0: arg_val_9 = heap[env_args + arg_idx_ext_9];
+    1: arg_val_9 = heap[env_clo + arg_idx_ext_9];
+    2: arg_val_9 = local_fwd_9;
+    3: arg_val_9 = 32'b0;
+    4: arg_val_9 = {{3{arg_idx_9[28]}}, arg_idx_9};
+    5: arg_val_9 = eval_reg;
+    6: arg_val_9 = heap[eval_reg + arg_idx_ext_9 + 1];
+    7: arg_val_9 = arg_idx_ext_9;
+}
+
+// Argument 10
+case (arg_src_10) {
+    0: arg_val_10 = heap[env_args + arg_idx_ext_10];
+    1: arg_val_10 = heap[env_clo + arg_idx_ext_10];
+    2: arg_val_10 = local_fwd_10;
+    3: arg_val_10 = 32'b0;
+    4: arg_val_10 = {{3{arg_idx_10[28]}}, arg_idx_10};
+    5: arg_val_10 = eval_reg;
+    6: arg_val_10 = heap[eval_reg + arg_idx_ext_10 + 1];
+    7: arg_val_10 = arg_idx_ext_10;
+}
+
+// Argument 11
+case (arg_src_11) {
+    0: arg_val_11 = heap[env_args + arg_idx_ext_11];
+    1: arg_val_11 = heap[env_clo + arg_idx_ext_11];
+    2: arg_val_11 = local_fwd_11;
+    3: arg_val_11 = 32'b0;
+    4: arg_val_11 = {{3{arg_idx_11[28]}}, arg_idx_11};
+    5: arg_val_11 = eval_reg;
+    6: arg_val_11 = heap[eval_reg + arg_idx_ext_11 + 1];
+    7: arg_val_11 = arg_idx_ext_11;
+}
+
+// Argument 12
+case (arg_src_12) {
+    0: arg_val_12 = heap[env_args + arg_idx_ext_12];
+    1: arg_val_12 = heap[env_clo + arg_idx_ext_12];
+    2: arg_val_12 = local_fwd_12;
+    3: arg_val_12 = 32'b0;
+    4: arg_val_12 = {{3{arg_idx_12[28]}}, arg_idx_12};
+    5: arg_val_12 = eval_reg;
+    6: arg_val_12 = heap[eval_reg + arg_idx_ext_12 + 1];
+    7: arg_val_12 = arg_idx_ext_12;
+}
+
+// Argument 13
+case (arg_src_13) {
+    0: arg_val_13 = heap[env_args + arg_idx_ext_13];
+    1: arg_val_13 = heap[env_clo + arg_idx_ext_13];
+    2: arg_val_13 = local_fwd_13;
+    3: arg_val_13 = 32'b0;
+    4: arg_val_13 = {{3{arg_idx_13[28]}}, arg_idx_13};
+    5: arg_val_13 = eval_reg;
+    6: arg_val_13 = heap[eval_reg + arg_idx_ext_13 + 1];
+    7: arg_val_13 = arg_idx_ext_13;
+}
+
+// Argument 14
+case (arg_src_14) {
+    0: arg_val_14 = heap[env_args + arg_idx_ext_14];
+    1: arg_val_14 = heap[env_clo + arg_idx_ext_14];
+    2: arg_val_14 = local_fwd_14;
+    3: arg_val_14 = 32'b0;
+    4: arg_val_14 = {{3{arg_idx_14[28]}}, arg_idx_14};
+    5: arg_val_14 = eval_reg;
+    6: arg_val_14 = heap[eval_reg + arg_idx_ext_14 + 1];
+    7: arg_val_14 = arg_idx_ext_14;
+}
+
+// Argument 15
+case (arg_src_15) {
+    0: arg_val_15 = heap[env_args + arg_idx_ext_15];
+    1: arg_val_15 = heap[env_clo + arg_idx_ext_15];
+    2: arg_val_15 = local_fwd_15;
+    3: arg_val_15 = 32'b0;
+    4: arg_val_15 = {{3{arg_idx_15[28]}}, arg_idx_15};
+    5: arg_val_15 = eval_reg;
+    6: arg_val_15 = heap[eval_reg + arg_idx_ext_15 + 1];
+    7: arg_val_15 = arg_idx_ext_15;
+}
+
+// Write arguments to heap (conditionally based on n_args)
+// For static thunks and constructors: args at obj_addr+1..obj_addr+n_args
+// For dynamic thunks: args at obj_addr+2..obj_addr+1+n_args (func_ref is at obj_addr+1)
+var arg_base[19:0];
+arg_base = (~is_static_func & ~func_is_cons) ? obj_addr + 2 : obj_addr + 1;
+
+heap[arg_base] when (n_args > 0) = arg_val_0;
+heap[arg_base + 1] when (n_args > 1) = arg_val_1;
+heap[arg_base + 2] when (n_args > 2) = arg_val_2;
+heap[arg_base + 3] when (n_args > 3) = arg_val_3;
+heap[arg_base + 4] when (n_args > 4) = arg_val_4;
+heap[arg_base + 5] when (n_args > 5) = arg_val_5;
+heap[arg_base + 6] when (n_args > 6) = arg_val_6;
+heap[arg_base + 7] when (n_args > 7) = arg_val_7;
+heap[arg_base + 8] when (n_args > 8) = arg_val_8;
+heap[arg_base + 9] when (n_args > 9) = arg_val_9;
+heap[arg_base + 10] when (n_args > 10) = arg_val_10;
+heap[arg_base + 11] when (n_args > 11) = arg_val_11;
+heap[arg_base + 12] when (n_args > 12) = arg_val_12;
+heap[arg_base + 13] when (n_args > 13) = arg_val_13;
+heap[arg_base + 14] when (n_args > 14) = arg_val_14;
+heap[arg_base + 15] when (n_args > 15) = arg_val_15;
+
+// Update free pointer
+// For thunks (non-constructors) with 0 args, allocate 2 words (header + 1)
+// instead of 1, because memoization writes the result to heap[thunk_addr + 1].
+// Constructors are in WHNF and never memoized, so they only need 1 + n_args.
+// Dynamic thunks need an extra word for the func_ref at obj_addr+1.
+var needs_memo_space[0:0];
+var is_dynamic[0:0];
+is_dynamic = ~is_static_func & ~func_is_cons;
+needs_memo_space = (~func_is_cons) & (~is_dynamic) & (n_args == 10'b0);
+fp = fp + 1 + n_args + {{19{1'b0}}, needs_memo_space} + {{19{1'b0}}, is_dynamic};
+
+// NOTE: Do NOT set eval_reg here. The apply result is on the local stack
+// (lstack[lsp]) and is referenced as a local variable. Setting eval_reg
+// would corrupt casefield access (source=6) in case branches where apply
+// and casefield reads coexist. In the reference, apply writes to a name
+// table entry and never touches the eval register.
+
+// Push new object reference onto local stack
+lstack[lsp] = {{12{1'b0}}, obj_addr};
+lsp = lsp + 1;
+
+// Advance PC past instruction and argument words
+pc = pc + 1 + {{22{1'b0}}, n_args};

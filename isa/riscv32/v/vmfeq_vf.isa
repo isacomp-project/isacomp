@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmfeq.vf - Vector FP Compare Equal (scalar)
+// Encoding: vmfeq.vf vd, vs2, rs1, vm
+// Operation: vd.mask[i] = (vs2[i] == f[rs1])
+
+isa_state pc[31:0];
+isa_state frf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var scalar[31:0];
+var v2[127:0];
+var mask[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b101;
+// funct6 = 011000 (vmfeq)
+assume instr[31:26] == 0b011000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+scalar = frf[rs1];
+v2 = vrf[vs2];
+
+mask[0:0] = fp_eq(v2[31:0], scalar) ? 1 : 0;
+mask[1:1] = fp_eq(v2[63:32], scalar) ? 1 : 0;
+mask[2:2] = fp_eq(v2[95:64], scalar) ? 1 : 0;
+mask[3:3] = fp_eq(v2[127:96], scalar) ? 1 : 0;
+mask[127:4] = 0;
+
+vrf[vd] = mask;

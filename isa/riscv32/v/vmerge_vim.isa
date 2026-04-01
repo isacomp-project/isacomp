@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmerge.vim - Vector Merge (vector-immediate, masked)
+// Encoding: vmerge.vim vd, vs2, imm, v0
+// Operation: vd[i] = v0.mask[i] ? sign_extend(imm) : vs2[i]
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var imm[4:0];
+var vs2[4:0];
+var vd[4:0];
+var v2[127:0];
+var v0[127:0];
+var res[127:0];
+var imm_ext[31:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b011;
+assume instr[31:26] == 0b010111;
+assume instr[25:25] == 0b0;
+
+pc = pc + 4;
+
+imm = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+
+v2 = vrf[vs2];
+v0 = vrf[0];
+imm_ext = {{27{imm[4]}}, imm};
+
+res[31:0] = v0[0] ? imm_ext : v2[31:0];
+res[63:32] = v0[1] ? imm_ext : v2[63:32];
+res[95:64] = v0[2] ? imm_ext : v2[95:64];
+res[127:96] = v0[3] ? imm_ext : v2[127:96];
+
+vrf[vd] = res;

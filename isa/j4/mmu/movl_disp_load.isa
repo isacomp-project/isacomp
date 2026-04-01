@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var disp_ext[31:0];
+var Rm[31:0];
+var data32[31:0];
+
+// Virtual address for data translation (used by MMU aspect)
+var mmu_va[31:0];
+
+// Address error checking variables
+var load_addr[31:0];
+var load_size[1:0];
+var no_error[0:0];
+
+// Register banking variables (unique to movl_disp_load instruction)
+var movl_disp_load_rn_lo[2:0];
+var movl_disp_load_rm_lo[2:0];
+var movl_disp_load_rb[0:0];
+var movl_disp_load_rn_bk[0:0];
+var movl_disp_load_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+
+// Include address error detection for loads (must be before exception.isa to set exc_taken)
+aspect addr_error_load.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x5;
+rn = instr[11:8];
+rm = instr[7:4];
+
+// Register banking setup
+movl_disp_load_rn_lo = rn[2:0];
+movl_disp_load_rm_lo = rm[2:0];
+movl_disp_load_rb = sr[29];  // RB bit (bit 29 in SR)
+movl_disp_load_rn_bk = (rn[3] == 1'b0) & movl_disp_load_rb;
+movl_disp_load_rm_bk = (rm[3] == 1'b0) & movl_disp_load_rb;
+
+Rm = movl_disp_load_rm_bk ? rf_bank[movl_disp_load_rm_lo] : rf[rm];
+
+// MOV.L @(disp,Rm),Rn: addr = Rm + disp*4
+disp_ext = {28'b0, instr[3:0]};
+mmu_va = Rm + {disp_ext[29:0], 2'b0};
+
+// Set up address error checking
+load_addr = mmu_va;
+load_size = 2'b11;  // Long access (32-bit)
+
+// Compute the no-error condition (bits 1:0 must be 00)
+no_error = (mmu_va[1:0] == 2'b00);
+
+
+// Load from physical address (with or without translation)
+#ifdef MMU
+// Data MMU translation
+var is_write[0:0];
+is_write = 1'b0;
+#ifdef MMU
+#include "mmu_translate_data_inline.isa"
+#endif
+
+data32 = umem[addr_pa];
+#else
+#ifdef MMU
+data32 = umem[addr_pa];
+#else
+data32 = umem[mmu_va];
+#endif
+#endif
+
+// Only update register if no address error, combined with banking
+rf[rn] when (~int_should_take & ~itlb_exc_actually_taken & (no_error & ((movl_disp_load_rn_bk == 0) & data_tlb_no_exception))) = data32;
+rf_bank[movl_disp_load_rn_lo] when (~int_should_take & ~itlb_exc_actually_taken & (no_error & movl_disp_load_rn_bk & data_tlb_no_exception)) = data32;
+
+pc = pc + 2;

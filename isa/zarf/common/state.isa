@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Shared State Declarations
+// A lazy functional machine with continuation-based execution
+//
+// This file defines all persistent state for the Zarf machine.
+// Include this in instruction files that need access to machine state.
+
+// ============================================================================
+// Program Counter
+// ============================================================================
+isa_state pc[31:0];
+
+// ============================================================================
+// Evaluation State
+// ============================================================================
+// The return register holds the result of evaluation
+isa_state eval_reg[31:0];        // Evaluated value (32 bits)
+isa_state eval_tag[0:0];         // 1 = primitive integer, 0 = heap reference
+
+// Current thunk being evaluated
+isa_state ct[31:0];              // Current thunk address on heap
+
+// Evaluation object - the value currently being forced
+isa_state eo[31:0];              // Evaluation object value
+isa_state eo_tag[0:0];           // Evaluation object tag
+
+// ============================================================================
+// Environment Pointers
+// ============================================================================
+// These point into the heap to access closure data
+isa_state env_clo[31:0];         // Pointer to free variables of current closure
+isa_state env_args[31:0];        // Pointer to arguments of current application
+
+// ============================================================================
+// Stack and Heap Pointers
+// ============================================================================
+isa_state fp[19:0];              // Heap free pointer (next available address)
+isa_state csp[19:0];             // Continuation stack pointer
+isa_state lsp[19:0];             // Local stack pointer
+
+// ============================================================================
+// Memory Blocks
+// ============================================================================
+// Instruction memory (immortal heap) - read-only after loading
+mem imem[14:0];                  // 32K words of instruction memory
+
+// Heap / Name table - dynamic memory for closures, thunks, constructors
+mem heap[19:0];                  // 1M words of heap memory
+
+// Continuation stack - stores continuation frames for control flow
+mem cstack[19:0];                // 1M words of continuation stack
+
+// Local stack - stores local variables during function execution
+mem lstack[19:0];                // 1M words of local stack
+
+// ============================================================================
+// External I/O
+// ============================================================================
+// Input from external world (for getint builtin)
+ext isa_state io_in[31:0];
+
+// Output to external world (for putint builtin)
+ext push isa_state io_out[31:0];
+
+// I/O ready signals
+ext isa_state io_in_ready[0:0];  // Input is available
+isa_state io_out_valid[0:0];     // Output has been written
+
+// ============================================================================
+// Error/Halt State
+// ============================================================================
+isa_state halted[0:0];           // Machine has halted
+isa_state error_code[7:0];       // Error code if halted due to error

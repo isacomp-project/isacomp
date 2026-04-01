@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 CMP.L (bd32,PC),Dn - Compare long, PC-relative full extension (IS=1, BD=long)
+// Opcode: 1011 DDD 010 111 011 + full extension word + 32-bit displacement
+// Full extension word: bit8=1, BS=0, IS=1, BD=long(11), I/IS=0000
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dn_reg[2:0];
+var clpf_ext[15:0];
+var clpf_disp_hi[15:0];
+var clpf_disp_lo[15:0];
+var clpf_disp32[31:0];
+var clpf_base_pc[31:0];
+var clpf_addr[31:0];
+var clpf_data_hi[15:0];
+var clpf_data_lo[15:0];
+var clpf_src[31:0];
+var clpf_dst[31:0];
+var clpf_result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b1011;  // CMP
+assume instr[8:6] == 0b010;     // Opmode: CMP.L
+assume instr[5:3] == 0b111;     // EA mode: special
+assume instr[2:0] == 0b011;     // PC with extension
+pc when (~m68k_exc_taken) = pc + 32'd2;
+
+dn_reg = instr[11:9];
+
+// Save PC for base address (points to extension word)
+clpf_base_pc = pc;
+
+// Fetch full extension word
+clpf_ext = dmem[pc + pc_pa_delta];
+assume clpf_ext[8] == 0b1;      // Full format
+assume clpf_ext[7] == 0b0;      // BS=0 (base not suppressed)
+assume clpf_ext[6] == 0b1;      // IS=1 (index suppressed)
+assume clpf_ext[5:4] == 0b11;   // BD=long (32-bit)
+assume clpf_ext[3:0] == 0b0000; // No memory indirect
+pc when (~m68k_exc_taken) = pc + 32'd2;
+
+// Fetch 32-bit displacement
+clpf_disp_hi = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 32'd2;
+clpf_disp_lo = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 32'd2;
+clpf_disp32 = {clpf_disp_hi, clpf_disp_lo};
+
+// Calculate address: PC (at extension word) + displacement
+clpf_addr = clpf_base_pc + clpf_disp32;
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = clpf_addr;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+clpf_data_hi = dmem[ea_pa];
+#else
+clpf_data_hi = dmem[clpf_addr];
+#endif
+#ifdef MMU
+clpf_data_lo = dmem[ea_pa + 32'd2];
+#else
+clpf_data_lo = dmem[clpf_addr + 32'd2];
+#endif
+clpf_src = {clpf_data_hi, clpf_data_lo};
+clpf_dst = dregs[dn_reg];
+clpf_result = clpf_dst - clpf_src;
+
+// Update CCR (X not affected)
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = clpf_result[31];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = clpf_result == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = (~clpf_src[31] & clpf_dst[31] & ~clpf_result[31]) | (clpf_src[31] & ~clpf_dst[31] & clpf_result[31]);
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = clpf_src > clpf_dst;

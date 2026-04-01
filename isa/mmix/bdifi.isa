@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX BDIFI - Byte Difference Immediate
+// BDIFI $X,$Y,Z: each byte of $X = max(0, byte($Y) - Z)
+// Opcode: 0xD1
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var b0[7:0];
+var b1[7:0];
+var b2[7:0];
+var b3[7:0];
+var b4[7:0];
+var b5[7:0];
+var b6[7:0];
+var b7[7:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xD1;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+
+// Saturating byte subtraction for each byte (subtract same Z from each)
+b0 = (y_val[7:0] > z) ? (y_val[7:0] - z) : 8'h0;
+b1 = (y_val[15:8] > z) ? (y_val[15:8] - z) : 8'h0;
+b2 = (y_val[23:16] > z) ? (y_val[23:16] - z) : 8'h0;
+b3 = (y_val[31:24] > z) ? (y_val[31:24] - z) : 8'h0;
+b4 = (y_val[39:32] > z) ? (y_val[39:32] - z) : 8'h0;
+b5 = (y_val[47:40] > z) ? (y_val[47:40] - z) : 8'h0;
+b6 = (y_val[55:48] > z) ? (y_val[55:48] - z) : 8'h0;
+b7 = (y_val[63:56] > z) ? (y_val[63:56] - z) : 8'h0;
+
+result = {b7, b6, b5, b4, b3, b2, b1, b0};
+
+rf[x] = result;
+pc = pc + 4;

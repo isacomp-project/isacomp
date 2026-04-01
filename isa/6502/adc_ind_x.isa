@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 ADC IND,X (0x61)
+// A = A + mainmem[(zp+X)] + C (with BCD support when D flag set)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state X[7:0];
+isa_state Y[7:0];
+isa_state flag_C[0:0];
+isa_state flag_V[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+#ifdef CPU_6502_BCD
+isa_state flag_D[0:0];
+#endif
+isa_state mainmem[7:0][15:0];
+
+var result[15:0];
+var carry_in[0:0];
+var zp_base[7:0];
+var ind_x_zp_addr[7:0];
+var target_lo[7:0];
+var target_hi[7:0];
+var ind_x_target_addr[15:0];
+var data[7:0];
+
+#ifdef CPU_6502_BCD
+// BCD variables
+var bin_result[8:0];
+var low_nibble_sum[4:0];
+var low_adjust[7:0];
+var after_low_adj[15:0];
+var high_adjust[7:0];
+var bcd_result[15:0];
+var bcd_carry[0:0];
+#endif
+
+instr = mainmem[pc];
+assume instr == 0x61;
+pc = pc + 1;
+
+zp_base = mainmem[pc];
+pc = pc + 1;
+
+ind_x_zp_addr = zp_base + X;
+target_lo = mainmem[ind_x_zp_addr];
+target_hi = mainmem[ind_x_zp_addr + 1];
+ind_x_target_addr = {target_hi, target_lo};
+data = mainmem[ind_x_target_addr];
+
+carry_in = flag_C;
+
+#ifdef CPU_6502_BCD
+// Binary addition
+bin_result = A + data + carry_in;
+
+// BCD: Step 1 - adjust low nibble if sum > 9
+low_nibble_sum = A[3:0] + data[3:0] + carry_in;
+low_adjust = low_nibble_sum > 9 ? 6 : 0;
+after_low_adj = bin_result + low_adjust;
+
+// BCD: Step 2 - adjust high nibble if result > 0x99
+high_adjust = after_low_adj > 0x99 ? 0x60 : 0;
+bcd_result = after_low_adj + high_adjust;
+bcd_carry = after_low_adj > 0x99 ? 1 : 0;
+
+// Select result based on decimal mode
+result = flag_D ? bcd_result : bin_result;
+
+// Flags - In decimal mode, fake6502 sets N from intermediate result (after low adj, before high adj)
+var bcd_n[0:0];
+var bin_n[0:0];
+bcd_n = after_low_adj[7];
+bin_n = bin_result[7];
+flag_N = (flag_D & bcd_n) | ((flag_D ^ 1'b1) & bin_n);
+// Z always comes from binary result (NMOS behavior)
+flag_Z = bin_result[7:0] == 0 ? 1'b1 : 1'b0;
+// Carry flag - use masking to avoid ternary code generation bug
+flag_C = (flag_D & bcd_carry) | ((flag_D ^ 1'b1) & bin_result[8]);
+// V flag: use fake6502 formula
+// V flag: In decimal mode, fake6502 sets V if BCD result >= 0x80 (bits 7-15 set)
+// In binary mode, use standard overflow formula
+var bcd_overflow[0:0];
+var bin_overflow[0:0];
+bcd_overflow = bcd_result[15:7] != 0 ? 1'b1 : 1'b0;
+bin_overflow = (bin_result[7] ^ A[7]) & (bin_result[7] ^ data[7]);
+flag_V = (flag_D & bcd_overflow) | ((flag_D ^ 1'b1) & bin_overflow);
+
+A = result[7:0];
+#else
+// 2A03/2A07 mode: No BCD support, binary arithmetic only
+result = A + data + carry_in;
+
+flag_N = result[7];
+flag_Z = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_C = result[8];
+flag_V = (result[7] ^ A[7]) & (result[7] ^ data[7]);
+
+A = result[7:0];
+#endif

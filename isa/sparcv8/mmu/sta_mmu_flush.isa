@@ -1,0 +1,331 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 SRMMU TLB Flush (STA to ASI 0x03)
+// Format 3: op=11, op3=010100, i=0, asi=0x03
+// STA rd, [rs1 + rs2] 0x03
+// Privileged instruction - flushes TLB entries based on address bits
+//
+// Flush type determined by addr[11:8]:
+// 0x0: Flush page (specific VPN + context)
+// 0x1: Flush segment (reserved, treated as page)
+// 0x2: Flush region (reserved, treated as page)
+// 0x3: Flush context (all entries with current context)
+// 0x4: Flush entire TLB (all entries)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];   // Integer register file (physical windowed)
+isa_state cwp[2:0];        // Current Window Pointer
+isa_state psr[31:0];       // Processor State Register
+isa_state tbr[31:0];       // Trap Base Register
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect (relative path to parent directory)
+aspect ../delay_slot.isa gates pc, delay_slot;
+
+// Include MMU registers and TLB
+#include "mmu_regs.isa"
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var asi[7:0];
+
+var r1[31:0];
+var r2[31:0];
+var addr[31:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b11;       // op = 11 (Load/Store)
+assume instr[24:19] == 0b010100;   // op3 = STA
+assume instr[13] == 0b0;           // i = 0 (register addressing with ASI)
+assume instr[12:5] == 8'h03;       // ASI = 0x03 (MMU Flush)
+
+rs1 = instr[18:14];
+rs2 = instr[4:0];
+rd = instr[29:25];
+asi = instr[12:5];
+
+// Compute physical register indices
+cwp_m1 = cwp + 3'b111;
+phys_rs1 = (rs1[4:3] == 2'b00) ? {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs1[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs1[2:0]};
+phys_rs2 = (rs2[4:3] == 2'b00) ? {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs2[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs2[2:0]};
+
+r1 = (rs1 == 0) ? 32'b0 : rf[phys_rs1];
+r2 = (rs2 == 0) ? 32'b0 : rf[phys_rs2];
+
+addr = r1 + r2;
+
+// Extract flush type from address bits
+var flush_type[3:0];
+flush_type = addr[11:8];
+
+// Extract VPN for page flush
+var flush_vpn[19:0];
+flush_vpn = addr[31:12];
+
+// Current context for context-based flush
+var current_ctx[7:0];
+current_ctx = mmu_ctx[7:0];
+
+// ============================================================================
+// Determine which entries to flush
+// ============================================================================
+
+// Page flush: match VPN and context
+var page_flush[0:0];
+page_flush = (flush_type == 4'h0) | (flush_type == 4'h1) | (flush_type == 4'h2);
+
+// Context flush: all entries with current context
+var ctx_flush[0:0];
+ctx_flush = (flush_type == 4'h3);
+
+// Entire flush: all entries
+var entire_flush[0:0];
+entire_flush = (flush_type == 4'h4);
+
+// ============================================================================
+// Generate flush signals for each TLB entry
+// ============================================================================
+var fl_0[0:0]; var fl_1[0:0]; var fl_2[0:0]; var fl_3[0:0];
+var fl_4[0:0]; var fl_5[0:0]; var fl_6[0:0]; var fl_7[0:0];
+var fl_8[0:0]; var fl_9[0:0]; var fl_10[0:0]; var fl_11[0:0];
+var fl_12[0:0]; var fl_13[0:0]; var fl_14[0:0]; var fl_15[0:0];
+var fl_16[0:0]; var fl_17[0:0]; var fl_18[0:0]; var fl_19[0:0];
+var fl_20[0:0]; var fl_21[0:0]; var fl_22[0:0]; var fl_23[0:0];
+var fl_24[0:0]; var fl_25[0:0]; var fl_26[0:0]; var fl_27[0:0];
+var fl_28[0:0]; var fl_29[0:0]; var fl_30[0:0]; var fl_31[0:0];
+var fl_32[0:0]; var fl_33[0:0]; var fl_34[0:0]; var fl_35[0:0];
+var fl_36[0:0]; var fl_37[0:0]; var fl_38[0:0]; var fl_39[0:0];
+var fl_40[0:0]; var fl_41[0:0]; var fl_42[0:0]; var fl_43[0:0];
+var fl_44[0:0]; var fl_45[0:0]; var fl_46[0:0]; var fl_47[0:0];
+var fl_48[0:0]; var fl_49[0:0]; var fl_50[0:0]; var fl_51[0:0];
+var fl_52[0:0]; var fl_53[0:0]; var fl_54[0:0]; var fl_55[0:0];
+var fl_56[0:0]; var fl_57[0:0]; var fl_58[0:0]; var fl_59[0:0];
+var fl_60[0:0]; var fl_61[0:0]; var fl_62[0:0]; var fl_63[0:0];
+
+// Flush condition for each entry
+fl_0 = entire_flush | (ctx_flush & (tlb_ctx[0] == current_ctx)) |
+       (page_flush & (tlb_vpn[0] == flush_vpn) & (tlb_ctx[0] == current_ctx));
+fl_1 = entire_flush | (ctx_flush & (tlb_ctx[1] == current_ctx)) |
+       (page_flush & (tlb_vpn[1] == flush_vpn) & (tlb_ctx[1] == current_ctx));
+fl_2 = entire_flush | (ctx_flush & (tlb_ctx[2] == current_ctx)) |
+       (page_flush & (tlb_vpn[2] == flush_vpn) & (tlb_ctx[2] == current_ctx));
+fl_3 = entire_flush | (ctx_flush & (tlb_ctx[3] == current_ctx)) |
+       (page_flush & (tlb_vpn[3] == flush_vpn) & (tlb_ctx[3] == current_ctx));
+fl_4 = entire_flush | (ctx_flush & (tlb_ctx[4] == current_ctx)) |
+       (page_flush & (tlb_vpn[4] == flush_vpn) & (tlb_ctx[4] == current_ctx));
+fl_5 = entire_flush | (ctx_flush & (tlb_ctx[5] == current_ctx)) |
+       (page_flush & (tlb_vpn[5] == flush_vpn) & (tlb_ctx[5] == current_ctx));
+fl_6 = entire_flush | (ctx_flush & (tlb_ctx[6] == current_ctx)) |
+       (page_flush & (tlb_vpn[6] == flush_vpn) & (tlb_ctx[6] == current_ctx));
+fl_7 = entire_flush | (ctx_flush & (tlb_ctx[7] == current_ctx)) |
+       (page_flush & (tlb_vpn[7] == flush_vpn) & (tlb_ctx[7] == current_ctx));
+fl_8 = entire_flush | (ctx_flush & (tlb_ctx[8] == current_ctx)) |
+       (page_flush & (tlb_vpn[8] == flush_vpn) & (tlb_ctx[8] == current_ctx));
+fl_9 = entire_flush | (ctx_flush & (tlb_ctx[9] == current_ctx)) |
+       (page_flush & (tlb_vpn[9] == flush_vpn) & (tlb_ctx[9] == current_ctx));
+fl_10 = entire_flush | (ctx_flush & (tlb_ctx[10] == current_ctx)) |
+        (page_flush & (tlb_vpn[10] == flush_vpn) & (tlb_ctx[10] == current_ctx));
+fl_11 = entire_flush | (ctx_flush & (tlb_ctx[11] == current_ctx)) |
+        (page_flush & (tlb_vpn[11] == flush_vpn) & (tlb_ctx[11] == current_ctx));
+fl_12 = entire_flush | (ctx_flush & (tlb_ctx[12] == current_ctx)) |
+        (page_flush & (tlb_vpn[12] == flush_vpn) & (tlb_ctx[12] == current_ctx));
+fl_13 = entire_flush | (ctx_flush & (tlb_ctx[13] == current_ctx)) |
+        (page_flush & (tlb_vpn[13] == flush_vpn) & (tlb_ctx[13] == current_ctx));
+fl_14 = entire_flush | (ctx_flush & (tlb_ctx[14] == current_ctx)) |
+        (page_flush & (tlb_vpn[14] == flush_vpn) & (tlb_ctx[14] == current_ctx));
+fl_15 = entire_flush | (ctx_flush & (tlb_ctx[15] == current_ctx)) |
+        (page_flush & (tlb_vpn[15] == flush_vpn) & (tlb_ctx[15] == current_ctx));
+fl_16 = entire_flush | (ctx_flush & (tlb_ctx[16] == current_ctx)) |
+        (page_flush & (tlb_vpn[16] == flush_vpn) & (tlb_ctx[16] == current_ctx));
+fl_17 = entire_flush | (ctx_flush & (tlb_ctx[17] == current_ctx)) |
+        (page_flush & (tlb_vpn[17] == flush_vpn) & (tlb_ctx[17] == current_ctx));
+fl_18 = entire_flush | (ctx_flush & (tlb_ctx[18] == current_ctx)) |
+        (page_flush & (tlb_vpn[18] == flush_vpn) & (tlb_ctx[18] == current_ctx));
+fl_19 = entire_flush | (ctx_flush & (tlb_ctx[19] == current_ctx)) |
+        (page_flush & (tlb_vpn[19] == flush_vpn) & (tlb_ctx[19] == current_ctx));
+fl_20 = entire_flush | (ctx_flush & (tlb_ctx[20] == current_ctx)) |
+        (page_flush & (tlb_vpn[20] == flush_vpn) & (tlb_ctx[20] == current_ctx));
+fl_21 = entire_flush | (ctx_flush & (tlb_ctx[21] == current_ctx)) |
+        (page_flush & (tlb_vpn[21] == flush_vpn) & (tlb_ctx[21] == current_ctx));
+fl_22 = entire_flush | (ctx_flush & (tlb_ctx[22] == current_ctx)) |
+        (page_flush & (tlb_vpn[22] == flush_vpn) & (tlb_ctx[22] == current_ctx));
+fl_23 = entire_flush | (ctx_flush & (tlb_ctx[23] == current_ctx)) |
+        (page_flush & (tlb_vpn[23] == flush_vpn) & (tlb_ctx[23] == current_ctx));
+fl_24 = entire_flush | (ctx_flush & (tlb_ctx[24] == current_ctx)) |
+        (page_flush & (tlb_vpn[24] == flush_vpn) & (tlb_ctx[24] == current_ctx));
+fl_25 = entire_flush | (ctx_flush & (tlb_ctx[25] == current_ctx)) |
+        (page_flush & (tlb_vpn[25] == flush_vpn) & (tlb_ctx[25] == current_ctx));
+fl_26 = entire_flush | (ctx_flush & (tlb_ctx[26] == current_ctx)) |
+        (page_flush & (tlb_vpn[26] == flush_vpn) & (tlb_ctx[26] == current_ctx));
+fl_27 = entire_flush | (ctx_flush & (tlb_ctx[27] == current_ctx)) |
+        (page_flush & (tlb_vpn[27] == flush_vpn) & (tlb_ctx[27] == current_ctx));
+fl_28 = entire_flush | (ctx_flush & (tlb_ctx[28] == current_ctx)) |
+        (page_flush & (tlb_vpn[28] == flush_vpn) & (tlb_ctx[28] == current_ctx));
+fl_29 = entire_flush | (ctx_flush & (tlb_ctx[29] == current_ctx)) |
+        (page_flush & (tlb_vpn[29] == flush_vpn) & (tlb_ctx[29] == current_ctx));
+fl_30 = entire_flush | (ctx_flush & (tlb_ctx[30] == current_ctx)) |
+        (page_flush & (tlb_vpn[30] == flush_vpn) & (tlb_ctx[30] == current_ctx));
+fl_31 = entire_flush | (ctx_flush & (tlb_ctx[31] == current_ctx)) |
+        (page_flush & (tlb_vpn[31] == flush_vpn) & (tlb_ctx[31] == current_ctx));
+fl_32 = entire_flush | (ctx_flush & (tlb_ctx[32] == current_ctx)) |
+        (page_flush & (tlb_vpn[32] == flush_vpn) & (tlb_ctx[32] == current_ctx));
+fl_33 = entire_flush | (ctx_flush & (tlb_ctx[33] == current_ctx)) |
+        (page_flush & (tlb_vpn[33] == flush_vpn) & (tlb_ctx[33] == current_ctx));
+fl_34 = entire_flush | (ctx_flush & (tlb_ctx[34] == current_ctx)) |
+        (page_flush & (tlb_vpn[34] == flush_vpn) & (tlb_ctx[34] == current_ctx));
+fl_35 = entire_flush | (ctx_flush & (tlb_ctx[35] == current_ctx)) |
+        (page_flush & (tlb_vpn[35] == flush_vpn) & (tlb_ctx[35] == current_ctx));
+fl_36 = entire_flush | (ctx_flush & (tlb_ctx[36] == current_ctx)) |
+        (page_flush & (tlb_vpn[36] == flush_vpn) & (tlb_ctx[36] == current_ctx));
+fl_37 = entire_flush | (ctx_flush & (tlb_ctx[37] == current_ctx)) |
+        (page_flush & (tlb_vpn[37] == flush_vpn) & (tlb_ctx[37] == current_ctx));
+fl_38 = entire_flush | (ctx_flush & (tlb_ctx[38] == current_ctx)) |
+        (page_flush & (tlb_vpn[38] == flush_vpn) & (tlb_ctx[38] == current_ctx));
+fl_39 = entire_flush | (ctx_flush & (tlb_ctx[39] == current_ctx)) |
+        (page_flush & (tlb_vpn[39] == flush_vpn) & (tlb_ctx[39] == current_ctx));
+fl_40 = entire_flush | (ctx_flush & (tlb_ctx[40] == current_ctx)) |
+        (page_flush & (tlb_vpn[40] == flush_vpn) & (tlb_ctx[40] == current_ctx));
+fl_41 = entire_flush | (ctx_flush & (tlb_ctx[41] == current_ctx)) |
+        (page_flush & (tlb_vpn[41] == flush_vpn) & (tlb_ctx[41] == current_ctx));
+fl_42 = entire_flush | (ctx_flush & (tlb_ctx[42] == current_ctx)) |
+        (page_flush & (tlb_vpn[42] == flush_vpn) & (tlb_ctx[42] == current_ctx));
+fl_43 = entire_flush | (ctx_flush & (tlb_ctx[43] == current_ctx)) |
+        (page_flush & (tlb_vpn[43] == flush_vpn) & (tlb_ctx[43] == current_ctx));
+fl_44 = entire_flush | (ctx_flush & (tlb_ctx[44] == current_ctx)) |
+        (page_flush & (tlb_vpn[44] == flush_vpn) & (tlb_ctx[44] == current_ctx));
+fl_45 = entire_flush | (ctx_flush & (tlb_ctx[45] == current_ctx)) |
+        (page_flush & (tlb_vpn[45] == flush_vpn) & (tlb_ctx[45] == current_ctx));
+fl_46 = entire_flush | (ctx_flush & (tlb_ctx[46] == current_ctx)) |
+        (page_flush & (tlb_vpn[46] == flush_vpn) & (tlb_ctx[46] == current_ctx));
+fl_47 = entire_flush | (ctx_flush & (tlb_ctx[47] == current_ctx)) |
+        (page_flush & (tlb_vpn[47] == flush_vpn) & (tlb_ctx[47] == current_ctx));
+fl_48 = entire_flush | (ctx_flush & (tlb_ctx[48] == current_ctx)) |
+        (page_flush & (tlb_vpn[48] == flush_vpn) & (tlb_ctx[48] == current_ctx));
+fl_49 = entire_flush | (ctx_flush & (tlb_ctx[49] == current_ctx)) |
+        (page_flush & (tlb_vpn[49] == flush_vpn) & (tlb_ctx[49] == current_ctx));
+fl_50 = entire_flush | (ctx_flush & (tlb_ctx[50] == current_ctx)) |
+        (page_flush & (tlb_vpn[50] == flush_vpn) & (tlb_ctx[50] == current_ctx));
+fl_51 = entire_flush | (ctx_flush & (tlb_ctx[51] == current_ctx)) |
+        (page_flush & (tlb_vpn[51] == flush_vpn) & (tlb_ctx[51] == current_ctx));
+fl_52 = entire_flush | (ctx_flush & (tlb_ctx[52] == current_ctx)) |
+        (page_flush & (tlb_vpn[52] == flush_vpn) & (tlb_ctx[52] == current_ctx));
+fl_53 = entire_flush | (ctx_flush & (tlb_ctx[53] == current_ctx)) |
+        (page_flush & (tlb_vpn[53] == flush_vpn) & (tlb_ctx[53] == current_ctx));
+fl_54 = entire_flush | (ctx_flush & (tlb_ctx[54] == current_ctx)) |
+        (page_flush & (tlb_vpn[54] == flush_vpn) & (tlb_ctx[54] == current_ctx));
+fl_55 = entire_flush | (ctx_flush & (tlb_ctx[55] == current_ctx)) |
+        (page_flush & (tlb_vpn[55] == flush_vpn) & (tlb_ctx[55] == current_ctx));
+fl_56 = entire_flush | (ctx_flush & (tlb_ctx[56] == current_ctx)) |
+        (page_flush & (tlb_vpn[56] == flush_vpn) & (tlb_ctx[56] == current_ctx));
+fl_57 = entire_flush | (ctx_flush & (tlb_ctx[57] == current_ctx)) |
+        (page_flush & (tlb_vpn[57] == flush_vpn) & (tlb_ctx[57] == current_ctx));
+fl_58 = entire_flush | (ctx_flush & (tlb_ctx[58] == current_ctx)) |
+        (page_flush & (tlb_vpn[58] == flush_vpn) & (tlb_ctx[58] == current_ctx));
+fl_59 = entire_flush | (ctx_flush & (tlb_ctx[59] == current_ctx)) |
+        (page_flush & (tlb_vpn[59] == flush_vpn) & (tlb_ctx[59] == current_ctx));
+fl_60 = entire_flush | (ctx_flush & (tlb_ctx[60] == current_ctx)) |
+        (page_flush & (tlb_vpn[60] == flush_vpn) & (tlb_ctx[60] == current_ctx));
+fl_61 = entire_flush | (ctx_flush & (tlb_ctx[61] == current_ctx)) |
+        (page_flush & (tlb_vpn[61] == flush_vpn) & (tlb_ctx[61] == current_ctx));
+fl_62 = entire_flush | (ctx_flush & (tlb_ctx[62] == current_ctx)) |
+        (page_flush & (tlb_vpn[62] == flush_vpn) & (tlb_ctx[62] == current_ctx));
+fl_63 = entire_flush | (ctx_flush & (tlb_ctx[63] == current_ctx)) |
+        (page_flush & (tlb_vpn[63] == flush_vpn) & (tlb_ctx[63] == current_ctx));
+
+// ============================================================================
+// Clear valid bit for flushed entries
+// Also add dummy writes to other TLB arrays to force generator to create
+// proper write enables (otherwise single-writer arrays execute unconditionally)
+// ============================================================================
+
+// Dummy writes with false condition - never execute, but create multi-writer situation
+var never_write[0:0];
+never_write = 1'b0;  // Always false - these writes never happen
+tlb_vpn[0] when (never_write) = 20'b0;
+tlb_ctx[0] when (never_write) = 8'b0;
+tlb_ppn[0] when (never_write) = 24'b0;
+tlb_c[0] when (never_write) = 1'b0;
+tlb_acc[0] when (never_write) = 3'b0;
+tlb_sz[0] when (never_write) = 2'b0;
+
+tlb_v[0] when (fl_0) = 1'b0;
+tlb_v[1] when (fl_1) = 1'b0;
+tlb_v[2] when (fl_2) = 1'b0;
+tlb_v[3] when (fl_3) = 1'b0;
+tlb_v[4] when (fl_4) = 1'b0;
+tlb_v[5] when (fl_5) = 1'b0;
+tlb_v[6] when (fl_6) = 1'b0;
+tlb_v[7] when (fl_7) = 1'b0;
+tlb_v[8] when (fl_8) = 1'b0;
+tlb_v[9] when (fl_9) = 1'b0;
+tlb_v[10] when (fl_10) = 1'b0;
+tlb_v[11] when (fl_11) = 1'b0;
+tlb_v[12] when (fl_12) = 1'b0;
+tlb_v[13] when (fl_13) = 1'b0;
+tlb_v[14] when (fl_14) = 1'b0;
+tlb_v[15] when (fl_15) = 1'b0;
+tlb_v[16] when (fl_16) = 1'b0;
+tlb_v[17] when (fl_17) = 1'b0;
+tlb_v[18] when (fl_18) = 1'b0;
+tlb_v[19] when (fl_19) = 1'b0;
+tlb_v[20] when (fl_20) = 1'b0;
+tlb_v[21] when (fl_21) = 1'b0;
+tlb_v[22] when (fl_22) = 1'b0;
+tlb_v[23] when (fl_23) = 1'b0;
+tlb_v[24] when (fl_24) = 1'b0;
+tlb_v[25] when (fl_25) = 1'b0;
+tlb_v[26] when (fl_26) = 1'b0;
+tlb_v[27] when (fl_27) = 1'b0;
+tlb_v[28] when (fl_28) = 1'b0;
+tlb_v[29] when (fl_29) = 1'b0;
+tlb_v[30] when (fl_30) = 1'b0;
+tlb_v[31] when (fl_31) = 1'b0;
+tlb_v[32] when (fl_32) = 1'b0;
+tlb_v[33] when (fl_33) = 1'b0;
+tlb_v[34] when (fl_34) = 1'b0;
+tlb_v[35] when (fl_35) = 1'b0;
+tlb_v[36] when (fl_36) = 1'b0;
+tlb_v[37] when (fl_37) = 1'b0;
+tlb_v[38] when (fl_38) = 1'b0;
+tlb_v[39] when (fl_39) = 1'b0;
+tlb_v[40] when (fl_40) = 1'b0;
+tlb_v[41] when (fl_41) = 1'b0;
+tlb_v[42] when (fl_42) = 1'b0;
+tlb_v[43] when (fl_43) = 1'b0;
+tlb_v[44] when (fl_44) = 1'b0;
+tlb_v[45] when (fl_45) = 1'b0;
+tlb_v[46] when (fl_46) = 1'b0;
+tlb_v[47] when (fl_47) = 1'b0;
+tlb_v[48] when (fl_48) = 1'b0;
+tlb_v[49] when (fl_49) = 1'b0;
+tlb_v[50] when (fl_50) = 1'b0;
+tlb_v[51] when (fl_51) = 1'b0;
+tlb_v[52] when (fl_52) = 1'b0;
+tlb_v[53] when (fl_53) = 1'b0;
+tlb_v[54] when (fl_54) = 1'b0;
+tlb_v[55] when (fl_55) = 1'b0;
+tlb_v[56] when (fl_56) = 1'b0;
+tlb_v[57] when (fl_57) = 1'b0;
+tlb_v[58] when (fl_58) = 1'b0;
+tlb_v[59] when (fl_59) = 1'b0;
+tlb_v[60] when (fl_60) = 1'b0;
+tlb_v[61] when (fl_61) = 1'b0;
+tlb_v[62] when (fl_62) = 1'b0;
+tlb_v[63] when (fl_63) = 1'b0;
+
+pc = pc + 4;

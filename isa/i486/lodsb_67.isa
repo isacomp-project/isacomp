@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LODSB with 67 prefix (0x67 0xAC) - 32-bit addressing mode
+// Load [ESI] to AL with 32-bit addressing
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state DS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+
+var src_addr[31:0];
+var byte_val[7:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xAC;
+
+src_addr = (DS << 4) + xregs[6];
+
+byte_val = dmem[src_addr];
+xregs[0] = {xregs[0][31:8], byte_val};
+
+case (flag_DF) {
+  1'b0: xregs[6] = xregs[6] + 32'h00000001;
+  1'b1: xregs[6] = xregs[6] - 32'h00000001;
+}
+
+eip = eip + 2;

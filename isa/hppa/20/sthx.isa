@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// STH,X - Store Halfword Indexed (PA-RISC 2.0, 64-bit)
+// Format: STH,X r,x(s,b)
+// Opcode: 0x03 (000011), sub-opcode for indexed stores
+// =============================================================================
+//
+// Stores the lower 16 bits of a register to memory using indexed addressing.
+// Address = base + index.
+//
+// Field encoding:
+//   instr[31:26] = 000011 (opcode 0x03)
+//   instr[25:21] = b (base register)
+//   instr[20:16] = x (index register)
+//   instr[15:14] = space (space register select)
+//   instr[4:0]   = r (source register)
+//
+// =============================================================================
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17:2, cr17_back:2, cr18:2, cr18_back:2, cr19:2, cr20:2, cr21:2, cr22:2, priv_level:2, shadow_r1:2, shadow_r8:2, shadow_r9:2, shadow_r16:2, shadow_r17:2, shadow_r24:2, shadow_r25:2, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+aspect mmu/data_trap_store.isa gates pc:1, psw:1, cr17:1, cr17_back:1, cr18:1, cr18_back:1, cr19:1, cr20:1, cr21:1, cr22:1, priv_level:1, shadow_r1:1, shadow_r8:1, shadow_r9:1, shadow_r16:1, shadow_r17:1, shadow_r24:1, shadow_r25:1, delay_slot:1, code_iasq:1;
+
+var instr[31:0];
+instr = umem[pc_pa];
+
+assume instr[31:26] == 0b000011;
+assume instr[12] == 1'b0;
+assume instr[9:6] == 0b1001;
+
+// =========================================================================
+// Decode instruction fields
+// =========================================================================
+var b[4:0];
+var x[4:0];
+var r[4:0];
+b = instr[25:21];
+x = instr[20:16];
+r = instr[4:0];
+
+// =========================================================================
+// Address computation (indexed: base + index)
+// =========================================================================
+var base[63:0];
+base = (b == 0) ? 64'h0 : rf[b];
+
+var index[63:0];
+index = (x == 0) ? 64'h0 : rf[x];
+
+// Shift completer: instr[13]=1 means scale index by access size (halfword=2)
+var shifted_index[63:0];
+shifted_index = instr[13] ? {index[62:0], 1'b0} : index;
+
+var addr[63:0];
+addr = base + shifted_index;
+
+// =========================================================================
+// Source data (lower 16 bits of register)
+// =========================================================================
+var data[15:0];
+data = (r == 0) ? 16'h0 : rf[r][15:0];
+
+// =========================================================================
+// Memory store (16-bit halfword)
+// =========================================================================
+umem[da_pa] when (~instr_trap_taken & ~data_trap_taken & ~in_nullified) = data;
+
+// =========================================================================
+// PC update
+// =========================================================================
+pc = pc + 4;

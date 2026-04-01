@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vse32.v - Vector Store 32-bit Elements
+// Encoding: vse32.v vs3, (rs1), vm
+// Operation: mem[rs1 + i*4] = vs3[i]
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+mem dmem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vs3[4:0];
+var vm[0:0];
+var addr[31:0];
+var data[127:0];
+
+instr = umem[pc];
+// Opcode: 0100111 (STORE-FP, vector store)
+assume instr[6:0] == 0b0100111;
+// width = 110 (32-bit)
+assume instr[14:12] == 0b110;
+// mop = 00 (unit-stride)
+assume instr[27:26] == 0b00;
+// nf = 000 (single field)
+assume instr[31:29] == 0b000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vs3 = instr[11:7];
+vm = instr[25:25];
+
+addr = rf[rs1];
+data = vrf[vs3];
+
+// Store 4 words
+dmem[addr] = data[31:0];
+dmem[addr + 4] = data[63:32];
+dmem[addr + 8] = data[95:64];
+dmem[addr + 12] = data[127:96];

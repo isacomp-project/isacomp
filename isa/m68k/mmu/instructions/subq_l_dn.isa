@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 SUBQ.L #data,Dn - Subtract quick (3-bit immediate 1-8) from data register long
+// Opcode: 0101 DDD1 10000 RRR where DDD=data (0=8, 1-7=1-7), RRR=reg
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var quick_data[2:0];
+var imm_val[31:0];
+var dst_val[31:0];
+var result[32:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0101;  // SUBQ opcode
+assume instr[8] == 1;           // SUBQ (not ADDQ)
+assume instr[7:6] == 0b10;      // Size: long
+assume instr[5:3] == 0b000;     // EA mode: Data Register Direct
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+quick_data = instr[11:9];
+dst_reg = instr[2:0];
+
+// Convert quick data (0 means 8, 1-7 means 1-7)
+imm_val = quick_data == 0 ? 32'h00000008 : {{29{1'b0}}, quick_data};
+
+// Execute
+dst_val = dregs[dst_reg];
+result = dst_val - imm_val;
+
+// Write result
+dregs[dst_reg] when (~m68k_exc_taken) = result[31:0];
+
+// Update CCR
+flag_X when (~m68k_exc_taken) = imm_val > dst_val;
+flag_C when (~m68k_exc_taken) = imm_val > dst_val;
+flag_V when (~m68k_exc_taken) = (~dst_val[31] & imm_val[31] & result[31]) | (dst_val[31] & ~imm_val[31] & ~result[31]);
+flag_Z when (~m68k_exc_taken) = result[31:0] == 0;
+flag_N when (~m68k_exc_taken) = result[31];

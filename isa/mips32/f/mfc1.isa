@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 MFC1 - Move from FP coprocessor 1 to GPR
+// Encoding: COP1 (010001), MF (00000), rt, fs, 00000000000
+// MFC1 rt, fs: rt = fs (move FP register to integer register)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[31:0][4:0];
+mem umem[12:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+var rt[4:0];
+var fs[4:0];
+var fp_val[31:0];
+
+instr = umem[pc];
+assume instr[31:26] == 0b010001;   // COP1 opcode
+assume instr[25:21] == 0b00000;    // sub = MF (move from)
+assume instr[10:0] == 0b00000000000;  // Must be zero
+
+pc = pc + 4;
+
+rt = instr[20:16];
+fs = instr[15:11];
+
+fp_val = frf[fs];
+
+rf[rt] when (rt != 0) = fp_val;

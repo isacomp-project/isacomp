@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vfwmacc.vf - Widening FP Multiply-Accumulate (vector-scalar)
+// Encoding: vfwmacc.vf vd, rs1, vs2, vm
+// Operation: vd[i] = vd[i] + (fp_widen(f[rs1]) * fp_widen(vs2[i]))
+
+isa_state pc[31:0];
+isa_state frf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+isa_state fcsr[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var scalar[31:0];
+var v2[127:0];
+var vdval[127:0];
+var res[127:0];
+var rm[2:0];
+var scalar_wide[63:0];
+var prod0[63:0];
+var prod1[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b101;
+assume instr[31:26] == 0b111100;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+rm = fcsr[7:5];
+
+scalar = frf[rs1];
+v2 = vrf[vs2];
+vdval = vrf[vd];
+scalar_wide = fp_cvt_d_s(scalar, rm);
+
+prod0 = fp_mul_d(scalar_wide, fp_cvt_d_s(v2[31:0], rm), rm);
+prod1 = fp_mul_d(scalar_wide, fp_cvt_d_s(v2[63:32], rm), rm);
+
+res[63:0] = fp_add_d(vdval[63:0], prod0, rm);
+res[127:64] = fp_add_d(vdval[127:64], prod1, rm);
+
+vrf[vd] = res;

@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 XCHG EAX, r32 (0x90-0x97) - Parameterized
+// Opcodes: 0x90 (XCHG EAX,EAX = NOP), 0x91 (ECX), 0x92 (EDX), 0x93 (EBX),
+//          0x94 (ESP), 0x95 (EBP), 0x96 (ESI), 0x97 (EDI)
+// Exchange EAX with specified register
+// Note: 0x90 (XCHG EAX,EAX) is effectively NOP
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var reg_idx[2:0];
+var eax_val[31:0];
+var reg_val[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is an XCHG EAX, r32 instruction (0x90-0x97)
+assume instr[7:3] == 0b10010;  // Upper 5 bits must be 10010
+
+eip = eip + 1;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read both register values
+eax_val = xregs[0];       // EAX is register 0
+reg_val = xregs[reg_idx];
+
+// Exchange: EAX gets reg_val, reg gets eax_val
+xregs[0] = reg_val;
+xregs[reg_idx] = eax_val;
+
+// XCHG does not affect flags

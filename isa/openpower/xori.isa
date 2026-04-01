@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER xori - XOR Immediate (D-Form)
+// xori RA,RS,UI
+// Primary opcode 26
+// RA <- (RS) ^ (0x0000_0000_0000 || UI)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var ui[15:0];
+var rs_val[63:0];
+var zero_ext_ui[63:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 26
+assume instr[31:26] == 26;
+
+// Extract fields
+rs = instr[25:21];
+ra = instr[20:16];
+ui = instr[15:0];
+
+rs_val = rf[rs];
+// Zero-extend UI to 64 bits
+zero_ext_ui = {48'h0, ui};
+
+result = rs_val ^ zero_ext_ui;
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+pc = pc + 4;

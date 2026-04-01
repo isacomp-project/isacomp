@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX TRIP - Trip (software interrupt)
+// TRIP X,Y,Z: programmed interrupt
+// Opcode: 0xFF
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rW[63:0];  // Where-interrupted (trip)
+isa_state rX[63:0];  // Execution register (trip)
+isa_state rY[63:0];  // Y operand (trip)
+isa_state rZ[63:0];  // Z operand (trip)
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xFF;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+// Save state for trip handler
+rW = pc + 4;
+rX = instr;
+rY = {56'h0, y};
+rZ = {56'h0, z};
+
+// Jump to trip handler at address 0
+pc = 64'h0;

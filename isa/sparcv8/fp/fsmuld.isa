@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 FsMULd instruction (Floating-point Single Multiply to Double)
+// Format 3: op=10, op3=110100, opf=001101001
+// FsMULd rs1, rs2, rd
+// rd <- rs1 * rs2 (single-precision operands, double-precision result)
+// rd must be even-numbered (double-precision register pair)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state frf[31:0][4:0];  // FP register file (32 single-precision)
+isa_state fsr[31:0];       // Floating-point State Register
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect delay_slot.isa gates pc, delay_slot;
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var f1[31:0];
+var f2[31:0];
+var result[63:0];
+var rm[1:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;         // op = 10 (Format 3)
+assume instr[24:19] == 0b110100;     // op3 = FPop1
+assume instr[13:5] == 0b001101001;   // opf = FsMULd
+assume instr[25] == 0b0;             // rd must be even
+
+rs1 = instr[18:14];
+rs2 = instr[4:0];
+rd = instr[29:25];
+
+// Get rounding mode from FSR (bits 31:30)
+rm = fsr[31:30];
+
+// Read single-precision FP operands
+f1 = frf[rs1];
+f2 = frf[rs2];
+
+// Perform FP multiplication with double-precision result
+result = fp_smul_d(f1, f2, {1'b0, rm});
+
+// Write double-precision result to FP register pair
+frf[rd] = result[63:32];
+frf[rd + 5'b00001] = result[31:0];
+pc = pc + 4;

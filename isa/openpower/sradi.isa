@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER sradi - Shift Right Algebraic Doubleword Immediate (XS-Form)
+// sradi RA,RS,SH
+// Primary opcode 31, XO=413 (bits 2:10)
+// n <- sh5 || sh (6-bit shift amount split across fields)
+// r <- ROTL64((RS), 64-n)
+// m <- MASK(n, 63)
+// s <- (RS)[0]
+// RA <- r & m | ~m & s*64
+// CA <- s & ((r & ~m) != 0)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state xer[63:0];
+
+var rs[4:0];
+var ra[4:0];
+var sh[5:0];
+var sh_lo[4:0];
+var sh_hi[0:0];
+var rs_val[63:0];
+var sign_bit[0:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 413 (bits 2:10)
+assume instr[10:2] == 413;
+// Rc bit = 0
+assume instr[0] == 0;
+
+// Extract register fields
+rs = instr[25:21];
+ra = instr[20:16];
+// Shift amount is split: sh[4:0] in bits 15:11, sh[5] in bit 1
+sh_lo = instr[15:11];
+sh_hi = instr[1];
+sh = {sh_hi, sh_lo};
+
+rs_val = rf[rs];
+sign_bit = rs_val[63];
+
+// Arithmetic shift right by immediate amount
+result = rs_val >>> sh;
+
+// CA is set if negative and any 1-bits were shifted out
+xer[34] = sign_bit & ((rs_val << (64 - sh)) != 0);
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+pc = pc + 4;

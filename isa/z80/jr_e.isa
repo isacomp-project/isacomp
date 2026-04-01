@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 JR e (0x18) - Relative jump
+// PC = PC + 2 + e (e is signed 8-bit offset)
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+mem mainmem[15:0];
+
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var offset[7:0];
+var sign_ext_offset[15:0];
+var target[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x18;
+
+// Use intermediate variables for address calculation (don't modify PC directly)
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+
+offset = mainmem[pc_plus_1];
+
+// Sign extend offset from 8 to 16 bits
+sign_ext_offset = {{8{offset[7]}}, offset};
+target = pc_plus_2 + sign_ext_offset;
+
+// Single write to PC with final value
+pc = target;

@@ -1,0 +1,101 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REPNE CMPSD (0xF2 0xA7) - WITH PROPER SEGMENTATION
+// Repeat while ECX != 0 AND ZF == 0: Compare DS:[ESI] with ES:[EDI]
+// Exit when ECX == 0 OR ZF == 1 (equal)
+// IP stays constant until loop exits
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state ES[15:0];            // Extra segment register
+isa_state xregs[31:0][2:0];
+isa_state ESI[31:0] of xregs[6];
+isa_state EDI[31:0] of xregs[7];
+isa_state ECX[31:0] of xregs[1];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_PF[0:0];
+
+var src_addr[31:0];
+var dst_addr[31:0];
+var src_value[31:0];
+var dst_value[31:0];
+var result[32:0];
+var new_zf[0:0];
+var ecx_is_zero[0:0];
+var ecx_not_zero_and_not_equal[0:0];
+var ecx_not_zero_and_equal[0:0];
+var new_esi_inc[31:0];
+var new_esi_dec[31:0];
+var new_edi_inc[31:0];
+var new_edi_dec[31:0];
+var new_ip[31:0];
+
+// Fetch REPNE prefix
+prefix = imem[eip];
+assume prefix == 0xF2;
+
+// Fetch CMPSD instruction (at IP+1)
+instr = imem[eip + 1];
+assume instr == 0xA7;
+
+// Check counter
+ecx_is_zero = ECX == 32'h00000000;
+
+// Calculate physical addresses (protected mode flat addressing)
+src_addr = ESI;
+dst_addr = EDI;
+
+// Load dwords
+src_value = {dmem[src_addr + 3], dmem[src_addr + 2], dmem[src_addr + 1], dmem[src_addr]};
+dst_value = {dmem[dst_addr + 3], dmem[dst_addr + 2], dmem[dst_addr + 1], dmem[dst_addr]};
+
+// Compare source with destination (subtraction)
+result = src_value - dst_value;
+
+// Calculate new flags based on result
+new_zf = result[31:0] == 32'h00000000 ? 1'b1 : 1'b0;
+
+// Three mutually exclusive conditions (REPNE continues while NOT equal)
+ecx_not_zero_and_not_equal = (ECX != 32'h00000000) & (new_zf == 1'b0);
+ecx_not_zero_and_equal = (ECX != 32'h00000000) & (new_zf == 1'b1);
+
+// Calculate new ESI/EDI (increment or decrement by 4)
+new_esi_inc = ESI + 32'h00000004;
+new_esi_dec = ESI - 32'h00000004;
+new_edi_inc = EDI + 32'h00000004;
+new_edi_dec = EDI - 32'h00000004;
+
+// Calculate new IP (advance past instruction)
+new_ip = eip + 32'h0002;
+
+// When ECX == 0: Just advance IP (don't execute)
+eip when(ecx_is_zero) = new_ip;
+
+// When ECX != 0 AND not equal: Execute and continue (keep IP)
+flag_CF when(ecx_not_zero_and_not_equal) = src_value < dst_value ? 1'b1 : 1'b0;
+flag_ZF when(ecx_not_zero_and_not_equal) = new_zf;
+flag_SF when(ecx_not_zero_and_not_equal) = result[31];
+flag_PF when(ecx_not_zero_and_not_equal) = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_OF when(ecx_not_zero_and_not_equal) = ((src_value[31] != dst_value[31]) & (result[31] != src_value[31])) ? 1'b1 : 1'b0;
+ESI when(ecx_not_zero_and_not_equal) = flag_DF == 1'b0 ? new_esi_inc : new_esi_dec;
+EDI when(ecx_not_zero_and_not_equal) = flag_DF == 1'b0 ? new_edi_inc : new_edi_dec;
+ECX when(ecx_not_zero_and_not_equal) = ECX - 32'h00000001;
+eip when(ecx_not_zero_and_not_equal) = eip;  // Stay at same IP (loop continues)
+
+// When ECX != 0 AND equal: Execute and exit (advance IP)
+flag_CF when(ecx_not_zero_and_equal) = src_value < dst_value ? 1'b1 : 1'b0;
+flag_ZF when(ecx_not_zero_and_equal) = new_zf;
+flag_SF when(ecx_not_zero_and_equal) = result[31];
+flag_PF when(ecx_not_zero_and_equal) = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_OF when(ecx_not_zero_and_equal) = ((src_value[31] != dst_value[31]) & (result[31] != src_value[31])) ? 1'b1 : 1'b0;
+ESI when(ecx_not_zero_and_equal) = flag_DF == 1'b0 ? new_esi_inc : new_esi_dec;
+EDI when(ecx_not_zero_and_equal) = flag_DF == 1'b0 ? new_edi_inc : new_edi_dec;
+ECX when(ecx_not_zero_and_equal) = ECX - 32'h00000001;
+eip when(ecx_not_zero_and_equal) = new_ip;

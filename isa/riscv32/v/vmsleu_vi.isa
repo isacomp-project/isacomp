@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmsleu.vi - Set Mask if Less Than or Equal Unsigned (immediate)
+// Encoding: vmsleu.vi vd, vs2, imm, vm
+// Operation: vd.mask[i] = (vs2[i] <= zero_extend(imm))
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var imm[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v2[127:0];
+var res[127:0];
+var imm_ext[31:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b011;
+assume instr[31:26] == 0b011100;
+
+pc = pc + 4;
+
+imm = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v2 = vrf[vs2];
+imm_ext = {27'b0, imm};
+
+res = 128'b0;
+res[0] = (v2[31:0] <= imm_ext);
+res[1] = (v2[63:32] <= imm_ext);
+res[2] = (v2[95:64] <= imm_ext);
+res[3] = (v2[127:96] <= imm_ext);
+
+vrf[vd] = res;

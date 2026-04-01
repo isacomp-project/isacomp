@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 RCL AL, 1 (0xD0 with modrm 0xD0)
+// Rotate through carry left by 1
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state AX[15:0];
+isa_state AL[7:0] of AX[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var old_cf[0:0];
+var result[8:0];
+
+instr = imem[ip];
+assume instr == 0xD0;
+ip = ip + 1;
+
+modrm = imem[ip];
+assume modrm == 0xD0;
+ip = ip + 1;
+
+// Save old CF
+old_cf = flag_CF;
+
+// Rotate left through carry: [CF][AL7...AL0] becomes [AL7][AL6...AL0][CF]
+result = {AL[6:0], old_cf};
+
+// New CF is the old bit 7
+flag_CF = AL[7];
+
+AL = result[7:0];
+
+// OF is XOR of CF and new high bit (for 1-bit rotate)
+flag_OF = flag_CF ^ AL[7];

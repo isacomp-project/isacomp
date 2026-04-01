@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 REP STOSB (0xF3 0xAA) - WITH PROPER SEGMENTATION
+// Repeat while CX != 0: Store AL to ES:[DI]
+// IP stays constant until CX reaches 0
+// Uses ES segment for destination
+
+isa_state ip[15:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state ES[15:0];            // Extra segment register
+isa_state AX[15:0];
+isa_state AL[7:0];
+isa_state DI[15:0];
+isa_state CX[15:0];
+isa_state flag_DF[0:0];
+
+var physical_addr[19:0];
+var cx_is_zero[0:0];
+var cx_not_zero[0:0];
+var new_di_inc[15:0];
+var new_di_dec[15:0];
+var new_ip[15:0];
+
+// Fetch REP prefix
+prefix = imem[ip];
+assume prefix == 0xF3;
+
+// Fetch STOSB instruction (at IP+1)
+instr = imem[ip + 1];
+assume instr == 0xAA;
+
+// Check counter
+cx_is_zero = CX == 16'h0000;
+cx_not_zero = CX != 16'h0000;
+
+// Calculate physical address using ES segment
+physical_addr = (ES << 4) + DI;  // ES:DI
+
+// Calculate new DI (increment or decrement)
+new_di_inc = DI + 16'h0001;
+new_di_dec = DI - 16'h0001;
+
+// Calculate new IP (advance past instruction)
+new_ip = ip + 16'h0002;
+
+// When CX != 0: Execute one iteration
+dmem[physical_addr] when(cx_not_zero) = AL;
+DI when(cx_not_zero) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero) = CX - 16'h0001;
+ip when(cx_not_zero) = ip;  // Stay at same IP (loop continues)
+
+// When CX == 0: Advance IP and exit
+ip when(cx_is_zero) = new_ip;

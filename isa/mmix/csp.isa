@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX CSP - Conditional Set if Positive
+// CSP $X,$Y,$Z: if $Y > 0 then $X = $Z
+// Opcode: 0x64
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var x_val[63:0];
+var cond[0:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x64;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+x_val = rf[x];
+
+// Positive: not negative and not zero
+cond = (!y_val[63]) && (y_val != 64'h0);
+
+rf[x] = cond ? z_val : x_val;
+pc = pc + 4;

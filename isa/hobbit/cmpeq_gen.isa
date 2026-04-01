@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: CMPEQ src1, src2 (general addressing, three-parcel)
+// Three-parcel encoding: opcode 0x1F, 6 bytes
+// PSW.F = (src1 == src2) ? 1 : 0
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state psw[31:0];
+mem umem[31:0];
+
+var parcel0[15:0];
+var parcel1[15:0];
+var parcel2[15:0];
+var opcode6[5:0];
+var smode[3:0];
+var dmode[3:0];
+var src_field[15:0];
+var dst_field[15:0];
+
+var src1_val[31:0];
+var src2_val[31:0];
+var src1_addr[31:0];
+var src2_addr[31:0];
+
+parcel0 = umem[pc];
+parcel1 = umem[pc + 2];
+parcel2 = umem[pc + 4];
+
+assume parcel0[15:14] == 0b10;
+opcode6 = parcel0[13:8];
+assume opcode6 == 0x1F;
+
+smode = parcel0[7:4];
+dmode = parcel0[3:0];
+src_field = parcel1;
+dst_field = parcel2;
+
+// src1 is in the source operand field
+assume smode == 0xD;
+src1_addr = sp + {{16{src_field[15]}}, src_field};
+src1_val = umem[src1_addr];
+
+// src2 is in the destination operand field
+assume dmode == 0xD;
+src2_addr = sp + {{16{dst_field[15]}}, dst_field};
+src2_val = umem[src2_addr];
+
+// Set PSW flag bit (bit 4)
+psw[4] = (src1_val == src2_val);
+
+pc = pc + 6;

@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 RET imm16 (0xC2)
+// Near return with stack cleanup - pops return address and adds imm16 to ESP
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Stack pointer alias
+isa_state ESP[31:0] of xregs[4];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var imm_b0[7:0];
+var imm_b1[7:0];
+var imm16[15:0];
+var ret_b0[7:0];
+var ret_b1[7:0];
+var ret_b2[7:0];
+var ret_b3[7:0];
+var return_addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xC2;
+eip = eip + 1;
+
+// Read 16-bit immediate (number of bytes to remove from stack)
+imm_b0 = imem[eip];
+eip = eip + 1;
+imm_b1 = imem[eip];
+eip = eip + 1;
+imm16 = {imm_b1, imm_b0};
+
+// Pop return address from stack (little-endian)
+ret_b0 = dmem[ESP];
+ret_b1 = dmem[ESP + 1];
+ret_b2 = dmem[ESP + 2];
+ret_b3 = dmem[ESP + 3];
+return_addr = {ret_b3, ret_b2, ret_b1, ret_b0};
+
+// Increment ESP by 4 (pop return address)
+ESP = ESP + 4;
+
+// Add imm16 to ESP (clean up stack arguments)
+ESP = ESP + {16'h0000, imm16};
+
+// Jump to return address
+eip = return_addr;
+
+// RET does not affect flags

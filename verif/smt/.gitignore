@@ -1,0 +1,11 @@
+# Temporary SMT files
+/tmp/*.smt2
+*.smt2
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Test outputs
+*.rgraph

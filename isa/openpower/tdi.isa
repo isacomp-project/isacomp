@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER tdi - Trap Doubleword Immediate (D-Form)
+// tdi TO,RA,SI
+// Primary opcode 2
+// Compare (RA) as signed 64-bit int with sign-extended SI
+// Trap to program exception if specified condition is true
+// TO field bits: [4]=LT, [3]=GT, [2]=EQ, [1]=LTU, [0]=GTU
+// Note: Power ISA uses MSB-first bit numbering (bit 0 is leftmost)
+// Verilog uses LSB-first (bit 31 is leftmost for 32-bit word)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state srr0[63:0];
+isa_state srr1[63:0];
+isa_state msr[63:0];
+
+var to[4:0];
+var ra[4:0];
+var si[15:0];
+var ra_val[63:0];
+var si_ext[63:0];
+var trap[0:0];
+var lt_s[0:0];
+var gt_s[0:0];
+var eq[0:0];
+var lt_u[0:0];
+var gt_u[0:0];
+var ra_sign[0:0];
+var si_sign[0:0];
+var same_sign[0:0];
+var trap_srr1[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 2
+assume instr[31:26] == 2;
+
+// Extract fields
+to = instr[25:21];  // Power bits 6:10
+ra = instr[20:16];  // Power bits 11:15
+si = instr[15:0];   // Power bits 16:31
+
+// Get full 64-bit RA and sign-extend SI to 64 bits
+ra_val = rf[ra];
+si_ext = {{48{si[15]}}, si};
+
+// Extract sign bits for signed comparison
+ra_sign = ra_val[63];
+si_sign = si_ext[63];
+same_sign = (ra_sign == si_sign);
+
+// Compute comparison conditions
+lt_s = (ra_sign && ~si_sign) || (same_sign && (ra_val < si_ext));
+gt_s = (~ra_sign && si_sign) || (same_sign && (ra_val > si_ext));
+eq = (ra_val == si_ext);
+lt_u = ra_val < si_ext;
+gt_u = ra_val > si_ext;
+
+// Check if any trap condition is met
+trap = (to[4] & lt_s) | (to[3] & gt_s) | (to[2] & eq) | (to[1] & lt_u) | (to[0] & gt_u);
+
+// If trap condition met, save state and jump to program exception vector
+// SRR0 = address of trapping instruction
+// SRR1 = MSR with TRAP type indicator (bit 17 = SRR1_PROGTRAP = 0x20000)
+trap_srr1 = {msr[63:18], 1'b1, msr[16:0]};
+srr0 when(trap) = pc;
+srr1 when(trap) = trap_srr1;
+
+// Set MSR to interrupt state: SF=1, HV=1, ME=preserved, all else 0
+var exception_msr[63:0];
+exception_msr = {1'b1, 2'b0, 1'b1, 47'b0, msr[12], 12'b0};
+msr when(trap) = exception_msr;
+
+pc = trap ? 64'h700 : pc + 4;

@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA FCNVFX,DBL,W instruction
+// Convert double-precision float to fixed-point (32-bit word)
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf_sgl[31:0][4:0];
+isa_state frf_dbl[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var t[4:0];
+var float_val[63:0];
+var fixed_val[31:0];
+
+instr = umem[pc_pa];
+
+// FCNVFX encoding: opcode=0x0C
+assume instr[31:26] == 0b001100;
+assume instr[12:9] == 0b0110;   // FCNVFX sub-opcode
+assume instr[5:4] == 0b01;      // Source: DBL
+assume instr[3:2] == 0b00;      // Dest: W (word)
+
+r = instr[25:21];
+t = instr[4:0];
+
+float_val = frf_dbl[r];
+
+// Convert double-precision float to signed integer
+fixed_val = fp_cvt_w_d(float_val, 3'b000);
+
+frf_sgl[t] = fixed_val;
+
+pc = pc + 4;

@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vid.v - Vector of Element Indices
+// Encoding: vid.v vd, vm
+// Operation: vd[i] = i
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vd[4:0];
+var vm[0:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b010;
+assume instr[31:26] == 0b010100;
+assume instr[19:15] == 0b10001;
+assume instr[24:20] == 0b00000;
+
+pc = pc + 4;
+
+vd = instr[11:7];
+vm = instr[25:25];
+
+// Write element indices
+res[31:0] = 32'd0;
+res[63:32] = 32'd1;
+res[95:64] = 32'd2;
+res[127:96] = 32'd3;
+
+vrf[vd] = res;

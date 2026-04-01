@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC GBR,Rn - Store GBR to register via control register interface
+// Rn = GBR
+// Encoding: 0000nnnn00010010 (0x0n12)
+// Note: SH-4 can access GBR via both STS/LDS and STC/LDC patterns
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state gbr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var stc_gbr_rn_lo[2:0];
+var stc_gbr_rb[0:0];
+var stc_gbr_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot;
+#endif
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x0;
+assume instr[7:0] == 0x12;
+rn = instr[11:8];
+
+stc_gbr_rn_lo = rn[2:0];
+stc_gbr_rb = sr[29];  // RB bit (bit 29 in SR)
+stc_gbr_rn_bk = (rn[3] == 1'b0) & stc_gbr_rb;
+
+// Store GBR to destination register
+rf[rn] when (stc_gbr_rn_bk == 0) = gbr;
+rf_bank[stc_gbr_rn_lo] when (stc_gbr_rn_bk) = gbr;
+
+pc = pc + 2;

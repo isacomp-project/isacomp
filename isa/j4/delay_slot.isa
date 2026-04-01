@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// J4 (SuperH-4) Branch Delay Slot Aspect
+// This aspect handles branch delay slot semantics for all instructions.
+//
+// SH4 delay slot behavior:
+// 1. Branch/jump instruction sets delay_slot=1 and branch_target=target
+// 2. The next instruction (delay slot) executes at PC+2
+// 3. After the delay slot executes, PC becomes branch_target
+//
+// Note: BT/BF (without /S suffix) do NOT have delay slots.
+// BT/S, BF/S, BRA, BSR, BSRF, BRAF, JMP, JSR, RTS, RTE all have delay slots.
+//
+// This aspect captures the delay_slot flag at instruction start,
+// then overrides PC with branch_target if we were in a delay slot.
+
+// Capture delay slot state at instruction start
+// (before this instruction potentially sets it for the NEXT instruction)
+var in_delay_slot[0:0];
+in_delay_slot = delay_slot;
+
+// Clear delay slot flag if it was set
+// (This instruction is the delay slot, next one won't be)
+delay_slot when (in_delay_slot == 1) = 0;
+
+// Override PC with branch target if we were in a delay slot
+// This takes precedence over any PC update the instruction does
+pc when (in_delay_slot == 1) = branch_target;

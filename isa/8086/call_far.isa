@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 CALL far (0x9A) - WITH PROPER SEGMENTATION
+// Call far procedure (absolute segment:offset)
+// Pushes CS, then IP onto SS:[SP], then jumps to new CS:IP
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state SS[15:0];            // Stack segment register
+isa_state CS[15:0];            // Code segment register
+isa_state xregs[15:0][7:0];    // General purpose registers (xregs[4] is SP)
+
+var offset_lo[7:0];
+var offset_hi[7:0];
+var segment_lo[7:0];
+var segment_hi[7:0];
+var new_offset[15:0];
+var new_segment[15:0];
+var stack_offset_lo[15:0];
+var stack_offset_hi[15:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+
+instr = imem[ip];
+assume instr == 0x9A;
+ip = ip + 1;
+
+// Read 16-bit offset (little-endian)
+offset_lo = imem[ip];
+ip = ip + 1;
+offset_hi = imem[ip];
+ip = ip + 1;
+
+// Read 16-bit segment (little-endian)
+segment_lo = imem[ip];
+ip = ip + 1;
+segment_hi = imem[ip];
+ip = ip + 1;
+
+new_offset = {offset_hi, offset_lo};
+new_segment = {segment_hi, segment_lo};
+
+// Push CS onto stack
+// Decrement SP by 2
+xregs[4] = xregs[4] - 16'h0002;
+
+// Calculate stack offsets for CS
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = {SS, 4'b0} + {4'b0, stack_offset_lo};
+physical_addr_hi = {SS, 4'b0} + {4'b0, stack_offset_hi};
+
+// Push CS onto stack (little-endian)
+dmem[physical_addr_lo] = CS[7:0];
+dmem[physical_addr_hi] = CS[15:8];
+
+// Push IP (return address) onto stack
+// Decrement SP by 2
+xregs[4] = xregs[4] - 16'h0002;
+
+// Calculate stack offsets for IP
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: SS:offset
+physical_addr_lo = {SS, 4'b0} + {4'b0, stack_offset_lo};
+physical_addr_hi = {SS, 4'b0} + {4'b0, stack_offset_hi};
+
+// Push IP onto stack (little-endian)
+dmem[physical_addr_lo] = ip[7:0];
+dmem[physical_addr_hi] = ip[15:8];
+
+// Load new CS:IP
+CS = new_segment;
+ip = new_offset;

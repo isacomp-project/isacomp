@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var c_instr[15:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+var rs2[4:0];
+var rd[4:0];
+var r2[31:0];
+var res[31:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.MV format: CR-type
+// Encoding: 1000 rd rs2 10
+assume c_instr[1:0] == 0b10;
+assume c_instr[15:12] == 0b1000;
+assume c_instr[11:7] != 0;
+assume c_instr[6:2] != 0;
+
+pc = pc + 2;
+
+rd = c_instr[11:7];
+rs2 = c_instr[6:2];
+
+r2 = rf[rs2];
+
+res = r2;
+
+rf[rd] when (rd != 0) = res;

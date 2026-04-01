@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER wait - Wait for Interrupt (X-Form)
+// wait WC
+// Primary opcode 31, XO=30
+// WC field (bits 23:21) specifies wait class/conditions
+// Places processor in low-power wait state until:
+//   - External interrupt occurs
+//   - Decrementer exception occurs
+//   - Other async exception based on WC field
+// Used for power management and interrupt-driven operation
+// In simplified implementation: modeled as no-op
+// Real implementation would halt execution until interrupt
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+var wc_field[2:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 30 (bits 21:30 in Power = bits 10:1 in Verilog)
+assume instr[10:1] == 30;
+
+// Extract WC field (bits 23:21 in Power = bits 8:10 in Verilog)
+wc_field = instr[10:8];
+
+// Wait execution: enter wait state
+// For simplified single-core implementation without interrupt support,
+// this is modeled as a no-op and execution continues
+// A full implementation would halt until an interrupt occurs
+pc = pc + 4;

@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 XCHG AX, r16 - Parameterized with wildcard ** syntax
+// Opcodes: 0x90-0x97 (XCHG AX with AX/CX/DX/BX/SP/BP/SI/DI)
+// Replaces: xchg_ax_bx, xchg_ax_cx, etc.
+// Opcode encoding: 0x90 + register_index (bits [2:0] of opcode = register index)
+// Note: 0x90 (XCHG AX,AX) is NOP, but still valid
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// Word register file: AX, CX, DX, BX, SP, BP, SI, DI
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var reg_idx[2:0];
+var temp[15:0];
+var ax_val[15:0];
+var reg_val[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is an XCHG AX, r16 instruction (0x90-0x97)
+assume instr[7:3] == 0b10010;  // Upper 5 bits must be 10010
+
+eip = eip + 1;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read both 16-bit register values (AX and the other register)
+ax_val = xregs[0][15:0];      // AX is lower 16 bits of register 0
+reg_val = xregs[reg_idx][15:0];
+
+// Exchange: AX gets reg_val, reg gets ax_val (preserve upper 16 bits)
+xregs[0][15:0] = reg_val;
+xregs[reg_idx][15:0] = ax_val;

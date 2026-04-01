@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 CB 8A - RES 1,D (Reset bit 1)
+// Does not affect flags
+
+isa_state pc[15:0];
+var cb_instr[15:0];
+var pc_plus_1[15:0];
+isa_state D[7:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+cb_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume cb_instr == 0x8ACB;
+pc = pc_plus_1 + 1;
+
+// Reset bit 1
+D = D & 8'hFD;

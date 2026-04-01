@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD F4 - FD prefix passthrough CALL P,nn
+// FD prefix consumed, CALL P,nn executes unchanged
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state sp[15:0];
+isa_state flag_S;
+mem mainmem[15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var target[15:0];
+var return_addr[15:0];
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+var take_call[0:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'hF4FD;
+pc = pc + 2;
+
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+target = {addr_hi, addr_lo};
+return_addr = pc;
+take_call = (flag_S == 0);
+
+sp_minus_1 = sp - 1;
+sp_minus_2 = sp_minus_1 - 1;
+
+mainmem[sp_minus_1] when (take_call) = return_addr[15:8];
+mainmem[sp_minus_2] when (take_call) = return_addr[7:0];
+
+sp = take_call ? sp_minus_2 : sp;
+pc = take_call ? target : pc;

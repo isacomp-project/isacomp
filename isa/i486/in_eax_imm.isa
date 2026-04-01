@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 IN EAX, imm8 (0xE5)
+// Input dword from immediate I/O port to EAX
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state EAX[31:0] of xregs[0];
+
+isa_state imem[7:0][31:0];
+isa_state io_ports[7:0][15:0];
+
+var port[7:0];
+var val_b0[7:0];
+var val_b1[7:0];
+var val_b2[7:0];
+var val_b3[7:0];
+var val[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xE5;
+eip = eip + 1;
+
+// Fetch 8-bit port number
+port = imem[eip];
+eip = eip + 1;
+
+// Read 32-bit value from I/O port (little-endian)
+val_b0 = io_ports[port];
+val_b1 = io_ports[port + 1];
+val_b2 = io_ports[port + 2];
+val_b3 = io_ports[port + 3];
+
+val = {val_b3, val_b2, val_b1, val_b0};
+
+// Store in EAX
+EAX = val;
+
+// IN does not affect flags

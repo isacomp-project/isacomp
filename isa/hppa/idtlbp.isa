@@ -1,0 +1,121 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA IDTLBP instruction
+// IDTLBP r,(sr,b) - Insert Data TLB Protection (complete insertion)
+// Opcode: 0x01 (bits 31:26), ext=0b0000000 (bits 11:5), bit[12]=1 (data TLB)
+//
+// Completes a two-step TLB insert started by IDTLBA. Uses the staged
+// VPN+space+PPN from IDTLBA and adds the protection word from GR[r].
+// The entry is written to the DTLB at an existing matching slot or the
+// round-robin replacement slot.
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// DTLB CAM state - 16 entries
+isa_state cam dtlb_vpn[19:0]@[3:0][];
+isa_state dtlb_space[31:0][3:0];
+isa_state dtlb_valid[0:0][3:0];
+isa_state dtlb_ppn[19:0][3:0];
+isa_state dtlb_prot[31:0][3:0];
+
+// Staging registers (written by IDTLBA)
+isa_state dtlb_ins_vpn[19:0];
+isa_state dtlb_ins_space[31:0];
+isa_state dtlb_ins_ppn[19:0];
+isa_state dtlb_ins_pending[0:0];
+
+// Round-robin replacement pointer
+isa_state dtlb_next[3:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var b[4:0];
+
+instr = umem[pc_pa];
+
+// IDTLBP encoding: opcode=0x01, bits[11:5]=0b0000000, bit[12]=1 (data TLB, protection)
+assume instr[31:26] == 0b000001;
+assume instr[11:5] == 0b0000000;
+assume instr[12] == 1'b1;
+assume instr[13] == 1'b0;
+
+// PA-RISC encoding: b=instr[25:21] (base register), r=instr[20:16] (source=protection)
+b = instr[25:21];
+r = instr[20:16];
+
+// Protection word from GR[r]
+var prot_value[31:0];
+prot_value = (r == 0) ? 32'h0 : rf[r];
+
+// Check for existing entry matching staged VPN+space (to update in place)
+var exist_matches[15:0];
+exist_matches = dtlb_vpn@[dtlb_ins_vpn];
+
+// Filter existing matches by valid + space
+var ev_0[0:0];  ev_0  = dtlb_valid[0]  & (dtlb_space[0]  == dtlb_ins_space);
+var ev_1[0:0];  ev_1  = dtlb_valid[1]  & (dtlb_space[1]  == dtlb_ins_space);
+var ev_2[0:0];  ev_2  = dtlb_valid[2]  & (dtlb_space[2]  == dtlb_ins_space);
+var ev_3[0:0];  ev_3  = dtlb_valid[3]  & (dtlb_space[3]  == dtlb_ins_space);
+var ev_4[0:0];  ev_4  = dtlb_valid[4]  & (dtlb_space[4]  == dtlb_ins_space);
+var ev_5[0:0];  ev_5  = dtlb_valid[5]  & (dtlb_space[5]  == dtlb_ins_space);
+var ev_6[0:0];  ev_6  = dtlb_valid[6]  & (dtlb_space[6]  == dtlb_ins_space);
+var ev_7[0:0];  ev_7  = dtlb_valid[7]  & (dtlb_space[7]  == dtlb_ins_space);
+var ev_8[0:0];  ev_8  = dtlb_valid[8]  & (dtlb_space[8]  == dtlb_ins_space);
+var ev_9[0:0];  ev_9  = dtlb_valid[9]  & (dtlb_space[9]  == dtlb_ins_space);
+var ev_10[0:0]; ev_10 = dtlb_valid[10] & (dtlb_space[10] == dtlb_ins_space);
+var ev_11[0:0]; ev_11 = dtlb_valid[11] & (dtlb_space[11] == dtlb_ins_space);
+var ev_12[0:0]; ev_12 = dtlb_valid[12] & (dtlb_space[12] == dtlb_ins_space);
+var ev_13[0:0]; ev_13 = dtlb_valid[13] & (dtlb_space[13] == dtlb_ins_space);
+var ev_14[0:0]; ev_14 = dtlb_valid[14] & (dtlb_space[14] == dtlb_ins_space);
+var ev_15[0:0]; ev_15 = dtlb_valid[15] & (dtlb_space[15] == dtlb_ins_space);
+
+var exist_valid_space[15:0];
+exist_valid_space = {ev_15, ev_14, ev_13, ev_12, ev_11, ev_10, ev_9, ev_8,
+                     ev_7, ev_6, ev_5, ev_4, ev_3, ev_2, ev_1, ev_0};
+
+var exist_final[15:0];
+exist_final = exist_matches & exist_valid_space;
+
+var match_found[0:0];
+match_found = |exist_final;
+
+var match_idx[4:0];
+match_idx = ctz(exist_final);
+var match_idx4[3:0];
+match_idx4 = match_idx[3:0];
+
+// Select slot: existing entry if found, else round-robin
+var slot[3:0];
+slot = match_found ? match_idx4 : dtlb_next;
+
+// Write entry (gated on pending + not trapped/nullified)
+var commit[0:0];
+commit = dtlb_ins_pending & ~instr_trap_taken & ~in_nullified;
+
+dtlb_vpn[slot] when (commit) = dtlb_ins_vpn;
+dtlb_space[slot] when (commit) = dtlb_ins_space;
+dtlb_valid[slot] when (commit) = 1'b1;
+dtlb_ppn[slot] when (commit) = dtlb_ins_ppn;
+dtlb_prot[slot] when (commit) = prot_value;
+
+// Advance round-robin pointer (only when using a new slot)
+var advance_dtlb[0:0];
+advance_dtlb = commit & ~match_found;
+dtlb_next when (advance_dtlb) = dtlb_next + 4'b0001;
+
+// Clear pending flag
+dtlb_ins_pending when (commit) = 1'b0;
+
+pc = pc + 4;

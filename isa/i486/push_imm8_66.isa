@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 PUSH imm8 with 66 prefix (0x66 0x6A)
+// Push sign-extended 8-bit immediate value onto stack
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Stack pointer alias
+isa_state ESP[31:0] of xregs[4];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var imm8[7:0];
+var imm_val[31:0];
+var new_esp[31:0];
+
+// Fetch 0x66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0x6A;
+
+// Read 8-bit immediate
+imm8 = imem[eip + 2];
+
+// Advance EIP past instruction (prefix + opcode + 1-byte immediate)
+eip = eip + 3;
+
+// Sign-extend to 32 bits
+imm_val = {{24{imm8[7]}}, imm8};
+
+// Decrement ESP by 4 (32-bit push)
+new_esp = ESP - 4;
+ESP = new_esp;
+
+// Store sign-extended value on stack (little-endian)
+dmem[new_esp] = imm_val[7:0];
+dmem[new_esp + 1] = imm_val[15:8];
+dmem[new_esp + 2] = imm_val[23:16];
+dmem[new_esp + 3] = imm_val[31:24];
+
+// PUSH does not affect flags

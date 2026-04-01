@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var imm[7:0];
+var sign_ext_imm[31:0];
+var movi_rn_lo[2:0];
+
+var movi_rb[0:0];
+var movi_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0xE;
+rn = instr[11:8];
+imm = instr[7:0];
+movi_rn_lo = rn[2:0];
+
+movi_rb = sr[29];  // RB bit (bit 29 in SR)
+movi_rn_bk = (rn[3] == 1'b0) & movi_rb;
+
+sign_ext_imm = {{24{imm[7]}}, imm};
+
+rf[rn] when (movi_rn_bk == 0) = sign_ext_imm;
+rf_bank[movi_rn_lo] when (movi_rn_bk) = sign_ext_imm;
+pc = pc + 2;

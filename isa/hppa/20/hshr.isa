@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 HSHR instruction (MAX-2 SIMD)
+// HSHR r,sa,t - Halfword Shift Right (unsigned/logical)
+// For each of 4 halfwords: t.hw[i] = r.hw[i] >> sa
+// sa = 0..15 (4-bit immediate shift amount)
+// Opcode: 0x0E (bits 31:26), Sub: 0x08 (bits 12:8), ext=0x00 (bits 7:5)
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var t[4:0];
+var src[63:0];
+var res[63:0];
+
+instr = umem[pc_pa];
+
+// HSHR encoding: opcode=0x0E, sub=0x08 (bits 12:8), ext=0x00 (bits 7:5)
+assume instr[31:26] == 0b001110;
+assume instr[12:8] == 0b01000;
+assume instr[7:5] == 0b000;
+
+// Extract register fields
+r = instr[20:16];
+t = instr[4:0];
+
+// Shift amount: 4-bit immediate from instr[25:22]
+var sa[3:0]; sa = instr[25:22];
+
+// Read source register (r0 always reads as 0)
+src = (r == 0) ? 64'h0 : rf[r];
+
+// Extract halfwords from src
+var s_0[15:0]; s_0 = src[15:0];
+var s_1[15:0]; s_1 = src[31:16];
+var s_2[15:0]; s_2 = src[47:32];
+var s_3[15:0]; s_3 = src[63:48];
+
+// Shift right each halfword by sa (logical/unsigned shift)
+var r_0[15:0]; r_0 = s_0 >> sa;
+var r_1[15:0]; r_1 = s_1 >> sa;
+var r_2[15:0]; r_2 = s_2 >> sa;
+var r_3[15:0]; r_3 = s_3 >> sa;
+
+// Compose result
+res = {r_3, r_2, r_1, r_0};
+
+// Write result to target (r0 writes are discarded)
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC by 4
+pc = pc + 4;

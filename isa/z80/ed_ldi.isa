@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED A0 - LDI (Load and Increment)
+// (DE) = (HL), DE++, HL++, BC--
+// Affects H=0, P/V=(BC!=0), N=0
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+isa_state H[7:0];
+isa_state L[7:0];
+isa_state D[7:0];
+isa_state E[7:0];
+isa_state B[7:0];
+isa_state C[7:0];
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 0xA0ED;
+pc = pc_plus_1 + 1;
+
+var ldi_hl_addr[15:0];
+ldi_hl_addr = {H, L};
+var ldi_de_addr[15:0];
+ldi_de_addr = {D, E};
+var ldi_bc_val[15:0];
+ldi_bc_val = {B, C};
+
+var ldi_value[7:0];
+ldi_value = mainmem[ldi_hl_addr];
+mainmem[ldi_de_addr] = ldi_value;
+
+var ldi_hl_new[15:0];
+ldi_hl_new = ldi_hl_addr + 1;
+var ldi_de_new[15:0];
+ldi_de_new = ldi_de_addr + 1;
+var ldi_bc_new[15:0];
+ldi_bc_new = ldi_bc_val - 1;
+
+H = ldi_hl_new[15:8];
+L = ldi_hl_new[7:0];
+D = ldi_de_new[15:8];
+E = ldi_de_new[7:0];
+B = ldi_bc_new[15:8];
+C = ldi_bc_new[7:0];
+
+flag_H = 1'b0;
+flag_PV = (ldi_bc_new != 16'h0000) ? 1'b1 : 1'b0;
+flag_N = 1'b0;

@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: TESTC (test PSW carry)
+// One-parcel encoding: opcode 0x0B, subcode 0x9, 2 bytes
+// PSW.F = PSW.C; PSW.C = 0
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var carry[0:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+assume instr[14:10] == 0x0B;
+assume instr[9:6] == 0b1001;
+
+// Copy carry to flag, then clear carry
+carry = psw[5];
+psw[4] = carry;
+psw[5] = 0;
+
+pc = pc + 2;

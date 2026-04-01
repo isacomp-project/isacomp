@@ -1,0 +1,215 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TDMI STM (Store Multiple) - Increment After with S=1 (User bank access)
+// Encoding: cond|100|0|1|1|W|0|Rn|register_list
+// STMIA{cond} Rn{!}, {register_list}^
+//
+// When S=1: Stores from User mode registers (regardless of current mode)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];           // R0-R14 User/System mode
+isa_state cpsr[31:0];
+
+// Banked registers for FIQ mode (R8-R14)
+isa_state rf_fiq[31:0][2:0];       // R8_fiq(0) - R14_fiq(6)
+
+// Banked SP/LR for other privileged modes
+isa_state rf_irq_sp[31:0];
+isa_state rf_irq_lr[31:0];
+isa_state rf_svc_sp[31:0];
+isa_state rf_svc_lr[31:0];
+isa_state rf_abt_sp[31:0];
+isa_state rf_abt_lr[31:0];
+isa_state rf_und_sp[31:0];
+isa_state rf_und_lr[31:0];
+
+// Saved Program Status Registers (declared for state consistency)
+isa_state spsr_fiq[31:0];
+isa_state spsr_irq[31:0];
+isa_state spsr_svc[31:0];
+isa_state spsr_abt[31:0];
+isa_state spsr_und[31:0];
+
+mem umem[21:0];
+
+var cond[3:0];
+var w_bit[0:0];
+var rn[3:0];
+var register_list[15:0];
+var Rn_val[31:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+
+// Mode detection
+var mode[4:0];
+var is_fiq[0:0];
+var is_irq[0:0];
+var is_svc[0:0];
+var is_abt[0:0];
+var is_und[0:0];
+var rn_fiq_idx[2:0];
+
+var pop0[4:0];
+var pop1[4:0];
+var pop2[4:0];
+var pop3[4:0];
+var pop4[4:0];
+var pop5[4:0];
+var pop6[4:0];
+var pop7[4:0];
+var pop8[4:0];
+var pop9[4:0];
+var pop10[4:0];
+var pop11[4:0];
+var pop12[4:0];
+var pop13[4:0];
+var pop14[4:0];
+var pop15[4:0];
+var total_count[4:0];
+
+var addr0[31:0];
+var addr1[31:0];
+var addr2[31:0];
+var addr3[31:0];
+var addr4[31:0];
+var addr5[31:0];
+var addr6[31:0];
+var addr7[31:0];
+var addr8[31:0];
+var addr9[31:0];
+var addr10[31:0];
+var addr11[31:0];
+var addr12[31:0];
+var addr13[31:0];
+var addr14[31:0];
+var addr15[31:0];
+
+var new_rn[31:0];
+
+instr = umem[pc];
+
+// STM IA with S=1: P=0, U=1, S=1, L=0
+assume instr[27:25] == 0b100;
+assume instr[24] == 0b0;       // P=0 (post-indexed / increment after)
+assume instr[23] == 0b1;       // U=1 (increment)
+assume instr[22] == 0b1;       // S=1 (user mode registers)
+assume instr[20] == 0b0;       // L=0 (store)
+
+cond = instr[31:28];
+w_bit = instr[21];
+rn = instr[19:16];
+register_list = instr[15:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |
+            ((cond == 0b0000) & z_flag) |
+            ((cond == 0b0001) & ~z_flag) |
+            ((cond == 0b0010) & c_flag) |
+            ((cond == 0b0011) & ~c_flag) |
+            ((cond == 0b0100) & n_flag) |
+            ((cond == 0b0101) & ~n_flag) |
+            ((cond == 0b0110) & v_flag) |
+            ((cond == 0b0111) & ~v_flag) |
+            ((cond == 0b1000) & c_flag & ~z_flag) |
+            ((cond == 0b1001) & (~c_flag | z_flag)) |
+            ((cond == 0b1010) & (n_flag == v_flag)) |
+            ((cond == 0b1011) & (n_flag != v_flag)) |
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) |
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag)));
+
+// Detect current processor mode
+mode = cpsr[4:0];
+is_fiq = (mode == 5'b10001);
+is_irq = (mode == 5'b10010);
+is_svc = (mode == 5'b10011);
+is_abt = (mode == 5'b10111);
+is_und = (mode == 5'b11011);
+rn_fiq_idx = rn[2:0];
+
+// Read Rn from current mode's register bank for address calculation
+Rn_val = (rn == 0b1111) ? (pc + 8) :
+         (rn == 4'b1101) ? (is_fiq ? rf_fiq[5] :
+                           is_irq ? rf_irq_sp :
+                           is_svc ? rf_svc_sp :
+                           is_abt ? rf_abt_sp :
+                           is_und ? rf_und_sp :
+                           rf[13]) :
+         (rn == 4'b1110) ? (is_fiq ? rf_fiq[6] :
+                           is_irq ? rf_irq_lr :
+                           is_svc ? rf_svc_lr :
+                           is_abt ? rf_abt_lr :
+                           is_und ? rf_und_lr :
+                           rf[14]) :
+         ((rn[3] == 1'b1) & (rn != 4'b1111) & is_fiq) ? rf_fiq[rn_fiq_idx] :
+         rf[rn];
+
+pop0 = 0;
+pop1 = {4'b0, register_list[0]};
+pop2 = pop1 + {4'b0, register_list[1]};
+pop3 = pop2 + {4'b0, register_list[2]};
+pop4 = pop3 + {4'b0, register_list[3]};
+pop5 = pop4 + {4'b0, register_list[4]};
+pop6 = pop5 + {4'b0, register_list[5]};
+pop7 = pop6 + {4'b0, register_list[6]};
+pop8 = pop7 + {4'b0, register_list[7]};
+pop9 = pop8 + {4'b0, register_list[8]};
+pop10 = pop9 + {4'b0, register_list[9]};
+pop11 = pop10 + {4'b0, register_list[10]};
+pop12 = pop11 + {4'b0, register_list[11]};
+pop13 = pop12 + {4'b0, register_list[12]};
+pop14 = pop13 + {4'b0, register_list[13]};
+pop15 = pop14 + {4'b0, register_list[14]};
+total_count = pop15 + {4'b0, register_list[15]};
+
+// IA mode: base = Rn, addr = base + 4*position
+addr0 = Rn_val + {25'b0, pop0, 2'b00};
+addr1 = Rn_val + {25'b0, pop1, 2'b00};
+addr2 = Rn_val + {25'b0, pop2, 2'b00};
+addr3 = Rn_val + {25'b0, pop3, 2'b00};
+addr4 = Rn_val + {25'b0, pop4, 2'b00};
+addr5 = Rn_val + {25'b0, pop5, 2'b00};
+addr6 = Rn_val + {25'b0, pop6, 2'b00};
+addr7 = Rn_val + {25'b0, pop7, 2'b00};
+addr8 = Rn_val + {25'b0, pop8, 2'b00};
+addr9 = Rn_val + {25'b0, pop9, 2'b00};
+addr10 = Rn_val + {25'b0, pop10, 2'b00};
+addr11 = Rn_val + {25'b0, pop11, 2'b00};
+addr12 = Rn_val + {25'b0, pop12, 2'b00};
+addr13 = Rn_val + {25'b0, pop13, 2'b00};
+addr14 = Rn_val + {25'b0, pop14, 2'b00};
+addr15 = Rn_val + {25'b0, pop15, 2'b00};
+
+// Store USER mode registers to memory (S=1 forces user bank)
+umem[addr0] when (cond_pass & register_list[0]) = rf[0];
+umem[addr1] when (cond_pass & register_list[1]) = rf[1];
+umem[addr2] when (cond_pass & register_list[2]) = rf[2];
+umem[addr3] when (cond_pass & register_list[3]) = rf[3];
+umem[addr4] when (cond_pass & register_list[4]) = rf[4];
+umem[addr5] when (cond_pass & register_list[5]) = rf[5];
+umem[addr6] when (cond_pass & register_list[6]) = rf[6];
+umem[addr7] when (cond_pass & register_list[7]) = rf[7];
+umem[addr8] when (cond_pass & register_list[8]) = rf[8];
+umem[addr9] when (cond_pass & register_list[9]) = rf[9];
+umem[addr10] when (cond_pass & register_list[10]) = rf[10];
+umem[addr11] when (cond_pass & register_list[11]) = rf[11];
+umem[addr12] when (cond_pass & register_list[12]) = rf[12];
+umem[addr13] when (cond_pass & register_list[13]) = rf[13];
+umem[addr14] when (cond_pass & register_list[14]) = rf[14];
+umem[addr15] when (cond_pass & register_list[15]) = (pc + 12);
+
+// Writeback to current mode's Rn
+new_rn = Rn_val + {25'b0, total_count, 2'b00};
+
+// For STM with S=1, writeback goes to USER bank (rf[]) always
+rf[rn] when (cond_pass & w_bit & (rn != 0b1111)) = new_rn;
+
+
+pc = pc + 4;

@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.fl1 - Find Last 1 (highest set bit)
+// Format: l.fl1 rD, rA
+// rD <- position of highest set bit (1-indexed), or 0 if rA==0
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rD[4:0];
+var rA[4:0];
+var r1[31:0];
+var res[31:0];
+
+var b0[0:0]; var b1[0:0]; var b2[0:0]; var b3[0:0];
+var b4[0:0]; var b5[0:0]; var b6[0:0]; var b7[0:0];
+var b8[0:0]; var b9[0:0]; var b10[0:0]; var b11[0:0];
+var b12[0:0]; var b13[0:0]; var b14[0:0]; var b15[0:0];
+var b16[0:0]; var b17[0:0]; var b18[0:0]; var b19[0:0];
+var b20[0:0]; var b21[0:0]; var b22[0:0]; var b23[0:0];
+var b24[0:0]; var b25[0:0]; var b26[0:0]; var b27[0:0];
+var b28[0:0]; var b29[0:0]; var b30[0:0]; var b31[0:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x38;
+assume instr[9:8] == 0x1;
+assume instr[3:0] == 0xF;
+pc = pc + 4;
+rD = instr[25:21];
+rA = instr[20:16];
+
+r1 = rf[rA];
+
+b0 = r1[0]; b1 = r1[1]; b2 = r1[2]; b3 = r1[3];
+b4 = r1[4]; b5 = r1[5]; b6 = r1[6]; b7 = r1[7];
+b8 = r1[8]; b9 = r1[9]; b10 = r1[10]; b11 = r1[11];
+b12 = r1[12]; b13 = r1[13]; b14 = r1[14]; b15 = r1[15];
+b16 = r1[16]; b17 = r1[17]; b18 = r1[18]; b19 = r1[19];
+b20 = r1[20]; b21 = r1[21]; b22 = r1[22]; b23 = r1[23];
+b24 = r1[24]; b25 = r1[25]; b26 = r1[26]; b27 = r1[27];
+b28 = r1[28]; b29 = r1[29]; b30 = r1[30]; b31 = r1[31];
+
+// Priority encoder: find last (highest) set bit
+res = b31 ? 32 : (b30 ? 31 : (b29 ? 30 : (b28 ? 29 :
+      (b27 ? 28 : (b26 ? 27 : (b25 ? 26 : (b24 ? 25 :
+      (b23 ? 24 : (b22 ? 23 : (b21 ? 22 : (b20 ? 21 :
+      (b19 ? 20 : (b18 ? 19 : (b17 ? 18 : (b16 ? 17 :
+      (b15 ? 16 : (b14 ? 15 : (b13 ? 14 : (b12 ? 13 :
+      (b11 ? 12 : (b10 ? 11 : (b9 ? 10 : (b8 ? 9 :
+      (b7 ? 8 : (b6 ? 7 : (b5 ? 6 : (b4 ? 5 :
+      (b3 ? 4 : (b2 ? 3 : (b1 ? 2 : (b0 ? 1 : 0
+      )))))))))))))))))))))))))))))));
+
+rf[rD] = res;

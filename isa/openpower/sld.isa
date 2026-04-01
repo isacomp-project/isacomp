@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER sld - Shift Left Doubleword (X-Form)
+// sld RA,RS,RB
+// Primary opcode 31, XO=27
+// n <- (RB)[58:63]
+// r <- ROTL64((RS), n)
+// if (RB)[57] = 0 then m <- MASK(0, 63-n) else m <- 0
+// RA <- r & m
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var rb[4:0];
+var rs_val[63:0];
+var rb_val[63:0];
+var shift_amt[6:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 27
+assume instr[10:1] == 27;
+// Rc bit = 0
+assume instr[0] == 0;
+
+// Extract register fields
+rs = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+rs_val = rf[rs];
+rb_val = rf[rb];
+
+// Shift amount from low 7 bits of RB (if bit 6 is set, result is 0)
+shift_amt = rb_val[6:0];
+
+// Shift left (if shift >= 64, result is 0)
+result = shift_amt[6] ? 64'h0 : (rs_val << shift_amt[5:0]);
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+pc = pc + 4;

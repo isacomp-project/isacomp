@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RTE - Return from Exception
+// Pops PC and SR from stack and returns to interrupted code
+// This is a privileged instruction - causes illegal instruction exception in user mode
+//
+// Stack layout (SH-2 convention):
+//   [R15]     = saved PC
+//   [R15 + 4] = saved SR
+//
+// RTE is a delayed branch instruction - the instruction in the delay slot
+// executes before the return takes effect.
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// RTE local variables
+var rte_is_privileged[0:0];
+var rte_stack_ptr[31:0];
+var rte_saved_pc[31:0];
+var rte_saved_sr[31:0];
+var rte_new_sp[31:0];
+
+// Register banking variables (unique to rte instruction)
+var rte_r15_lo[2:0];
+var rte_rb[0:0];
+var rte_r15_bk[0:0];
+
+// Include exception aspect for privilege violation
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+instr = umem[pc];
+assume instr[15:0] == 0x002B;
+
+// Note: SH-2 does not have privilege mode checking for RTE
+// (MD bit and privilege mode are SH-2A extensions)
+// On J2/SH-2, this instruction always succeeds
+
+// No exception taken for RTE on SH-2/J2
+exc_taken = 1'b0;
+exc_vector = 8'h00;
+
+// Banking: R15 has bit[3]=1, so never banked, but add infrastructure
+rte_r15_lo = 3'b111;  // R15's low 3 bits
+rte_rb = sr[28];
+rte_r15_bk = 1'b0;  // R15 is never banked (bit[3]=1)
+
+// Read stack pointer and saved values
+rte_stack_ptr = rf[15];
+rte_saved_pc = umem[rte_stack_ptr];
+rte_saved_sr = umem[rte_stack_ptr + 4];
+rte_new_sp = rte_stack_ptr + 8;
+
+// RTE is a delayed branch - set up delay slot
+// The delay slot instruction executes, then PC becomes rte_saved_pc
+delay_slot = 1'b1;
+branch_target = rte_saved_pc;
+
+// Restore SR immediately (not delayed)
+sr = rte_saved_sr;
+
+// Also update T bit to match SR[0]
+t = rte_saved_sr[0];
+
+// Update stack pointer
+rf[15] = rte_new_sp;
+
+// Advance PC to delay slot instruction
+pc = pc + 2;

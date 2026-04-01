@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 FCMPs instruction (Floating-point Compare Single)
+// Format 3: op=10, op3=110101, opf=001010001
+// FCMPs rs1, rs2
+// Sets condition codes in FSR based on rs1 compared to rs2
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state frf[31:0][4:0];  // FP register file (32 single-precision)
+isa_state fsr[31:0];       // Floating-point State Register
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect delay_slot.isa gates pc, delay_slot;
+
+var rs1[4:0];
+var rs2[4:0];
+var f1[31:0];
+var f2[31:0];
+var fcc[1:0];
+var cmp_lt[0:0];
+var cmp_eq[0:0];
+var cmp_gt[0:0];
+var cmp_un[0:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;         // op = 10 (Format 3)
+assume instr[24:19] == 0b110101;     // op3 = FPop2 (compare)
+assume instr[13:5] == 0b001010001;   // opf = FCMPs
+
+rs1 = instr[18:14];
+rs2 = instr[4:0];
+
+// Read FP operands
+f1 = frf[rs1];
+f2 = frf[rs2];
+
+// Compare floats
+cmp_lt = fp_lt(f1, f2);
+cmp_eq = fp_eq(f1, f2);
+cmp_gt = ~cmp_lt & ~cmp_eq;
+cmp_un = fp_unordered(f1, f2);
+
+// Set FCC (floating-point condition code) in FSR
+// FCC: 00 = equal, 01 = less, 10 = greater, 11 = unordered
+fcc = cmp_un ? 2'b11 :
+      cmp_eq ? 2'b00 :
+      cmp_lt ? 2'b01 :
+      2'b10;
+
+// Write FCC to FSR bits 11:10
+fsr = {fsr[31:12], fcc, fsr[9:0]};
+pc = pc + 4;

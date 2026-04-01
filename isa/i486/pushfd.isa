@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 PUSHFD (0x9C)
+// Push EFLAGS register onto stack
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Stack pointer alias
+isa_state ESP[31:0] of xregs[4];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+// Individual flags
+isa_state flag_CF[0:0];  // Bit 0
+isa_state flag_PF[0:0];  // Bit 2
+isa_state flag_AF[0:0];  // Bit 4
+isa_state flag_ZF[0:0];  // Bit 6
+isa_state flag_SF[0:0];  // Bit 7
+isa_state flag_DF[0:0];  // Bit 10
+isa_state flag_OF[0:0];  // Bit 11
+
+var eflags[31:0];
+var new_esp[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x9C;
+eip = eip + 1;
+
+// Construct EFLAGS value from individual flags
+// Bit 1 is reserved and always 1
+eflags = {20'h00000,         // Bits 31-12
+          flag_OF,            // Bit 11
+          flag_DF,            // Bit 10
+          2'b00,              // Bits 9-8
+          flag_SF,            // Bit 7
+          flag_ZF,            // Bit 6
+          1'b0,               // Bit 5
+          flag_AF,            // Bit 4
+          1'b0,               // Bit 3
+          flag_PF,            // Bit 2
+          1'b1,               // Bit 1 (reserved, always 1)
+          flag_CF};           // Bit 0
+
+// Decrement ESP by 4 (32-bit push)
+new_esp = ESP - 4;
+ESP = new_esp;
+
+// Store EFLAGS on stack (little-endian)
+dmem[new_esp] = eflags[7:0];
+dmem[new_esp + 1] = eflags[15:8];
+dmem[new_esp + 2] = eflags[23:16];
+dmem[new_esp + 3] = eflags[31:24];
+
+// PUSHFD does not affect flags

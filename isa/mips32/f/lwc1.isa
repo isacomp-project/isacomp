@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 LWC1 - Load word to FP coprocessor 1
+// Encoding: LWC1 (110001), base, ft, offset
+// LWC1 ft, offset(base): ft = mem[base + offset]
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[31:0][4:0];
+mem umem[12:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+var base_reg[4:0];
+var ft[4:0];
+var offset[15:0];
+var base_val[31:0];
+var sign_ext_offset[31:0];
+var addr[31:0];
+var data[31:0];
+
+instr = umem[pc];
+assume instr[31:26] == 0b110001;   // LWC1 opcode
+
+pc = pc + 4;
+
+base_reg = instr[25:21];
+ft = instr[20:16];
+offset = instr[15:0];
+
+base_val = rf[base_reg];
+sign_ext_offset = {{16{offset[15]}}, offset};
+addr = base_val + sign_ext_offset;
+
+// Load from memory
+data = umem[addr];
+
+// Write to FP register
+frf[ft] = data;

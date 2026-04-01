@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 HALT (0x76) - Halt CPU
+// Suspends CPU operation until interrupt or reset
+// Does not affect flags
+// For simulation purposes, we just loop at same address
+
+isa_state pc[15:0];
+var instr[7:0];
+mem mainmem[15:0];
+isa_state halted[0:0];
+
+instr = mainmem[pc];
+assume instr == 0x76;
+// Don't increment PC - stay at halt instruction
+halted = 1'b1;

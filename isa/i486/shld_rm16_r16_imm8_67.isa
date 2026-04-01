@@ -1,0 +1,158 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SHLD r/m16, r16, imm8 with 67 prefix (0x67 0x0F 0xA4) - 32-bit addressing
+// Shift destination left, filling with bits from source. Count is immediate.
+
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp32_b0[7:0];
+var disp32_b1[7:0];
+var disp32_b2[7:0];
+var disp32_b3[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr[31:0];
+var physical_addr_1[31:0];
+var is_mem_dest[0:0];
+var dest_val[15:0];
+var dest_mem_lo[7:0];
+var dest_mem_hi[7:0];
+var src_val[15:0];
+var imm8[7:0];
+var count[4:0];
+var result[15:0];
+var cf_bit[0:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+instr2 = imem[eip + 2];
+assume instr2 == 0xA4;
+
+modrm = imem[eip + 3];
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+base_val = xregs[rm_bits];
+src_val = xregs[reg_idx][15:0];
+
+disp8 = imem[eip + 4];
+disp32_b0 = imem[eip + 4];
+disp32_b1 = imem[eip + 5];
+disp32_b2 = imem[eip + 6];
+disp32_b3 = imem[eip + 7];
+disp32 = {disp32_b3, disp32_b2, disp32_b1, disp32_b0};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  2'b00: offset = base_val;
+  2'b01: offset = base_val + signed_disp8;
+  2'b10: offset = base_val + disp32;
+  2'b11: offset = 32'h00000000;
+}
+
+case (mod_bits) {
+  2'b00: is_mem_dest = 1'b1;
+  2'b01: is_mem_dest = 1'b1;
+  2'b10: is_mem_dest = 1'b1;
+  2'b11: is_mem_dest = 1'b0;
+}
+
+case (mod_bits) {
+  2'b00: eip = eip + 4;
+  2'b01: eip = eip + 5;
+  2'b10: eip = eip + 8;
+  2'b11: eip = eip + 4;
+}
+
+physical_addr = ({16'h0000, DS} << 4) + offset;
+physical_addr_1 = physical_addr + 32'h00000001;
+
+dest_mem_lo = dmem[physical_addr];
+dest_mem_hi = dmem[physical_addr_1];
+
+case (is_mem_dest) {
+  1'b1: dest_val = {dest_mem_hi, dest_mem_lo};
+  1'b0: dest_val = xregs[rm_bits][15:0];
+}
+
+imm8 = imem[eip];
+eip = eip + 1;
+count = imm8[4:0];
+
+case (count) {
+  5'd0: result = dest_val;
+  5'd1: result = {dest_val[14:0], src_val[15:15]};
+  5'd2: result = {dest_val[13:0], src_val[15:14]};
+  5'd3: result = {dest_val[12:0], src_val[15:13]};
+  5'd4: result = {dest_val[11:0], src_val[15:12]};
+  5'd5: result = {dest_val[10:0], src_val[15:11]};
+  5'd6: result = {dest_val[9:0], src_val[15:10]};
+  5'd7: result = {dest_val[8:0], src_val[15:9]};
+  5'd8: result = {dest_val[7:0], src_val[15:8]};
+  5'd9: result = {dest_val[6:0], src_val[15:7]};
+  5'd10: result = {dest_val[5:0], src_val[15:6]};
+  5'd11: result = {dest_val[4:0], src_val[15:5]};
+  5'd12: result = {dest_val[3:0], src_val[15:4]};
+  5'd13: result = {dest_val[2:0], src_val[15:3]};
+  5'd14: result = {dest_val[1:0], src_val[15:2]};
+  5'd15: result = {dest_val[0:0], src_val[15:1]};
+  5'd16: result = src_val;
+}
+
+case (count) {
+  5'd0: cf_bit = 1'b0;
+  5'd1: cf_bit = dest_val[15];
+  5'd2: cf_bit = dest_val[14];
+  5'd3: cf_bit = dest_val[13];
+  5'd4: cf_bit = dest_val[12];
+  5'd5: cf_bit = dest_val[11];
+  5'd6: cf_bit = dest_val[10];
+  5'd7: cf_bit = dest_val[9];
+  5'd8: cf_bit = dest_val[8];
+  5'd9: cf_bit = dest_val[7];
+  5'd10: cf_bit = dest_val[6];
+  5'd11: cf_bit = dest_val[5];
+  5'd12: cf_bit = dest_val[4];
+  5'd13: cf_bit = dest_val[3];
+  5'd14: cf_bit = dest_val[2];
+  5'd15: cf_bit = dest_val[1];
+  5'd16: cf_bit = dest_val[0];
+}
+
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr] = result[7:0];
+  1'b0: xregs[rm_bits] = {xregs[rm_bits][31:16], result};
+}
+
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr_1] = result[15:8];
+  1'b0: xregs[rm_bits] = xregs[rm_bits];
+}
+
+flag_CF = cf_bit;
+flag_SF = result[15];
+flag_ZF = result == 16'h0000;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);

@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mfspr SRR1 - Move From Save/Restore Register 1
+// mfspr RT,27 (SPR 27 = SRR1)
+// Primary opcode 31, XO=339
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state srr1[63:0];
+
+var rt[4:0];
+var mfspr_srr1_result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 31;
+assume instr[10:1] == 339;
+// SPR field for SRR1 (SPR 27): spr_hi=0, spr_lo=27
+assume instr[15:11] == 0;
+assume instr[20:16] == 27;
+
+rt = instr[25:21];
+mfspr_srr1_result = srr1;
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = mfspr_srr1_result;
+#else
+rf[rt] = mfspr_srr1_result;
+#endif
+
+pc = pc + 4;

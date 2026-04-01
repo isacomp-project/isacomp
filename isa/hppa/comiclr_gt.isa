@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA COMICLR,> instruction (Compare Immediate and Clear if Greater Than, signed)
+// COMICLR,> im5,r,t - if (sign_ext(im5) > r, signed): t=0; else: skip next
+// Opcode: 0x24, condition bits[15:12]=0b0111 (signed > = complement of <=)
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+var instr[31:0];
+var r[4:0];
+var t[4:0];
+var imm11_raw[10:0];
+var sign_ext_imm5[31:0];
+var src_r[31:0];
+var cond_met[0:0];
+var sign_i[0:0];
+var sign_r[0:0];
+var le[0:0];
+var lt[0:0];
+
+instr = umem[pc_pa];
+
+assume instr[31:26] == 0b100100;
+assume instr[15:12] == 4'b0111;
+
+r = instr[25:21];
+t = instr[20:16];
+imm11_raw = instr[10:0];
+
+sign_ext_imm5 = {{22{imm11_raw[0]}}, imm11_raw[10:1]};
+src_r = (r == 0) ? 32'h0 : rf[r];
+
+// Signed > : NOT (imm5 <= r) = NOT (imm5 < r OR imm5 == r)
+sign_i = sign_ext_imm5[31];
+sign_r = src_r[31];
+lt = (sign_i & ~sign_r) | ((sign_i == sign_r) & (sign_ext_imm5 < src_r));
+le = lt | (sign_ext_imm5 == src_r);
+cond_met = ~le;
+
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = 32'h0;
+psw when (cond_met & ~instr_trap_taken & ~in_nullified) = psw | 32'h00200000;
+
+pc = pc + 4;

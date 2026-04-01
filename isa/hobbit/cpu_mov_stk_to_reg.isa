@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: CPU; MOV src, %reg (write stack value to control register)
+// CPU prefix (opcode 0x0B, subcode 0x0) followed by MOV (opcode 0x06)
+// Combined 8 bytes: 2-byte CPU prefix + 6-byte MOV with register dest mode
+// register[dst_field[3:0]] = src
+//
+// This file models writing to the PSW register (register 0x5).
+// Note: register writes in user mode cause privilege violation exception.
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state psw[31:0];
+mem umem[31:0];
+
+var prefix[15:0];
+var parcel0[15:0];
+var parcel1[15:0];
+var parcel2[15:0];
+var opcode6[5:0];
+var smode[3:0];
+var dmode[3:0];
+var src_field[15:0];
+var dst_field[15:0];
+var src_addr[31:0];
+var src_val[31:0];
+
+// Fetch CPU prefix
+prefix = umem[pc];
+assume prefix[15] == 0;
+assume prefix[14:10] == 0x0B;
+assume prefix[9:0] == 0x000;
+
+// Fetch the following MOV instruction (three-parcel)
+parcel0 = umem[pc + 2];
+parcel1 = umem[pc + 4];
+parcel2 = umem[pc + 6];
+
+assume parcel0[15:14] == 0b10;
+opcode6 = parcel0[13:8];
+assume opcode6 == 0x06;
+
+smode = parcel0[7:4];
+dmode = parcel0[3:0];
+
+// Source: word stack offset
+assume smode == 0xD;
+src_field = parcel1;
+src_addr = sp + {{16{src_field[15]}}, src_field};
+src_val = umem[src_addr];
+
+// Destination: register mode (0x7 after CPU prefix)
+assume dmode == 0x7;
+dst_field = parcel2;
+// Register 0x5 = PSW
+assume dst_field[3:0] == 0x5;
+
+// Write to PSW
+psw = src_val;
+
+// CPU prefix + three-parcel instruction = 2 + 6 = 8 bytes
+pc = pc + 8;

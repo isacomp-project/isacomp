@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX JMPB - Jump (backward)
+// JMP XYZ: PC = PC + 4 - 4*XYZ
+// Opcode: 0xF1
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var xyz[23:0];
+var offset[63:0];
+var target[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xF1;
+
+xyz = instr[23:0];
+offset = {38'b0, xyz, 2'b0};
+target = pc + 4 - offset;
+
+pc = target;

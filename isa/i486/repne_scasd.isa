@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REPNE SCASD (0xF2 0xAF)
+// Repeat while not equal: scan dwords, decrement ECX (simplified - execute once)
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state EAX[31:0] of xregs[0];
+isa_state EDI[31:0] of xregs[7];
+isa_state ECX[31:0] of xregs[1];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var mem_b0[7:0];
+var mem_b1[7:0];
+var mem_b2[7:0];
+var mem_b3[7:0];
+var mem_val[31:0];
+var result[32:0];
+var new_edi[31:0];
+
+// Fetch REPNE prefix
+prefix = imem[eip];
+assume prefix == 0xF2;
+eip = eip + 1;
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xAF;
+eip = eip + 1;
+
+// Simplified: assume ECX > 0, execute once
+assume xregs[1] != 32'h00000000;
+
+// Load dword from [EDI] (little-endian)
+mem_b0 = dmem[EDI];
+mem_b1 = dmem[EDI + 1];
+mem_b2 = dmem[EDI + 2];
+mem_b3 = dmem[EDI + 3];
+mem_val = {mem_b3, mem_b2, mem_b1, mem_b0};
+
+// Compare: EAX - mem_val
+result = EAX - mem_val;
+
+// Set flags
+flag_CF = result[32];
+flag_ZF = result[31:0] == 32'h00000000;
+flag_SF = result[31];
+flag_OF = (EAX[31] != mem_val[31]) & (EAX[31] != result[31]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_AF = EAX[3:0] < mem_val[3:0];
+
+// Adjust EDI based on direction flag
+new_edi = flag_DF == 1'b0 ? EDI + 4 : EDI - 4;
+EDI = new_edi;
+
+// Decrement ECX
+ECX = ECX - 1;

@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+mem umem[12:0];
+
+var subscript_reg[3:0];
+var low_reg[3:0];
+var high_reg[3:0];
+var size_reg[3:0];
+var base_reg[3:0];
+var dst_reg[3:0];
+var subscript[31:0];
+var size[31:0];
+var base[31:0];
+var result[31:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x0A;
+pc = pc + 4;
+
+subscript_reg = instr[23:20];
+size_reg = instr[19:16];
+base_reg = instr[15:12];
+dst_reg = instr[11:8];
+
+subscript = rf[subscript_reg];
+size = rf[size_reg];
+base = rf[base_reg];
+
+result = base + (subscript * size);
+
+rf[dst_reg] = result;

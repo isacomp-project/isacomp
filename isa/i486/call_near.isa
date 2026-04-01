@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CALL rel16 (0xE8) - Real mode (16-bit default)
+// Near call with 16-bit relative displacement
+// Pushes return address onto stack
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Stack segment
+isa_state SS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var off_b0[7:0];
+var off_b1[7:0];
+var offset[15:0];
+var signed_offset[31:0];
+var return_addr[15:0];
+var target_addr[15:0];
+var new_sp[15:0];
+var stack_addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xE8;
+
+// Read 16-bit displacement (little-endian)
+off_b0 = imem[eip + 1];
+off_b1 = imem[eip + 2];
+offset = {off_b1, off_b0};
+
+// Sign-extend offset to 32 bits for calculation
+signed_offset = {{16{offset[15]}}, offset};
+
+// Save return address (address after the CALL instruction) - 16-bit IP
+return_addr = eip[15:0] + 16'h0003;
+
+// Calculate target address (return address + offset) - 16-bit wraparound
+target_addr = return_addr + offset;
+
+// Push return address onto stack (16-bit in real mode)
+new_sp = xregs[4][15:0] - 16'h0002;
+xregs[4] = {xregs[4][31:16], new_sp};
+
+stack_addr = (SS << 4) + new_sp;
+dmem[stack_addr] = return_addr[7:0];
+dmem[stack_addr + 1] = return_addr[15:8];
+
+// Jump to target (update only lower 16 bits of EIP)
+eip = {eip[31:16], target_addr};
+
+// CALL does not affect flags

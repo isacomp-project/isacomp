@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 TEST r/m32, imm32 (0xF7 /0)
+// AND with immediate, set flags only (no write)
+// Sets SF, ZF, PF; clears CF, OF
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var imm_val[31:0];
+var imm_byte0[7:0];
+var imm_byte1[7:0];
+var imm_byte2[7:0];
+var imm_byte3[7:0];
+var result[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xF7;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is TEST (reg_bits = 000)
+assume reg_bits == 0b000;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read destination value
+dst_val = xregs[rm_bits];
+
+// Read 32-bit immediate (little-endian)
+imm_byte0 = imem[eip + 2];
+imm_byte1 = imem[eip + 3];
+imm_byte2 = imem[eip + 4];
+imm_byte3 = imem[eip + 5];
+imm_val = {imm_byte3, imm_byte2, imm_byte1, imm_byte0};
+
+eip = eip + 6;
+
+// Perform AND operation
+result = dst_val & imm_val;
+
+// Set flags
+flag_CF = 1'b0;
+flag_OF = 1'b0;
+flag_SF = result[31];
+flag_ZF = (result == 32'h00000000);
+flag_AF = 1'b0;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+// TEST does not write result

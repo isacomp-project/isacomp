@@ -1,0 +1,159 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ROL r/m8, imm8 (0xC0 /0) - Rotate Left by immediate count
+// All addressing modes supported
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var dst_reg_idx[1:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var physical_addr[19:0];
+var dst_mem_val[7:0];
+var dst_reg_val_low[7:0];
+var dst_reg_val_high[7:0];
+var dst_reg_val[7:0];
+var dst_val[7:0];
+var count[7:0];
+var effective_count[2:0];
+var result[7:0];
+var is_mem_dst[0:0];
+
+instr = imem[eip];
+assume instr == 0xC0;
+eip = eip + 1;
+
+modrm = imem[eip];
+eip = eip + 1;
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b000;  // ROL
+
+dst_reg_idx = rm_bits[1:0];
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+base_offset = xregs[addr_reg_idx][15:0];
+
+disp8 = imem[eip];
+disp16_lo = imem[eip];
+disp16_hi = imem[eip + 1];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+case (mod_bits) {
+  0b00: is_mem_dst = 1'b1;
+  0b01: is_mem_dst = 1'b1;
+  0b10: is_mem_dst = 1'b1;
+  0b11: is_mem_dst = 1'b0;
+}
+
+case (mod_bits) {
+  0b00: eip = eip;
+  0b01: eip = eip + 1;
+  0b10: eip = eip + 2;
+  0b11: eip = eip;
+}
+
+physical_addr = (DS << 4) + offset;
+
+dst_mem_val = dmem[physical_addr];
+dst_reg_val_low = lregs[dst_reg_idx];
+dst_reg_val_high = hregs[dst_reg_idx];
+
+case (rm_bits[2]) {
+  1'b1: dst_reg_val = dst_reg_val_high;
+  1'b0: dst_reg_val = dst_reg_val_low;
+}
+
+case (is_mem_dst) {
+  1'b1: dst_val = dst_mem_val;
+  1'b0: dst_val = dst_reg_val;
+}
+
+count = imem[eip];
+eip = eip + 1;
+
+// Effective count is count mod 8 for 8-bit operands
+effective_count = count[2:0];
+
+// ROL: Rotate left by effective_count
+case (effective_count) {
+  3'd0: result = dst_val;
+  3'd1: result = {dst_val[6:0], dst_val[7]};
+  3'd2: result = {dst_val[5:0], dst_val[7:6]};
+  3'd3: result = {dst_val[4:0], dst_val[7:5]};
+  3'd4: result = {dst_val[3:0], dst_val[7:4]};
+  3'd5: result = {dst_val[2:0], dst_val[7:3]};
+  3'd6: result = {dst_val[1:0], dst_val[7:2]};
+  3'd7: result = {dst_val[0], dst_val[7:1]};
+}
+
+// CF = last bit rotated (bit 0 of result for ROL)
+case (effective_count) {
+  3'd0: flag_CF = flag_CF;
+  3'd1: flag_CF = dst_val[7];
+  3'd2: flag_CF = dst_val[6];
+  3'd3: flag_CF = dst_val[5];
+  3'd4: flag_CF = dst_val[4];
+  3'd5: flag_CF = dst_val[3];
+  3'd6: flag_CF = dst_val[2];
+  3'd7: flag_CF = dst_val[1];
+}
+
+// OF only defined for count=1: OF = MSB(result) XOR CF
+case (count) {
+  8'h01: flag_OF = result[7] ^ flag_CF;
+}
+
+// Write result
+case (is_mem_dst) {
+  1'b1: dmem[physical_addr] = result;
+  1'b0: dmem[physical_addr] = dmem[physical_addr];
+}
+
+var write_high[0:0];
+write_high = (~is_mem_dst) & rm_bits[2];
+case (write_high) {
+  1'b1: hregs[dst_reg_idx] = result;
+  1'b0: hregs[dst_reg_idx] = hregs[dst_reg_idx];
+}
+
+var write_low[0:0];
+write_low = (~is_mem_dst) & (~rm_bits[2]);
+case (write_low) {
+  1'b1: lregs[dst_reg_idx] = result;
+  1'b0: lregs[dst_reg_idx] = lregs[dst_reg_idx];
+}

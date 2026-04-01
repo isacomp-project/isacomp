@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: KCALL src (kernel call, one-parcel)
+// One-parcel encoding: opcode 0x00, 2 bytes
+// Save PSW, PC, and src on interrupt stack; jump to *(VB+0)
+// The 10-bit immediate is zero-extended and multiplied by 4
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state isp[31:0];
+isa_state psw[31:0];
+isa_state vb[31:0];
+isa_state shad[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var opcode[4:0];
+var imm[9:0];
+var src_val[31:0];
+var next_pc[31:0];
+var new_pc[31:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+opcode = instr[14:10];
+assume opcode == 0x00;
+
+imm = instr[9:0];
+
+// Zero-extend and multiply by 4
+src_val = {20'b0, imm, 2'b00};
+
+next_pc = pc + 2;
+
+// Push event block to interrupt stack (quad-word)
+umem[isp - 4] = src_val;        // src operand (R4 relative to new ISP)
+umem[isp - 8] = next_pc;        // return PC (R8 relative to new ISP)
+umem[isp - 12] = psw;           // PSW (R12 relative to new ISP)
+isp = isp - 16;
+shad = isp;
+
+// Load new PC from vector table
+new_pc = umem[vb];
+
+// Clear low 16 bits of PSW (kernel mode, ISP, no trace, inhibit interrupts)
+psw = psw & 0xFFFF0000;
+
+pc = new_pc;

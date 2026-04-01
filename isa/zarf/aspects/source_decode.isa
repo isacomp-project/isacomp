@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Source Field Decoding Aspect
+//
+// Decodes the source field of an instruction operand to retrieve the actual value.
+// The source field (3 bits) specifies where to find the operand:
+//   0x0: arg       - Function argument from env_args heap area
+//   0x1: freevar   - Free variable from env_clo heap area
+//   0x2: local     - Local variable from local stack
+//   0x3: self      - Reserved (ignored)
+//   0x4: literal   - Immediate integer constant (primitive)
+//   0x5: caseValue - The currently scrutinized value
+//   0x6: caseField - A field of the scrutinized constructor
+//   0x7: itable    - Function/info table index
+//
+// Requires before inclusion:
+//   source[2:0]  - The source type
+//   index[15:0]  - The index/value field
+//
+// Provides after inclusion:
+//   decoded_value[31:0] - The decoded value
+//   decoded_tag[0:0]    - 1 if primitive, 0 if heap reference
+//
+// Gates: source, index, env_clo, env_args, lsp, lb, eval_reg, eval_tag, heap, lstack
+
+var decoded_value[31:0];
+var decoded_tag[0:0];
+
+// Extended index for address calculations
+var index_ext[31:0];
+index_ext = {{16{1'b0}}, index};
+
+// Decode value based on source type
+case (source) {
+    0: decoded_value = heap[env_args + index_ext];
+    1: decoded_value = heap[env_clo + index_ext];
+    2: decoded_value = lstack[lb + index_ext];
+    3: decoded_value = 32'b0;
+    4: decoded_value = {{16{index[15]}}, index};
+    5: decoded_value = eval_reg;
+    6: decoded_value = heap[eval_reg + index_ext + 1];
+    7: decoded_value = index_ext;
+}
+
+// Decode tag based on source type (only literal is primitive)
+case (source) {
+    0: decoded_tag = 1'b0;
+    1: decoded_tag = 1'b0;
+    2: decoded_tag = 1'b0;
+    3: decoded_tag = 1'b0;
+    4: decoded_tag = 1'b1;
+    5: decoded_tag = eval_tag;
+    6: decoded_tag = 1'b0;
+    7: decoded_tag = 1'b0;
+}

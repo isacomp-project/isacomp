@@ -1,0 +1,220 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 TLB Lookup Aspect for Data Loads using CAM
+// This aspect provides address translation for data load operations (addr -> addr_pa)
+// Requires: addr variable must be defined before including this aspect
+// Generates TLB Refill, TLB Invalid, or Address Error exceptions on failure
+
+// Physical address for data access (output of this aspect)
+var addr_pa[31:0];
+
+// Exception handling for loads
+var load_exception_taken[0:0];
+var load_exception_code[4:0];
+
+// Extract address components for TLB lookup
+var addr_vpn2[18:0];
+var addr_odd_page[0:0];
+var addr_offset[11:0];
+
+addr_vpn2 = addr[31:13];
+addr_odd_page = addr[12];
+addr_offset = addr[11:0];
+
+// Current ASID from EntryHi
+var load_current_asid[7:0];
+load_current_asid = cp0_entryhi[7:0];
+
+// ============================================================================
+// CAM Lookup - VPN2 Matching
+// ============================================================================
+var load_vpn2_matches[31:0];
+load_vpn2_matches = tlb_vpn2@[addr_vpn2];
+
+// ============================================================================
+// ASID/Global Filtering - Use precomputed tlb_g array
+// ============================================================================
+var ld_g_0[0:0]; var ld_g_1[0:0]; var ld_g_2[0:0]; var ld_g_3[0:0];
+var ld_g_4[0:0]; var ld_g_5[0:0]; var ld_g_6[0:0]; var ld_g_7[0:0];
+var ld_g_8[0:0]; var ld_g_9[0:0]; var ld_g_10[0:0]; var ld_g_11[0:0];
+var ld_g_12[0:0]; var ld_g_13[0:0]; var ld_g_14[0:0]; var ld_g_15[0:0];
+var ld_g_16[0:0]; var ld_g_17[0:0]; var ld_g_18[0:0]; var ld_g_19[0:0];
+var ld_g_20[0:0]; var ld_g_21[0:0]; var ld_g_22[0:0]; var ld_g_23[0:0];
+var ld_g_24[0:0]; var ld_g_25[0:0]; var ld_g_26[0:0]; var ld_g_27[0:0];
+var ld_g_28[0:0]; var ld_g_29[0:0]; var ld_g_30[0:0]; var ld_g_31[0:0];
+
+ld_g_0 = tlb_g[0]; ld_g_1 = tlb_g[1]; ld_g_2 = tlb_g[2]; ld_g_3 = tlb_g[3];
+ld_g_4 = tlb_g[4]; ld_g_5 = tlb_g[5]; ld_g_6 = tlb_g[6]; ld_g_7 = tlb_g[7];
+ld_g_8 = tlb_g[8]; ld_g_9 = tlb_g[9]; ld_g_10 = tlb_g[10]; ld_g_11 = tlb_g[11];
+ld_g_12 = tlb_g[12]; ld_g_13 = tlb_g[13]; ld_g_14 = tlb_g[14]; ld_g_15 = tlb_g[15];
+ld_g_16 = tlb_g[16]; ld_g_17 = tlb_g[17]; ld_g_18 = tlb_g[18]; ld_g_19 = tlb_g[19];
+ld_g_20 = tlb_g[20]; ld_g_21 = tlb_g[21]; ld_g_22 = tlb_g[22]; ld_g_23 = tlb_g[23];
+ld_g_24 = tlb_g[24]; ld_g_25 = tlb_g[25]; ld_g_26 = tlb_g[26]; ld_g_27 = tlb_g[27];
+ld_g_28 = tlb_g[28]; ld_g_29 = tlb_g[29]; ld_g_30 = tlb_g[30]; ld_g_31 = tlb_g[31];
+
+// ASID match or Global for each entry
+var ld_ag_0[0:0]; var ld_ag_1[0:0]; var ld_ag_2[0:0]; var ld_ag_3[0:0];
+var ld_ag_4[0:0]; var ld_ag_5[0:0]; var ld_ag_6[0:0]; var ld_ag_7[0:0];
+var ld_ag_8[0:0]; var ld_ag_9[0:0]; var ld_ag_10[0:0]; var ld_ag_11[0:0];
+var ld_ag_12[0:0]; var ld_ag_13[0:0]; var ld_ag_14[0:0]; var ld_ag_15[0:0];
+var ld_ag_16[0:0]; var ld_ag_17[0:0]; var ld_ag_18[0:0]; var ld_ag_19[0:0];
+var ld_ag_20[0:0]; var ld_ag_21[0:0]; var ld_ag_22[0:0]; var ld_ag_23[0:0];
+var ld_ag_24[0:0]; var ld_ag_25[0:0]; var ld_ag_26[0:0]; var ld_ag_27[0:0];
+var ld_ag_28[0:0]; var ld_ag_29[0:0]; var ld_ag_30[0:0]; var ld_ag_31[0:0];
+
+ld_ag_0 = ld_g_0 | (tlb_asid[0] == load_current_asid);
+ld_ag_1 = ld_g_1 | (tlb_asid[1] == load_current_asid);
+ld_ag_2 = ld_g_2 | (tlb_asid[2] == load_current_asid);
+ld_ag_3 = ld_g_3 | (tlb_asid[3] == load_current_asid);
+ld_ag_4 = ld_g_4 | (tlb_asid[4] == load_current_asid);
+ld_ag_5 = ld_g_5 | (tlb_asid[5] == load_current_asid);
+ld_ag_6 = ld_g_6 | (tlb_asid[6] == load_current_asid);
+ld_ag_7 = ld_g_7 | (tlb_asid[7] == load_current_asid);
+ld_ag_8 = ld_g_8 | (tlb_asid[8] == load_current_asid);
+ld_ag_9 = ld_g_9 | (tlb_asid[9] == load_current_asid);
+ld_ag_10 = ld_g_10 | (tlb_asid[10] == load_current_asid);
+ld_ag_11 = ld_g_11 | (tlb_asid[11] == load_current_asid);
+ld_ag_12 = ld_g_12 | (tlb_asid[12] == load_current_asid);
+ld_ag_13 = ld_g_13 | (tlb_asid[13] == load_current_asid);
+ld_ag_14 = ld_g_14 | (tlb_asid[14] == load_current_asid);
+ld_ag_15 = ld_g_15 | (tlb_asid[15] == load_current_asid);
+ld_ag_16 = ld_g_16 | (tlb_asid[16] == load_current_asid);
+ld_ag_17 = ld_g_17 | (tlb_asid[17] == load_current_asid);
+ld_ag_18 = ld_g_18 | (tlb_asid[18] == load_current_asid);
+ld_ag_19 = ld_g_19 | (tlb_asid[19] == load_current_asid);
+ld_ag_20 = ld_g_20 | (tlb_asid[20] == load_current_asid);
+ld_ag_21 = ld_g_21 | (tlb_asid[21] == load_current_asid);
+ld_ag_22 = ld_g_22 | (tlb_asid[22] == load_current_asid);
+ld_ag_23 = ld_g_23 | (tlb_asid[23] == load_current_asid);
+ld_ag_24 = ld_g_24 | (tlb_asid[24] == load_current_asid);
+ld_ag_25 = ld_g_25 | (tlb_asid[25] == load_current_asid);
+ld_ag_26 = ld_g_26 | (tlb_asid[26] == load_current_asid);
+ld_ag_27 = ld_g_27 | (tlb_asid[27] == load_current_asid);
+ld_ag_28 = ld_g_28 | (tlb_asid[28] == load_current_asid);
+ld_ag_29 = ld_g_29 | (tlb_asid[29] == load_current_asid);
+ld_ag_30 = ld_g_30 | (tlb_asid[30] == load_current_asid);
+ld_ag_31 = ld_g_31 | (tlb_asid[31] == load_current_asid);
+
+var load_asid_or_global[31:0];
+load_asid_or_global = {ld_ag_31, ld_ag_30, ld_ag_29, ld_ag_28, ld_ag_27, ld_ag_26, ld_ag_25, ld_ag_24,
+                       ld_ag_23, ld_ag_22, ld_ag_21, ld_ag_20, ld_ag_19, ld_ag_18, ld_ag_17, ld_ag_16,
+                       ld_ag_15, ld_ag_14, ld_ag_13, ld_ag_12, ld_ag_11, ld_ag_10, ld_ag_9, ld_ag_8,
+                       ld_ag_7, ld_ag_6, ld_ag_5, ld_ag_4, ld_ag_3, ld_ag_2, ld_ag_1, ld_ag_0};
+
+// ============================================================================
+// Final Match: VPN2 match AND (Global OR ASID match)
+// ============================================================================
+var load_final_matches[31:0];
+load_final_matches = load_vpn2_matches & load_asid_or_global;
+
+var load_any_match[0:0];
+var load_tlb_idx[5:0];
+load_any_match = |load_final_matches;
+load_tlb_idx = ctz(load_final_matches);
+
+// ============================================================================
+// Read Matched Entry - Use separate arrays to avoid mux conflicts
+// ============================================================================
+var load_tlb_idx5[4:0];
+load_tlb_idx5 = load_tlb_idx[4:0];
+
+// Read from separate PFN/V arrays instead of tlb_lo0/tlb_lo1
+var load_pfn[19:0];
+var load_v[0:0];
+
+load_pfn = addr_odd_page ? tlb_pfn1[load_tlb_idx5] : tlb_pfn0[load_tlb_idx5];
+load_v = addr_odd_page ? tlb_v1[load_tlb_idx5] : tlb_v0[load_tlb_idx5];
+
+// ============================================================================
+// Address Space Handling
+// ============================================================================
+var addr_is_kuseg[0:0];
+var addr_is_kseg0[0:0];
+var addr_is_kseg1[0:0];
+var addr_is_kseg2[0:0];
+var addr_is_unmapped[0:0];
+
+addr_is_kuseg = (addr[31] == 0);
+addr_is_kseg0 = (addr[31:29] == 3'b100);
+addr_is_kseg1 = (addr[31:29] == 3'b101);
+addr_is_kseg2 = (addr[31:30] == 2'b11);
+addr_is_unmapped = addr_is_kseg0 | addr_is_kseg1;
+
+// Check kernel mode
+var load_is_kernel[0:0];
+var load_status_exl[0:0];
+var not_load_status_exl[0:0];
+var load_status_erl[0:0];
+var load_status_ksu[1:0];
+
+load_status_exl = cp0_status[1];
+not_load_status_exl = ~load_status_exl;
+load_status_erl = cp0_status[2];
+load_status_ksu = cp0_status[4:3];
+load_is_kernel = (load_status_ksu == 0) | load_status_exl | load_status_erl;
+
+// Physical addresses
+var load_unmapped_pa[31:0];
+var load_tlb_pa[31:0];
+
+load_unmapped_pa = {3'b000, addr[28:0]};
+load_tlb_pa = {load_pfn, addr_offset};
+
+// ============================================================================
+// Exception Handling
+// ============================================================================
+var load_addr_error[0:0];
+var load_needs_tlb[0:0];
+var load_tlb_refill[0:0];
+var load_tlb_invalid[0:0];
+
+load_addr_error = (~load_is_kernel) & (addr_is_kseg0 | addr_is_kseg1 | addr_is_kseg2);
+load_needs_tlb = addr_is_kuseg | (load_is_kernel & addr_is_kseg2);
+load_tlb_refill = load_needs_tlb & (~load_any_match);
+load_tlb_invalid = load_needs_tlb & load_any_match & (~load_v);
+
+load_exception_taken = load_addr_error | load_tlb_refill | load_tlb_invalid;
+
+// Exception codes: 2 = TLBL, 4 = AdEL
+load_exception_code = load_addr_error ? 0x4 : 0x2;
+
+// Exception vector selection
+var load_status_bev[0:0];
+var load_refill_vector[31:0];
+var load_general_vector[31:0];
+var load_exc_vector[31:0];
+
+load_status_bev = cp0_status[22];
+load_refill_vector = load_status_bev ? 0xBFC00200 : 0x80000000;
+load_general_vector = load_status_bev ? 0xBFC00380 : 0x80000180;
+load_exc_vector = load_tlb_refill ? load_refill_vector : load_general_vector;
+
+// Update CP0 registers on load exception
+cp0_badvaddr when (load_exception_taken) = addr;
+cp0_cause when (load_exception_taken) = {cp0_cause[31:7], load_exception_code, cp0_cause[1:0]};
+cp0_epc when (load_exception_taken & not_load_status_exl) = pc;
+
+// Set EXL bit
+var load_new_status[31:0];
+load_new_status = cp0_status | 0x2;
+cp0_status when (load_exception_taken) = load_new_status;
+
+// Update Context and EntryHi
+var load_new_context[31:0];
+var load_new_entryhi[31:0];
+load_new_context = {cp0_context[31:23], addr_vpn2, 4'b0000};
+load_new_entryhi = {addr_vpn2, 5'b00000, cp0_entryhi[7:0]};
+cp0_context when (load_exception_taken) = load_new_context;
+cp0_entryhi when (load_exception_taken) = load_new_entryhi;
+
+// Redirect PC
+pc when (load_exception_taken) = load_exc_vector;
+
+// ============================================================================
+// Compute Physical Address
+// ============================================================================
+var load_translated_pa[31:0];
+load_translated_pa = addr_is_unmapped ? load_unmapped_pa : load_tlb_pa;
+
+// Always use translated_pa for data access.
+// On exception, the PC update handles redirection, and the load won't commit.
+addr_pa = load_translated_pa;

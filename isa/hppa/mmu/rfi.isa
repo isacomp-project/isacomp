@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// HPPA RFI - Return From Interruption (with full interruption framework)
+// =============================================================================
+// RFI restores processor state from the interruption shadow registers
+// and resumes execution at the interrupted instruction.
+//
+// Opcode: 0x00 (bits 31:26), function=0x60 (bits 12:5)
+//
+// Operation:
+//   PSW <- CR22 (IPSW)          (restore processor status word)
+//   PC  <- CR18 (IAOQ front)   (resume at interrupted instruction)
+//   privilege <- CR18[1:0]      (restore privilege level)
+//
+// IMPORTANT: RFI is a privileged instruction. It can only execute in the
+// most privileged mode (priv_level == 0). If executed in user mode,
+// it raises a privileged operation trap (trap 10).
+//
+// CRITICAL SEQUENCE: Before RFI, the OS must:
+//   1. Restore any general registers it used
+//   2. Execute RSM Q (clear PSW.Q to prevent state collection overwrites)
+//   3. Load CR22 (IPSW), CR18/CR18_back (IAOQ) via MTCTL
+//   4. Execute RFI
+//
+// STATE NAMING: Uses crNN naming per CR Audit (CR_AUDIT_REPORT.md).
+//   cr14=IVA, cr18/cr18_back=IAOQ, cr19=IIR, cr20=ISR, cr21=IOR, cr22=IPSW
+//
+// =============================================================================
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state psw[31:0];
+
+// Interruption shadow registers (crNN naming)
+isa_state cr22[31:0];       // IPSW - Interruption PSW
+isa_state cr19[31:0];       // IIR  - Interruption Instruction Register
+isa_state cr20[31:0];       // ISR  - Interruption Space Register
+isa_state cr21[31:0];       // IOR  - Interruption Offset Register
+isa_state cr17[31:0];       // IIASQ - Interruption IA Space Queue (front)
+isa_state cr18[31:0];       // IIAOQ - Interruption IA Offset Queue (front)
+isa_state cr18_back[31:0];  // IIAOQ back (paired with cr18)
+
+// Interrupt vector and external interrupt registers
+isa_state cr14[31:0];       // IVA  - Interruption Vector Address
+isa_state cr15[31:0];       // EIEM - External Interrupt Enable Mask
+isa_state cr16[31:0];       // ITMR - Interval Timer
+ext isa_state cr23[31:0];   // EIRR - External Interrupt Request Register (managed by testbench/SoC)
+
+// Temporary/scratch registers
+isa_state cr24[31:0];       // TR0
+isa_state cr25[31:0];       // TR1
+isa_state cr26[31:0];       // TR2
+isa_state cr27[31:0];       // TR3
+isa_state cr28[31:0];       // TR4
+isa_state cr29[31:0];       // TR5
+isa_state cr30[31:0];       // TR6
+isa_state cr31[31:0];       // TR7
+
+isa_state priv_level[1:0];
+
+ext isa_state timer_irq_pending[0:0];
+ext isa_state ext_irq_lines[31:0];
+mem umem[25:0];
+
+var instr[31:0];
+
+// =========================================================================
+// Nullification and interruption aspects
+// =========================================================================
+aspect nullify.isa gates pc, psw;
+aspect interruption.isa gates pc, psw, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level;
+
+instr = umem[pc_pa];
+
+// RFI encoding: opcode=0x00, function=0x60
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b01100000;
+
+// =========================================================================
+// PRIVILEGED OPERATION CHECK
+// =========================================================================
+// RFI is only valid in kernel mode (priv_level == 0).
+// If executed in user mode, trap 10 (privileged operation) should be raised.
+// For now, we assume privileged execution (the OS is in kernel mode).
+// TODO: Add priv_level check and trap 10 generation.
+
+// =========================================================================
+// RESTORE STATE (gated on no prior trap and not nullified)
+// =========================================================================
+var rfi_can_execute[0:0];
+rfi_can_execute = ~instr_trap_taken & ~in_nullified;
+
+// Read values from interruption shadow registers
+var restored_psw[31:0];
+var restored_pc[31:0];
+
+restored_psw = cr22;       // IPSW
+restored_pc = cr18;        // IAOQ front
+
+// Restore PSW from IPSW (restores interrupt enable, translation modes, etc.)
+psw when (rfi_can_execute) = restored_psw;
+
+// Restore privilege level from IAOQ_front[1:0]
+// PA-RISC encodes privilege in low 2 bits of IAOQ entries.
+// Convention: 0 = most privileged (kernel), 3 = least privileged (user)
+priv_level when (rfi_can_execute) = cr18[1:0];
+
+// Set PC to IAOQ_front with privilege bits cleared (low 2 bits are privilege)
+pc when (rfi_can_execute) = {cr18[31:2], 2'b00};
+
+// Note: IAOQ advance (front <- back) is handled implicitly. The OS sets
+// both CR18 and CR18_back via MTCTL before executing RFI. After RFI,
+// normal instruction execution will re-establish IAOQ values if another
+// trap occurs. The interruption aspect saves PC -> cr18, PC+4 -> cr18_back.

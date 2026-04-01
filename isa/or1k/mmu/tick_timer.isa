@@ -1,0 +1,109 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC OR1K Tick Timer Aspect
+// Implements the programmable tick timer for process scheduling
+//
+// Tick Timer SPRs (Group 10):
+//   SPR[10][0] = TTMR (Tick Timer Mode Register)
+//     [31:30] TP - Timer Mode:
+//       00 = Disabled
+//       01 = Restart mode (auto-restart on match)
+//       10 = One-shot (stop on match)
+//       11 = Continuous (free-running)
+//     [29]    IP - Interrupt Pending
+//     [27:0]  TP - Timer Period (match value)
+//
+//   SPR[10][1] = TTCR (Tick Timer Count Register)
+//     [27:0]  count value
+//
+// The tick timer generates exception vector 0x500 when:
+//   1. Timer count matches period (TTCR == TTMR[27:0])
+//   2. SR.TEE (bit 1) is set
+//   3. TTMR.IP is set (interrupt pending)
+
+// Tick timer state
+isa_state ttmr[31:0];       // Tick Timer Mode Register
+isa_state ttcr[31:0];       // Tick Timer Count Register
+
+// Timer variables
+var timer_mode[1:0];
+var timer_period[27:0];
+var timer_count[27:0];
+var timer_ip[0:0];
+var timer_match[0:0];
+var timer_enabled[0:0];
+
+var take_tick_interrupt[0:0];
+var tee_enabled[0:0];
+
+// Read timer registers
+timer_mode = ttmr[31:30];
+timer_period = ttmr[27:0];
+timer_ip = ttmr[29];
+timer_count = ttcr[27:0];
+
+// Timer is enabled if mode != 00
+timer_enabled = (timer_mode != 2'b00);
+
+// Check for match
+timer_match = timer_enabled & (timer_count == timer_period);
+
+// Update count register
+var new_ttcr[31:0];
+var new_count[27:0];
+
+// In restart mode (01): reset count on match
+// In one-shot mode (10): stop counting on match
+// In continuous mode (11): keep counting, wrap around
+var restart_mode[0:0];
+var oneshot_mode[0:0];
+var continuous_mode[0:0];
+
+restart_mode = (timer_mode == 2'b01);
+oneshot_mode = (timer_mode == 2'b10);
+continuous_mode = (timer_mode == 2'b11);
+
+new_count = timer_match & restart_mode ? 28'b0 :
+            (timer_match & oneshot_mode ? timer_count :
+            (timer_enabled ? timer_count + 1 : timer_count));
+
+new_ttcr = {4'b0, new_count};
+ttcr = new_ttcr;
+
+// Set interrupt pending on match
+var new_ttmr[31:0];
+new_ttmr = timer_match ? (ttmr | 32'h20000000) : ttmr;  // Set IP bit
+ttmr when (timer_match) = new_ttmr;
+
+// Check if tick timer exception should be taken
+tee_enabled = sr[1];
+
+// Take tick timer interrupt if:
+// 1. No other exception or external interrupt already taken
+// 2. TEE is enabled in SR
+// 3. Timer interrupt is pending (TTMR.IP)
+take_tick_interrupt = (~exception_taken) & (~take_ext_interrupt) & tee_enabled & (timer_ip | timer_match);
+
+// On tick timer interrupt: save state and jump to vector 0x500
+var tick_new_sr[31:0];
+tick_new_sr = sr;
+tick_new_sr[0] = 1;     // SM = 1
+tick_new_sr[1] = 0;     // TEE = 0
+tick_new_sr[2] = 0;     // IEE = 0
+tick_new_sr[5] = 0;     // DME = 0
+tick_new_sr[6] = 0;     // IME = 0
+
+var tick_saved_pc[31:0];
+tick_saved_pc = pc;
+
+var tick_eph_bit[0:0];
+var tick_exc_base[31:0];
+tick_eph_bit = sr[13];
+tick_exc_base = tick_eph_bit ? 32'hF0000000 : 32'h00000000;
+
+epcr0 when (take_tick_interrupt) = tick_saved_pc;
+esr0 when (take_tick_interrupt) = sr;
+sr when (take_tick_interrupt) = tick_new_sr;
+pc when (take_tick_interrupt) = tick_exc_base | 32'h00000500;
+
+// Update combined trap signal
+instr_trap_taken = exception_taken | take_ext_interrupt | take_tick_interrupt;

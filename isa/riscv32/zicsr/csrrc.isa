@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state csr[31:0][11:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rs1[4:0];
+var rd[4:0];
+var csr_addr[11:0];
+var rs1_val[31:0];
+var csr_val[31:0];
+var new_csr_val[31:0];
+
+instr = imem[pc];
+assume instr[6:0] == 0b1110011;
+assume instr[14:12] == 0b011;
+pc = pc + 4;
+rs1 = instr[19:15];
+rd = instr[11:7];
+csr_addr = instr[31:20];
+
+// Read CSR and source register
+csr_val = csr[csr_addr];
+rs1_val = rf[rs1];
+
+// Clear bits in CSR (AND with negation using XOR)
+new_csr_val = csr_val & (rs1_val ^ 32'hFFFFFFFF);
+
+// Write new value to CSR (only if rs1 != 0, for read-only access)
+csr[csr_addr] when (rs1 != 0) = new_csr_val;
+
+// Write old CSR value to destination register (if rd != 0)
+rf[rd] when (rd != 0) = csr_val;

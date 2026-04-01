@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV32F - FMV.X.W (Move FP to integer register)
+// Encoding: funct7=1110000, rs2=00000, rs1, funct3=000, rd, opcode=1010011
+// Copies bits from FP register to integer register without conversion
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[31:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var f1[31:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;
+assume instr[31:27] == 0b11100;
+assume instr[26:25] == 0b00;
+assume instr[24:20] == 0b00000;
+assume instr[14:12] == 0b000;     // FMV.X.W funct3
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+
+f1 = frf[rs1];
+
+// Direct bit copy (no conversion)
+rf[rd] when (rd != 0) = f1;

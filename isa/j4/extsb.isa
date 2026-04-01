@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// EXTS.B Rm,Rn - Extend sign from byte
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var esb_rn_lo[2:0];
+var esb_rm_lo[2:0];
+var Rm[31:0];
+var res[31:0];
+
+var esb_rb[0:0];
+var esb_rn_bk[0:0];
+var esb_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x6;
+assume instr[3:0] == 0xE;
+rn = instr[11:8];
+rm = instr[7:4];
+esb_rn_lo = rn[2:0];
+esb_rm_lo = rm[2:0];
+
+esb_rb = sr[29];  // RB bit (bit 29 in SR)
+esb_rn_bk = (rn[3] == 1'b0) & esb_rb;
+esb_rm_bk = (rm[3] == 1'b0) & esb_rb;
+
+Rm = esb_rm_bk ? rf_bank[esb_rm_lo] : rf[rm];
+
+res = {{24{Rm[7]}}, Rm[7:0]};
+
+rf[rn] when (esb_rn_bk == 0) = res;
+rf_bank[esb_rn_lo] when (esb_rn_bk) = res;
+pc = pc + 2;

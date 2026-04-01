@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.sys - System Call
+// Format: l.sys K
+// Triggers system call exception (vector 0xC00)
+// Used by Linux for system calls
+//
+// Exception flow:
+// 1. EPCR[0] <- PC of l.sys instruction
+// 2. ESR[0] <- SR
+// 3. SR[SM] = 1 (enter supervisor mode)
+// 4. SR[TEE] = 0 (disable tick timer exception)
+// 5. SR[IEE] = 0 (disable external interrupts)
+// 6. SR[DME] = 0 (disable data MMU)
+// 7. SR[IME] = 0 (disable instruction MMU)
+// 8. PC <- exception vector (0xC00)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state sr[31:0];
+isa_state epcr0[31:0];
+isa_state esr0[31:0];
+
+var imm[15:0];
+var new_sr[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x08;
+assume instr[25] == 0x0;
+imm = instr[15:0];
+
+// Save exception state
+epcr0 = pc;
+esr0 = sr;
+
+// Enter supervisor mode, disable interrupts and MMU
+new_sr = sr;
+new_sr[0] = 1;     // SM = 1 (supervisor mode)
+new_sr[1] = 0;     // TEE = 0 (disable tick timer exception)
+new_sr[2] = 0;     // IEE = 0 (disable external interrupt exception)
+new_sr[4] = 0;     // DME = 0 (disable data MMU)
+new_sr[5] = 0;     // IME = 0 (disable instruction MMU)
+sr = new_sr;
+
+// Jump to system call exception vector
+pc = 32'h00000C00;

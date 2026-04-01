@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030/68851 PMOVE to TC - Move to Translation Control Register (displacement mode)
+// Opcode: 1111 000 000 101 rrr followed by displacement and extension word
+// Extension: 010 000 0 0 0000 0000 (4000) - PMOVE <ea>,TC (write to TC, no flush)
+// Loads 32-bit TC from memory at (d16,An)
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+var disp[15:0];
+var disp_ext[31:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+mem dmem[23:0];
+
+isa_state sr[15:0];
+isa_state tc[31:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_mode[2:0];
+var ea_reg[2:0];
+var addr[31:0];
+var data_hi[15:0];
+var data_lo[15:0];
+var new_tc[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+
+instr = imem[pc_pa];
+assume instr[15:6] == 10'b1111000000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_mode = instr[5:3];
+ea_reg = instr[2:0];
+
+// Fetch extension word (PMOVE command)
+extw = imem[pc_pa];
+assume extw == 16'h4000;  // PMOVE to TC (write to TC)
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Fetch displacement
+disp = imem[pc_pa];
+pc when (~m68k_exc_taken) = pc + 2;
+disp_ext = {{16{disp[15]}}, disp};
+
+assume sr[13] == 1'b1;
+
+// Address register indirect with displacement
+assume instr[5:3] == 3'b101;
+addr = aregs[ea_reg] + disp_ext;
+
+// Read TC value from memory (32 bits, big-endian)
+data_hi = dmem[addr];
+data_lo = dmem[addr + 2];
+new_tc = {data_hi, data_lo};
+
+// Load TC
+tc when (~m68k_exc_taken) = new_tc;
+

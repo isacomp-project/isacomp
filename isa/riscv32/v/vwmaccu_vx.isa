@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vwmaccu.vx - Widening Unsigned Multiply-Accumulate (vector-scalar)
+// Encoding: vwmaccu.vx vd, rs1, vs2, vm
+// Operation: vd[i] = vd[i] + (zero_extend(x[rs1]) * zero_extend(vs2[i]))
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var scalar[31:0];
+var v2[127:0];
+var vdval[127:0];
+var res[127:0];
+var scalar_ext[63:0];
+var op2_0[63:0];
+var op2_1[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b110;
+assume instr[31:26] == 0b111100;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+scalar = rf[rs1];
+v2 = vrf[vs2];
+vdval = vrf[vd];
+
+scalar_ext[63:0] = {32'b0, scalar};
+op2_0[63:0] = {32'b0, v2[31:0]};
+op2_1[63:0] = {32'b0, v2[63:32]};
+
+res[63:0] = vdval[63:0] + (scalar_ext * op2_0);
+res[127:64] = vdval[127:64] + (scalar_ext * op2_1);
+
+vrf[vd] = res;

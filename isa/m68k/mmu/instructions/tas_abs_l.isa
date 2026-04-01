@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 TAS.B (xxx).L - Test and Set byte at absolute long address
+// Opcode: 0100 1010 11 111 001 followed by 32-bit address
+// Atomic read-modify-write: test byte, set bit 7
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var tas_al_addr_hi[15:0];
+var tas_al_addr_lo[15:0];
+var tas_al_addr[31:0];
+var tas_al_word[15:0];
+var tas_al_byte[7:0];
+var tas_al_result[7:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:8] == 0b01001010;  // TAS opcode
+assume instr[7:6] == 0b11;         // Size: byte (TAS encoding)
+assume instr[5:3] == 0b111;        // EA mode: special
+assume instr[2:0] == 0b001;        // Absolute long
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Fetch 32-bit address (big-endian)
+tas_al_addr_hi = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+tas_al_addr_lo = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+tas_al_addr = {tas_al_addr_hi, tas_al_addr_lo};
+
+// Read word containing the byte
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = tas_al_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+tas_al_word = dmem[{ea_pa[31:1], 1'b0}];
+#else
+tas_al_word = dmem[{tas_al_addr[31:1], 1'b0}];
+#endif
+
+// Extract byte (big-endian)
+tas_al_byte = tas_al_addr[0] ? tas_al_word[7:0] : tas_al_word[15:8];
+
+// Update CCR (X not affected)
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = tas_al_byte[7];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = tas_al_byte == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+
+// Set bit 7 of the byte
+tas_al_result = {1'b1, tas_al_byte[6:0]};
+
+// Write back with bit 7 set
+#ifdef MMU
+dmem[{ea_pa[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = tas_al_addr[0] ? {tas_al_word[15:8], tas_al_result} : {tas_al_result, tas_al_word[7:0]};
+#else
+dmem[{tas_al_addr[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = tas_al_addr[0] ? {tas_al_word[15:8], tas_al_result} : {tas_al_result, tas_al_word[7:0]};
+#endif

@@ -1,0 +1,4191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>isacomp WASM - Processor Optimization Framework</title>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.25.0/full/pyodide.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #003660 0%, #047C91 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        header {
+            background: linear-gradient(135deg, #003660 0%, #FEBC11 100%);
+            color: white;
+            padding: 15px;
+            text-align: center;
+        }
+
+        header h1 {
+            font-size: 1.8em;
+            margin-bottom: 5px;
+        }
+
+        header p {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin: 3px 0;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 0;
+            min-height: 600px;
+        }
+
+        .sidebar {
+            background: #f8f9fa;
+            padding: 25px;
+            border-right: 2px solid #e0e0e0;
+            overflow-y: auto;
+            max-height: calc(100vh - 250px);
+        }
+
+        .sidebar h2 {
+            font-size: 1.3em;
+            margin-bottom: 15px;
+            color: #003660;
+            border-bottom: 2px solid #FEBC11;
+            padding-bottom: 8px;
+        }
+
+        .control-group {
+            margin-bottom: 20px;
+        }
+
+        .control-group label {
+            display: block;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #555;
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 300px;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            resize: vertical;
+            transition: border-color 0.3s;
+        }
+
+        textarea:focus {
+            outline: none;
+            border-color: #FEBC11;
+        }
+
+        button {
+            background: linear-gradient(135deg, #003660 0%, #047C91 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(254, 188, 17, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 10px;
+        }
+
+        .button-group button {
+            margin-top: 0;
+        }
+
+        .canvas-container {
+            position: relative;
+            background: #fafafa;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            cursor: grab;
+            background: #ffffff;
+        }
+
+        canvas:active {
+            cursor: grabbing;
+        }
+
+        .stats {
+            background: #DAE6E6;
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+
+        .stats-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .stats-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .stats-label {
+            font-weight: 600;
+            color: #003660;
+        }
+
+        .stats-value {
+            color: #333;
+            font-family: 'Courier New', monospace;
+        }
+
+        .status {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+
+        .status.loading {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .legend {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 2px solid #e0e0e0;
+            margin-bottom: 20px;
+            font-size: 13px;
+        }
+
+        .legend h3 {
+            font-size: 1em;
+            margin-bottom: 10px;
+            color: #333;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .legend-symbol {
+            width: 30px;
+            height: 20px;
+            margin-right: 10px;
+            border-radius: 3px;
+            flex-shrink: 0;
+        }
+
+        .controls {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 2px solid #e0e0e0;
+        }
+
+        .control-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .control-row button {
+            flex: 1;
+            margin-top: 0;
+            font-size: 12px;
+            padding: 8px 12px;
+        }
+
+        #optimizationControls label {
+            display: block;
+            margin-bottom: 8px;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        #optimizationControls input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border: 2px solid rgba(255,255,255,.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+        }
+
+        .progress-container {
+            margin-top: 15px;
+        }
+
+        .progress-bar {
+            width: 100%;
+            height: 24px;
+            background: #e0e0e0;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #003660 0%, #FEBC11 100%);
+            width: 0%;
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 11px;
+            font-weight: 600;
+            position: relative;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            right: 0;
+            background: linear-gradient(
+                90deg,
+                rgba(255, 255, 255, 0) 0%,
+                rgba(255, 255, 255, 0.3) 50%,
+                rgba(255, 255, 255, 0) 100%
+            );
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .progress-text {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #666;
+            text-align: center;
+        }
+
+        /* Sidebar Section Styles */
+        .sidebar-section {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            overflow: hidden;
+        }
+
+        .sidebar-section-title {
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #003660;
+            padding: 10px 12px;
+            margin: 0;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-bottom: 1px solid #e0e0e0;
+        }
+
+        .sidebar-section-content {
+            padding: 12px;
+        }
+
+        .sidebar-section-content:empty {
+            display: none;
+        }
+
+        /* Tree Navigator Styles */
+        .tree-pane {
+            width: 250px;
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            margin-right: 15px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .tree-pane.hidden {
+            display: none;
+        }
+
+        .tree-header {
+            padding: 10px 12px;
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            border-bottom: 1px solid #e0e0e0;
+            font-weight: 600;
+            color: #003660;
+            font-size: 0.95em;
+        }
+
+        .tree-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .tree-node {
+            padding: 6px 8px;
+            margin: 2px 0;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 11px;
+            user-select: none;
+            position: relative;
+            padding-left: 20px;
+        }
+
+        .tree-node:hover {
+            background: #f0f8ff;
+        }
+
+        .tree-node.selected {
+            background: #cce5ff;
+            font-weight: 600;
+        }
+
+        .tree-node.root {
+            font-weight: 600;
+            color: #003660;
+        }
+
+        .tree-node.child {
+            margin-left: 16px;
+        }
+
+        .tree-node::before {
+            content: '•';
+            position: absolute;
+            left: 8px;
+            color: #666;
+        }
+
+        .tree-node.root::before {
+            content: '📁';
+        }
+
+        .tree-node.child::before {
+            content: '➜';
+            font-size: 9px;
+        }
+
+        .tree-footer {
+            padding: 8px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .toggle-tree-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            width: 32px;
+            height: 32px;
+            background: white;
+            border: 2px solid #003660;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #003660;
+            font-weight: bold;
+        }
+
+        .toggle-tree-btn:hover {
+            background: #f0f8ff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔬 isacomp WASM</h1>
+            <p>UC Santa Barbara Computer Architecture Lab</p>
+        </header>
+
+        <div class="main-content">
+            <div class="sidebar">
+                <!-- Status Bar -->
+                <div id="status" class="status loading">
+                    <span class="spinner"></span> Loading Pyodide...
+                </div>
+
+                <!-- ISA Specification Section -->
+                <div class="sidebar-section" id="isaSection">
+                    <h3 class="sidebar-section-title">ISA Specification</h3>
+                    <div class="sidebar-section-content">
+                        <div style="margin-bottom: 10px;">
+                            <input type="file" id="isaFileUpload" accept=".isa,.txt" onchange="handleFileUpload(event)"
+                                   style="width: 100%; padding: 6px; border: 2px solid #ddd; border-radius: 4px; font-size: 12px;">
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <select id="isaSelect" onchange="loadSelectedISA()"
+                                    style="width: 100%; padding: 6px; border: 2px solid #ddd; border-radius: 4px; font-size: 12px;">
+                                <option value="">-- Select MIPS32 Instruction --</option>
+                            </select>
+                        </div>
+                        <div style="margin-bottom: 10px;">
+                            <textarea id="isaInput" placeholder="Enter ISA specification here..."
+                                      style="width: 100%; height: 120px; padding: 6px; border: 2px solid #ddd; border-radius: 4px; font-size: 11px; font-family: monospace;"></textarea>
+                        </div>
+                        <button onclick="parseISA()" id="parseBtn" style="width: 100%; padding: 8px; font-size: 12px;">Parse & Visualize</button>
+                    </div>
+                </div>
+
+                <!-- Graph Information Section -->
+                <div class="sidebar-section" id="graphInfoSection" style="display: none;">
+                    <h3 class="sidebar-section-title">Graph Information</h3>
+                    <div class="sidebar-section-content">
+                        <div style="font-size: 11px; line-height: 1.8;">
+                            <div><b>Nodes:</b> <span id="nodeCount">0</span></div>
+                            <div><b>Edges:</b> <span id="edgeCount">0</span></div>
+                            <div><b>Max Time:</b> <span id="maxTime">0</span></div>
+                            <div><b>Critical Path:</b> <span id="criticalPath">-</span></div>
+                            <div><b>Pipeline Depth:</b> <span id="pipelineDepth">-</span></div>
+                            <div><b>Arch State:</b> <span id="archStateCount">-</span></div>
+                            <div><b>Microarch Regs:</b> <span id="uarchStateCount">-</span></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Selection Properties Section -->
+                <div class="sidebar-section" id="selectionSection" style="display: none;">
+                    <h3 class="sidebar-section-title">Selection Properties</h3>
+                    <div class="sidebar-section-content">
+                        <div id="selectionText" style="font-size: 11px; color: #666; margin-bottom: 8px; max-height: 120px; overflow-y: auto;">
+                            No nodes or edges selected
+                        </div>
+                        <button onclick="clearSelection()" style="width: 100%; padding: 6px; font-size: 11px;">Clear Selection</button>
+                    </div>
+                </div>
+
+                <!-- Optimization Strategies Section -->
+                <div class="sidebar-section" id="optimizationSection" style="display: none;">
+                    <h3 class="sidebar-section-title">Optimization Strategies</h3>
+                    <div class="sidebar-section-content">
+                        <!-- Basic Optimizations -->
+                        <div style="margin-bottom: 12px; padding: 8px; background: #f0f8ff; border-radius: 4px;">
+                            <div style="font-size: 10px; font-weight: bold; margin-bottom: 6px;">Basic Optimizations:</div>
+                            <label style="font-size: 10px; display: block; margin-bottom: 4px;">
+                                <input type="checkbox" id="optAlias" checked> Propagate Wire Aliases
+                            </label>
+                            <label style="font-size: 10px; display: block; margin-bottom: 4px;">
+                                <input type="checkbox" id="optMux" checked> Merge Nested Muxes
+                            </label>
+                            <label style="font-size: 10px; display: block; margin-bottom: 6px;">
+                                <input type="checkbox" id="optSplit" checked> Split Arch State R/W
+                            </label>
+                            <button onclick="applyOptimizations()" style="width: 100%; padding: 6px; font-size: 10px;">Apply Basic Optimizations</button>
+                        </div>
+
+                        <!-- Strategy Dropdown -->
+                        <label for="strategySelect" style="font-size: 11px; font-weight: bold; display: block; margin-bottom: 6px;">Advanced Strategy:</label>
+                        <select id="strategySelect" onchange="onStrategySelected()" style="width: 100%; padding: 6px; border: 2px solid #ddd; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
+                            <option value="">-- Select Strategy --</option>
+                            <option value="manual_pipelining">Manual Pipelining</option>
+                            <option value="multi_stage_pipelining">Multi-Stage Manual Pipelining</option>
+                            <option value="change_latency">Change Operation Latency</option>
+                            <option value="alu_integration">ALU Integration</option>
+                            <option value="instruction_merging">Instruction Merging</option>
+                            <option value="resource_sharing">Resource Sharing/Duplication</option>
+                            <option value="memory_port_sharing">Memory Port Sharing</option>
+                            <option value="operation_serialization">Operation Serialization/Parallelization</option>
+                            <option value="branch_prediction">Branch Prediction (Not-Taken)</option>
+                            <option value="retiming">Retiming</option>
+                            <option value="register_renaming">Register Renaming</option>
+                            <option value="architectural_retiming">Architectural Retiming</option>
+                            <option value="ooo_execution">Out-of-Order Execution</option>
+                            <option value="memory_transform">Memory Access Transformation</option>
+                            <option value="unpipelining">Unpipelining</option>
+                        </select>
+
+                        <!-- Strategy Description -->
+                        <div id="strategyDescription" style="font-size: 10px; color: #666; background: #fafafa; padding: 8px; border-radius: 4px; margin-bottom: 8px; min-height: 60px; display: none;">
+                            Select a strategy to see its description
+                        </div>
+
+                        <!-- Dynamic Parameters Container -->
+                        <div id="strategyParameters" style="margin-bottom: 8px;"></div>
+
+                        <!-- Apply Button -->
+                        <button id="applyStrategyBtn" onclick="applyStrategy()" style="width: 100%; padding: 8px; font-size: 11px; display: none;">Apply Strategy</button>
+
+                        <!-- Reset Button -->
+                        <button onclick="resetToOriginal()" style="width: 100%; padding: 6px; font-size: 10px; margin-top: 6px; background: #f0f0f0;">Reset to Original</button>
+                    </div>
+                </div>
+
+                <!-- Dependency Analysis Section -->
+                <div class="sidebar-section" id="dependencySection" style="display: none;">
+                    <h3 class="sidebar-section-title">Dependency Analysis</h3>
+                    <div class="sidebar-section-content">
+                        <div style="font-size: 10px; color: #666; margin-bottom: 8px;">
+                            Analyze dependencies and hazards in the current graph
+                        </div>
+                        <button onclick="analyzeDependencies()" style="width: 100%; padding: 6px; font-size: 10px; margin-bottom: 6px;">Analyze Dependencies</button>
+                        <button onclick="showCriticalPath()" style="width: 100%; padding: 6px; font-size: 10px;">Show Critical Path</button>
+                        <div id="dependencyResults" style="font-size: 10px; margin-top: 8px; max-height: 120px; overflow-y: auto;"></div>
+                    </div>
+                </div>
+
+                <!-- Collapsible View Controls -->
+                <div class="sidebar-section" id="viewControlsSection" style="display: none;">
+                    <h3 class="sidebar-section-title" onclick="toggleSection('viewControls')" style="cursor: pointer;">▼ View Controls</h3>
+                    <div id="viewControls" class="sidebar-section-content">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 6px;">
+                            <button onclick="zoomIn()" style="padding: 6px; font-size: 10px;">Zoom In</button>
+                            <button onclick="zoomOut()" style="padding: 6px; font-size: 10px;">Zoom Out</button>
+                            <button onclick="resetView()" style="padding: 6px; font-size: 10px;">Reset View</button>
+                            <button onclick="autoLayout()" style="padding: 6px; font-size: 10px;">Auto Layout</button>
+                        </div>
+                        <button onclick="exportGraph()" style="width: 100%; padding: 6px; font-size: 10px; margin-bottom: 6px;">Export Graph</button>
+                        <button onclick="document.getElementById('graphImport').click()" style="width: 100%; padding: 6px; font-size: 10px;">Import Graph</button>
+                        <input type="file" id="graphImport" accept=".json" onchange="importGraph(event)" style="display: none;">
+
+                        <div style="font-size: 10px; color: #666; margin-top: 10px; padding-top: 10px; border-top: 1px solid #ddd;">
+                            <div style="font-weight: bold; margin-bottom: 4px;">Keyboard Shortcuts:</div>
+                            <div style="line-height: 1.6;">
+                                <div><b>Ctrl+A:</b> Select all</div>
+                                <div><b>Esc/Del:</b> Clear selection</div>
+                                <div><b>Ctrl+S:</b> Export graph</div>
+                                <div><b>Ctrl+Z:</b> Reset to original</div>
+                                <div><b>+/-:</b> Zoom in/out</div>
+                                <div><b>0:</b> Reset view</div>
+                                <div><b>R:</b> Auto layout</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Collapsible Legend -->
+                <div class="sidebar-section" id="legendSection" style="display: none;">
+                    <h3 class="sidebar-section-title" onclick="toggleSection('legend')" style="cursor: pointer;">▼ Node Colors Legend</h3>
+                    <div id="legend" class="sidebar-section-content">
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: lightgreen; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">ISA State</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: lightcyan; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Read Node (*_rd)</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: peachpuff; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Write Node (*_wr)</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: gold; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Arch State</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: lightgray; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Microarch State</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: lightblue; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Operation/Variable</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: orange; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Instruction Enable</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: lightcoral; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Pipeline Register</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: mediumpurple; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Microarch Counter</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: lightsalmon; border: 1px solid #999; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Shared Resource</span>
+                        </div>
+                        <div style="display: flex; align-items: center; margin-bottom: 6px;">
+                            <div style="width: 16px; height: 16px; background: red; border: 2px solid black; margin-right: 8px; border-radius: 2px;"></div>
+                            <span style="font-size: 10px;">Selected</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Verilog Generation Section -->
+                <div class="sidebar-section" id="verilogSection" style="display: none;">
+                    <h3 class="sidebar-section-title">Verilog Generation</h3>
+                    <div class="sidebar-section-content">
+                        <label for="moduleName" style="font-size: 11px; display: block; margin-bottom: 6px;">Module Name:</label>
+                        <input type="text" id="moduleName" value="processor" style="width: 100%; padding: 6px; border: 2px solid #ddd; border-radius: 4px; font-size: 11px; margin-bottom: 8px;">
+                        <button onclick="generateVerilog()" style="width: 100%; padding: 8px; font-size: 11px;">Generate Verilog</button>
+                    </div>
+                </div>
+            </div>
+
+            <div style="display: flex; flex: 1; position: relative;">
+                <!-- Tree Navigator Pane -->
+                <div class="tree-pane" id="treePane">
+                    <div class="tree-header">Optimization History</div>
+                    <div class="tree-container" id="treeContainer">
+                        <!-- Tree nodes will be dynamically added here -->
+                    </div>
+                    <div class="tree-footer">
+                        <button onclick="generateScript()" style="width: 100%; padding: 6px; font-size: 10px;">
+                            Generate Python Script
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Toggle button for tree pane -->
+                <button class="toggle-tree-btn" id="toggleTreeBtn" onclick="toggleTreePane()">◀</button>
+
+                <!-- Canvas Container -->
+                <div class="canvas-container" style="flex: 1;">
+                    <canvas id="canvas" width="1050" height="600"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let pyodide;
+        let graphData = null;
+        let originalGraphData = null;  // Store original before optimizations
+        let canvas, ctx;
+        let scale = 1.0;
+        let offsetX = 0;
+        let offsetY = 0;
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let draggedNode = null;
+        let nodePositions = new Map();
+        let selectedNodes = new Set();  // Track selected nodes
+        let selectedEdges = new Set();  // Track selected edges
+
+        let isInitialized = false;
+        let pyodideLoadAttempted = false;
+        let pyodideLoadInProgress = false;
+
+        // Optimization tree state
+        let treeRoot = null;
+        let currentTreeNode = null;
+        let treeNodeCounter = 0;
+        let treeVisible = true;
+        let isaFiles = {};
+
+        // Initialize on load
+        window.addEventListener('load', init);
+
+        // Keyboard shortcuts
+        window.addEventListener('keydown', (e) => {
+            // Don't handle shortcuts when typing in input fields
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                return;
+            }
+
+            // Delete/Backspace: clear selection
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (selectedNodes.size > 0 || selectedEdges.size > 0) {
+                    clearSelection();
+                    e.preventDefault();
+                }
+            }
+
+            // Escape: clear selection
+            if (e.key === 'Escape') {
+                if (selectedNodes.size > 0 || selectedEdges.size > 0) {
+                    clearSelection();
+                }
+            }
+
+            // Ctrl/Cmd + A: select all nodes
+            if ((e.ctrlKey || e.metaKey) && e.key === 'a' && graphData) {
+                graphData.nodes.forEach(node => selectedNodes.add(node.id));
+                renderGraph();
+                updateSelectionInfo();
+                e.preventDefault();
+            }
+
+            // Ctrl/Cmd + S: export graph
+            if ((e.ctrlKey || e.metaKey) && e.key === 's' && graphData) {
+                exportGraph();
+                e.preventDefault();
+            }
+
+            // Ctrl/Cmd + Z: reset to original
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && originalGraphData) {
+                resetToOriginal();
+                e.preventDefault();
+            }
+
+            // +/=: zoom in
+            if ((e.key === '+' || e.key === '=') && !e.ctrlKey && !e.metaKey) {
+                zoomIn();
+                e.preventDefault();
+            }
+
+            // -: zoom out
+            if (e.key === '-' && !e.ctrlKey && !e.metaKey) {
+                zoomOut();
+                e.preventDefault();
+            }
+
+            // 0: reset view
+            if (e.key === '0' && !e.ctrlKey && !e.metaKey) {
+                resetView();
+                e.preventDefault();
+            }
+
+            // R: auto layout
+            if (e.key === 'r' && !e.ctrlKey && !e.metaKey) {
+                autoLayout();
+                e.preventDefault();
+            }
+        });
+
+        async function init() {
+            if (isInitialized) {
+                console.warn('⚠️ init() called multiple times, ignoring');
+                return;
+            }
+            isInitialized = true;
+            console.log('🚀 Initializing isacomp WASM...');
+            canvas = document.getElementById('canvas');
+            ctx = canvas.getContext('2d');
+
+            // Set canvas size to match container
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+
+            // Setup canvas interaction
+            setupCanvasInteraction();
+
+            // Load ISA files
+            await loadISAFiles();
+
+            // Load Pyodide
+            await loadPyodideForIsacomp();
+
+            // DON'T auto-load example - wait for user to click button
+            console.log('✓ Init complete. User can now load examples.');
+        }
+
+        async function loadISAFiles() {
+            try {
+                const response = await fetch('mips32_isa_files.json');
+                if (!response.ok) {
+                    throw new Error(`Failed to load ISA files: ${response.status}`);
+                }
+                isaFiles = await response.json();
+
+                // Populate dropdown
+                const select = document.getElementById('isaSelect');
+                Object.keys(isaFiles).sort().forEach(name => {
+                    const option = document.createElement('option');
+                    option.value = name;
+                    option.textContent = name.toUpperCase();
+                    select.appendChild(option);
+                });
+
+                console.log(`✓ Loaded ${Object.keys(isaFiles).length} ISA files`);
+            } catch (error) {
+                console.error('Failed to load ISA files:', error);
+                updateStatus('Warning: Could not load ISA files', 'error');
+            }
+        }
+
+        function loadSelectedISA() {
+            const select = document.getElementById('isaSelect');
+            const name = select.value;
+
+            if (!name || !isaFiles[name]) {
+                return;
+            }
+
+            document.getElementById('isaInput').value = isaFiles[name];
+            parseISA();
+        }
+
+        function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const content = e.target.result;
+                document.getElementById('isaInput').value = content;
+                updateStatus(`✓ Loaded ${file.name}`, 'success');
+                // Auto-parse after loading
+                parseISA();
+            };
+            reader.onerror = function() {
+                updateStatus(`Error loading file: ${file.name}`, 'error');
+            };
+            reader.readAsText(file);
+        }
+
+        function resizeCanvas() {
+            const container = canvas.parentElement;
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            if (graphData) {
+                renderGraph();
+            }
+        }
+
+        async function loadPyodideForIsacomp() {
+            // ABSOLUTE GUARD: Never run this function twice
+            if (pyodideLoadAttempted) {
+                console.warn('⚠️ loadPyodideForIsacomp() already attempted, ignoring');
+                return;
+            }
+            if (pyodideLoadInProgress) {
+                console.warn('⚠️ loadPyodideForIsacomp() already in progress, ignoring');
+                return;
+            }
+
+            pyodideLoadAttempted = true;
+            pyodideLoadInProgress = true;
+
+            try {
+                console.log('🚀 Starting Pyodide load... (this will only happen ONCE)');
+
+                // Check if loadPyodide function exists
+                if (typeof window.loadPyodide === 'undefined') {
+                    throw new Error('loadPyodide function not found. Check internet connection and CDN access.');
+                }
+
+                console.log('DEBUG: typeof window.loadPyodide =', typeof window.loadPyodide);
+
+                updateStatus('Loading Pyodide runtime (20-60 seconds on first load)...', 'loading');
+
+                const pyodideInstance = await window.loadPyodide({
+                    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.25.0/full/",
+                    fullStdLib: false,  // Faster loading
+                });
+
+                console.log('✓ window.loadPyodide() returned');
+                console.log('DEBUG: pyodideInstance =', pyodideInstance);
+                console.log('DEBUG: typeof pyodideInstance =', typeof pyodideInstance);
+
+                if (!pyodideInstance) {
+                    throw new Error('window.loadPyodide() returned undefined/null!');
+                }
+
+                // Assign to global only after confirming it's valid
+                pyodide = pyodideInstance;
+                console.log('✓ Assigned to global pyodide variable');
+                console.log('DEBUG: global pyodide =', pyodide);
+
+                updateStatus('Loading isacomp core...', 'loading');
+
+                // Helper function to load Python file and register as importable module
+                async function loadPythonModule(filename) {
+                    const response = await fetch(filename);
+                    if (!response.ok) {
+                        throw new Error(`Failed to fetch ${filename}: ${response.status}`);
+                    }
+                    const code = await response.text();
+                    const moduleName = filename.replace('.py', '');
+
+                    // Execute the code with __name__ set to module name (not "__main__")
+                    // This prevents if __name__ == "__main__" blocks from executing
+                    pyodide.globals.set('_module_code', code);
+                    pyodide.globals.set('_module_name', moduleName);
+                    await pyodide.runPythonAsync(`
+import sys
+from types import ModuleType
+
+# Create module and execute code in its namespace
+mod = ModuleType('${moduleName}')
+mod.__name__ = '${moduleName}'
+mod.__file__ = '${filename}'
+
+# Execute the module code in the module's namespace
+exec(_module_code, mod.__dict__)
+
+# Register in sys.modules
+sys.modules['${moduleName}'] = mod
+
+# Also copy to globals for backward compatibility
+for name in dir(mod):
+    if not name.startswith('_'):
+        globals()[name] = getattr(mod, name)
+`);
+                    console.log(`✓ ${filename} loaded and registered`);
+                }
+
+                // Load resource_graph.py first
+                await loadPythonModule('resource_graph.py');
+
+                // Load timing_utils (only depends on resource_graph)
+                await loadPythonModule('timing_utils.py');
+
+                // Load utility modules (dependencies for other modules)
+                await loadPythonModule('hardware_builders.py');
+                await loadPythonModule('array_access_utils.py');
+                await loadPythonModule('mux_utils.py');
+                await loadPythonModule('graph_utils.py');
+                await loadPythonModule('pipeline_utils.py');
+                await loadPythonModule('instruction_decode_utils.py');
+
+                // Load hazard_resolution (depends on hardware_builders, array_access_utils)
+                await loadPythonModule('hazard_resolution.py');
+
+
+                // Create stub module for mem_width_inference (not available in WASM)
+                await pyodide.runPythonAsync(`
+import sys
+from types import ModuleType
+
+mem_width_inference = ModuleType('mem_width_inference')
+def stub_infer_mem_widths(graph):
+    """Stub - mem width inference not available in WASM version."""
+    pass
+mem_width_inference.infer_mem_widths = stub_infer_mem_widths
+sys.modules['mem_width_inference'] = mem_width_inference
+`);
+                console.log('✓ Created stub modules');
+
+                await loadPythonModule('isa_parser.py');
+
+                // Load graph_optimizer.py
+                await loadPythonModule('graph_optimizer.py');
+
+                // Load isa_state_gating.py (needed by operation_sharing and operation_serialization)
+                await loadPythonModule('isa_state_gating.py');
+
+                // Load alu_integration.py (needed by verilog_module_generators)
+                await loadPythonModule('alu_integration.py');
+
+                // Load verilog_module_generators.py
+                await loadPythonModule('backends/verilog/verilog_module_generators.py');
+
+                // Load verilog_generator.py
+                await loadPythonModule('backends/verilog/verilog_generator.py');
+
+                // Load retiming_optimization.py
+                await loadPythonModule('retiming_optimization.py');
+
+                // Load pipelining_optimization.py
+                await loadPythonModule('pipelining_optimization.py');
+
+                // Load operation_sharing.py
+                await loadPythonModule('operation_sharing.py');
+
+                // Load unroll_shared_operations.py
+                await loadPythonModule('unroll_shared_operations.py');
+
+                // Load operation_serialization.py
+                await loadPythonModule('operation_serialization.py');
+
+                // Load operation_parallelization.py
+                await loadPythonModule('operation_parallelization.py');
+
+
+                // Load register_renaming_optimization.py
+                await loadPythonModule('register_renaming_optimization.py');
+
+                // Load graph_merger.py
+                await loadPythonModule('graph_merger.py');
+
+                // Load memory_sharing.py
+                await loadPythonModule('memory_sharing.py');
+
+                // Load branch_prediction_not_taken.py
+                await loadPythonModule('branch_prediction_not_taken.py');
+
+
+
+                // Load architectural_retiming.py
+                await loadPythonModule('architectural_retiming.py');
+
+                // Load memory_access_transform.py
+                await loadPythonModule('memory_access_transform.py');
+
+
+                // Load unpipelining_optimization.py
+                await loadPythonModule('unpipelining_optimization.py');
+
+                // Create wrapper functions for JavaScript
+                await pyodide.runPythonAsync(`
+import json
+from isa_parser import ISAParser
+from resource_graph import ResourceGraph, Node, Edge
+
+def create_graph_from_isa(isa_text):
+    """Parse ISA text and return JSON representation."""
+    try:
+        parser = ISAParser()
+        graph = parser.parse(isa_text)
+
+        # Infer timing
+        graph.infer_uarch_time()
+
+        # Convert to dict
+        graph_dict = graph.to_json()
+
+        # Calculate stats
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': graph_dict,
+            'stats': stats
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+# Store graphs for optimization
+_graph_cache = {}
+
+def optimize_graph(graph_json, propagate_aliases=True, merge_muxes=True, split_arch_state=True):
+    """Apply optimizations to a graph."""
+    try:
+        from graph_optimizer import GraphOptimizer
+
+        # Reconstruct graph from JSON
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        # Reconstruct nodes
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        # Reconstruct edges
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Apply optimizations
+        optimizer = GraphOptimizer(graph)
+        optimizer.optimize(
+            enable_all=False,
+            propagate_aliases=propagate_aliases,
+            merge_nested_muxes=merge_muxes,
+            split_arch_state=split_arch_state
+        )
+
+        # Convert back to JSON
+        optimized_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': optimized_dict,
+            'stats': stats
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def generate_verilog_code(graph_json, module_name="processor"):
+    """Generate Verilog code from a graph."""
+    try:
+        from backends.verilog import generate_verilog
+
+        # Reconstruct graph from JSON
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        # Reconstruct nodes
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        # Reconstruct edges
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Generate Verilog
+        verilog_code = generate_verilog(graph, module_name)
+
+        return json.dumps({
+            'success': True,
+            'verilog': verilog_code
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def apply_retiming_to_graph(graph_json, node_ids_json, direction="forward"):
+    """Apply retiming optimization to selected nodes."""
+    try:
+        from retiming_optimization import apply_retiming_forward, apply_retiming_backward
+
+        # Parse inputs
+        node_ids = json.loads(node_ids_json)
+
+        # Reconstruct graph from JSON
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        # Reconstruct nodes
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        # Reconstruct edges
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Apply retiming
+        if direction == "forward":
+            success = apply_retiming_forward(graph, node_ids)
+        else:
+            success = apply_retiming_backward(graph, node_ids)
+
+        if not success:
+            return json.dumps({
+                'success': False,
+                'error': f'Could not apply {direction} retiming to selected nodes. Check that they are uarch_state registers and timing constraints allow movement.'
+            })
+
+        # Reinfer timing after retiming
+        graph.infer_uarch_time()
+
+        # Convert back to JSON
+        retimed_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': retimed_dict,
+            'stats': stats
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def apply_manual_pipelining_to_graph(graph_json, edge_ids_json, stage_name="pipeline_stage"):
+    """Apply manual pipelining by inserting registers on selected edges."""
+    try:
+        # Parse inputs
+        edge_ids = json.loads(edge_ids_json)
+
+        # Reconstruct graph from JSON
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        # Reconstruct nodes
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        # Reconstruct edges
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Insert pipeline registers on selected edges
+        pipeline_registers = []
+
+        for edge_id in edge_ids:
+            if edge_id not in graph.edges:
+                continue
+
+            edge = graph.edges[edge_id]
+            source_node = edge.source
+            target_node = edge.target
+
+            # Create pipeline register node
+            reg_name = f"{source_node.id}_{stage_name}_reg"
+            reg_data = {
+                'type': 'uarch_state',
+                'name': reg_name,
+                'display_name': reg_name,
+                'bit_width': 32,  # Default width
+                'stage_name': stage_name
+            }
+
+            pipeline_reg = Node(reg_name, reg_data, is_uarch_state=True)
+            graph.add_node(pipeline_reg)
+            pipeline_registers.append(pipeline_reg)
+
+            # Store original edge data
+            edge_data_dict = edge.data.copy() if edge.data else {}
+
+            # Remove original edge
+            graph.remove_edge(edge_id)
+
+            # Create new edges: source -> pipeline_reg -> target
+            edge1 = Edge(source_node, pipeline_reg, data={'type': 'pipeline_stage', 'stage': stage_name})
+            edge2 = Edge(pipeline_reg, target_node, data=edge_data_dict)
+
+            graph.add_edge(edge1)
+            graph.add_edge(edge2)
+
+        # Re-infer timing
+        graph.infer_uarch_time()
+
+        # Convert back to JSON
+        pipelined_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': pipelined_dict,
+            'stats': stats,
+            'message': f'Inserted {len(pipeline_registers)} pipeline registers'
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def apply_automatic_pipelining_to_graph(graph_json, num_stages=2):
+    """Apply automatic pipelining to add multiple pipeline stages."""
+    try:
+        from pipelining_optimization import apply_pipelining_optimization
+
+        # Reconstruct graph from JSON
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        # Reconstruct nodes
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        # Reconstruct edges
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Apply automatic pipelining
+        success = apply_pipelining_optimization(graph, num_stages)
+
+        if not success:
+            return json.dumps({
+                'success': False,
+                'error': 'Could not apply automatic pipelining. The graph may not be suitable for automatic stage insertion.'
+            })
+
+        # Convert back to JSON
+        pipelined_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': pipelined_dict,
+            'stats': stats,
+            'message': f'Applied automatic pipelining with {num_stages} stages'
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def apply_resource_sharing_to_selected(graph_json, node_ids_json, mode='share', sharing_type='spatial'):
+    """Apply resource sharing or duplication to selected nodes."""
+    try:
+        from opt.sharing.operation_sharing import apply_operation_sharing, SharingMode
+        from opt.sharing.unroll_shared_operations import unroll_shared_operations
+
+        # Parse inputs
+        node_ids = json.loads(node_ids_json)
+
+        # Reconstruct graph from JSON
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        # Reconstruct nodes
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        # Reconstruct edges
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Apply transformation based on mode
+        if mode == 'share':
+            # Apply resource sharing
+            sharing_mode = SharingMode.TEMPORAL if sharing_type == 'temporal' else SharingMode.SPATIAL
+            success = apply_operation_sharing(graph, selected_node_ids=node_ids, mode=sharing_mode)
+
+            if not success:
+                return json.dumps({
+                    'success': False,
+                    'error': 'Could not apply resource sharing. Make sure you selected at least 2 nodes of the same type (e.g., multiple ADD operations).'
+                })
+
+            message = f'Shared {len(node_ids)} nodes into time-multiplexed hardware'
+
+        elif mode == 'duplicate':
+            # Apply resource duplication (unroll shared operations)
+            success = unroll_shared_operations(graph)
+
+            if not success:
+                return json.dumps({
+                    'success': False,
+                    'error': 'Could not unroll shared operations. Make sure the graph contains previously shared resources.'
+                })
+
+            message = f'Unrolled shared operations into parallel hardware'
+
+        else:
+            return json.dumps({
+                'success': False,
+                'error': f'Unknown mode: {mode}'
+            })
+
+        # Convert back to JSON
+        transformed_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': transformed_dict,
+            'stats': stats,
+            'message': message
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def apply_operation_serialization_or_parallelization(graph_json, node_ids_json, mode='serialize', granularity_bits=8):
+    """Apply operation serialization or parallelization."""
+    try:
+        from operation_serialization import apply_operation_serialization, SerializationSpec
+        from operation_parallelization import parallelize_serialized_operations
+
+        # Parse inputs
+        node_ids = json.loads(node_ids_json)
+
+        # Reconstruct graph from JSON
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        # Reconstruct nodes
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        # Reconstruct edges
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Apply transformation based on mode
+        if mode == 'serialize':
+            # Apply serialization to selected nodes
+            if not node_ids:
+                return json.dumps({
+                    'success': False,
+                    'error': 'Please select at least one operation node to serialize'
+                })
+
+            specs = []
+            for node_id in node_ids:
+                specs.append(SerializationSpec(node_id, granularity_bits))
+
+            success = apply_operation_serialization(graph, specs)
+
+            if not success:
+                return json.dumps({
+                    'success': False,
+                    'error': 'Could not serialize operations. Make sure you selected operation nodes (e.g., ADD, SUB).'
+                })
+
+            message = f'Serialized {len(node_ids)} operation(s) to {granularity_bits}-bit granularity'
+
+        elif mode == 'parallelize':
+            # Apply parallelization (works on whole graph or selected node)
+            operation_id = node_ids[0] if node_ids else None
+            success = parallelize_serialized_operations(graph, operation_id=operation_id)
+
+            if not success:
+                return json.dumps({
+                    'success': False,
+                    'error': 'Could not parallelize operations. Make sure the graph contains serialized operations.'
+                })
+
+            message = 'Parallelized serialized operations into wide parallel form'
+
+        else:
+            return json.dumps({
+                'success': False,
+                'error': f'Unknown mode: {mode}'
+            })
+
+        # Re-infer timing
+        graph.infer_uarch_time()
+
+        # Convert back to JSON
+        transformed_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': transformed_dict,
+            'stats': stats,
+            'message': message
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def apply_unpipelining_optimization(graph_json):
+    """Remove all pipeline components and restore single-cycle implementation."""
+    try:
+        from unpipelining_optimization import unpipeline_graph
+
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        success = unpipeline_graph(graph)
+
+        if not success:
+            return json.dumps({
+                'success': False,
+                'error': 'Could not unpipeline graph. Graph may already be single-cycle.'
+            })
+
+        graph.infer_uarch_time()
+        transformed_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': transformed_dict,
+            'stats': stats,
+            'message': 'Removed all pipeline components, restored to single-cycle'
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def merge_multiple_instructions(isa_texts_json):
+    """Merge multiple ISA files into a single processor."""
+    try:
+        from graph_merger import merge_instructions
+
+        # Parse the input: {name1: text1, name2: text2, ...}
+        isa_texts = json.loads(isa_texts_json)
+
+        if len(isa_texts) < 2:
+            return json.dumps({
+                'success': False,
+                'error': 'Please provide at least 2 ISA files to merge'
+            })
+
+        # merge_instructions expects Dict[str, str] mapping names to ISA text
+        merged_graph = merge_instructions(isa_texts)
+
+        # Infer timing
+        merged_graph.infer_uarch_time()
+
+        # Convert to dict
+        graph_dict = merged_graph.to_json()
+        stats = {
+            'nodes': len(merged_graph.nodes),
+            'edges': len(merged_graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': graph_dict,
+            'stats': stats,
+            'message': f'Merged {len(isa_texts)} instructions into single processor'
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def apply_memory_port_sharing(graph_json, read_ports=1, write_ports=1, read_write_ports=0):
+    """Apply memory port sharing optimization."""
+    try:
+        from memory_sharing import apply_register_file_sharing
+
+        # Reconstruct graph
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Apply memory sharing
+        success = apply_register_file_sharing(graph, read_ports, write_ports, read_write_ports)
+
+        if not success:
+            return json.dumps({
+                'success': False,
+                'error': 'Could not apply memory port sharing. Make sure the graph has register file or memory accesses.'
+            })
+
+        graph.infer_uarch_time()
+        transformed_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': transformed_dict,
+            'stats': stats,
+            'message': f'Applied memory sharing: {read_ports}R + {write_ports}W + {read_write_ports}RW ports'
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def apply_alu_integration_opt(graph_json, alu_latency=1):
+    """Apply ALU integration optimization."""
+    try:
+        from alu_integration import apply_alu_integration
+
+        # Reconstruct graph
+        graph_dict = json.loads(graph_json)
+        graph = ResourceGraph()
+
+        node_map = {}
+        for node_data in graph_dict['nodes']:
+            node = Node(
+                node_id=node_data['id'],
+                data=node_data.get('data', {}),
+                is_arch_state=node_data.get('is_arch_state', False),
+                is_uarch_state=node_data.get('is_uarch_state', False),
+                uarch_time=node_data.get('uarch_time'),
+                latency=node_data.get('latency', 0)
+            )
+            graph.add_node(node)
+            node_map[node.id] = node
+
+        for edge_data in graph_dict['edges']:
+            source = node_map[edge_data['source']]
+            target = node_map[edge_data['target']]
+            edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+            graph.add_edge(edge)
+
+        # Apply ALU integration
+        success = apply_alu_integration(graph, alu_latency)
+
+        if not success:
+            return json.dumps({
+                'success': False,
+                'error': 'Could not apply ALU integration. Make sure the graph has arithmetic operations.'
+            })
+
+        graph.infer_uarch_time()
+        transformed_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': transformed_dict,
+            'stats': stats,
+            'message': f'Applied ALU integration with latency={alu_latency}'
+        })
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+# Helper function to reconstruct graph from JSON
+def reconstruct_graph_from_json(graph_json):
+    """Reconstruct a ResourceGraph object from JSON."""
+    graph_dict = json.loads(graph_json)
+    graph = ResourceGraph()
+
+    node_map = {}
+    for node_data in graph_dict['nodes']:
+        node = Node(
+            node_id=node_data['id'],
+            data=node_data.get('data', {}),
+            is_arch_state=node_data.get('is_arch_state', False),
+            is_uarch_state=node_data.get('is_uarch_state', False),
+            uarch_time=node_data.get('uarch_time'),
+            latency=node_data.get('latency', 0)
+        )
+        graph.add_node(node)
+        node_map[node.id] = node
+
+    for edge_data in graph_dict['edges']:
+        source = node_map[edge_data['source']]
+        target = node_map[edge_data['target']]
+        edge = Edge(source, target, edge_id=edge_data['id'], data=edge_data.get('data', {}))
+        graph.add_edge(edge)
+
+    return graph, node_map
+
+# Unified dispatcher for all optimization strategies
+def apply_optimization_strategy(strategy_key, graph_json, params_json):
+    """
+    Unified dispatcher for all 17 optimization strategies.
+    Routes to the appropriate optimization function based on strategy_key.
+    """
+    try:
+        params = json.loads(params_json)
+
+        if strategy_key == 'manual_pipelining':
+            from pipelining_optimization import apply_manual_pipelining
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            # Get selected edges
+            selected_edges = params.get('selected_edges', [])
+            stage_name = params.get('stage_name', 'pipeline_stage')
+
+            if not selected_edges:
+                return json.dumps({'success': False, 'error': 'Please select edges to insert pipeline registers'})
+
+            success = apply_manual_pipelining(graph, selected_edges, stage_name)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not apply manual pipelining to selected edges'})
+
+        elif strategy_key == 'multi_stage_pipelining':
+            from pipelining_optimization import apply_multi_stage_pipelining
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            num_stages = params.get('num_stages', 2)
+            stage_names = params.get('stage_names', 'fetch,decode').split(',')
+
+            success = apply_multi_stage_pipelining(graph, num_stages, stage_names)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not apply multi-stage pipelining'})
+
+        elif strategy_key == 'change_latency':
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            selected_nodes = params.get('selected_nodes', [])
+            latency_type = params.get('latency_type', 'fixed')
+            latency_value = params.get('latency_value', 1)
+
+            if not selected_nodes:
+                return json.dumps({'success': False, 'error': 'Please select nodes to change latency'})
+
+            for node_id in selected_nodes:
+                if node_id in node_map:
+                    node = node_map[node_id]
+                    if latency_type == 'fixed':
+                        node.latency = latency_value
+                    elif latency_type == 'variable':
+                        node.latency = -1  # Variable latency indicator
+
+        elif strategy_key == 'alu_integration':
+            from alu_integration import apply_alu_integration
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            alu_latency = params.get('alu_latency', 1)
+            success = apply_alu_integration(graph, alu_latency)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not apply ALU integration'})
+
+        elif strategy_key == 'instruction_merging':
+            from graph_merger import ResourceGraphMerger
+            from isa_parser import ISAParser
+
+            # instruction_files should be {instruction_name: isa_text_content}
+            instruction_files = params.get('instruction_files', {})
+
+            if len(instruction_files) < 2:
+                return json.dumps({'success': False, 'error': 'Please provide at least 2 ISA files to merge'})
+
+            # Parse each ISA text into a ResourceGraph
+            merger = ResourceGraphMerger()
+            parser = ISAParser()
+
+            for instr_name, isa_text in instruction_files.items():
+                try:
+                    # Parse ISA text to graph
+                    instr_graph = parser.parse(isa_text)
+                    instr_graph.infer_uarch_time()
+
+                    # Add to merger (we need to manually add since we have text, not files)
+                    merger.graphs[instr_name] = instr_graph
+
+                    # Extract decode info from ISA text
+                    from graph_merger import InstructionDecodeInfo
+                    decode_info = InstructionDecodeInfo(instr_name)
+
+                    # Parse assume statements from ISA text
+                    for line in isa_text.split('\n'):
+                        line = line.strip()
+                        if line.startswith('assume '):
+                            # Parse assume statement: assume instr[31:26] == 0;
+                            import re
+                            match = re.search(r'assume\s+(\w+)\[(\d+):(\d+)\]\s*==\s*(\d+)', line)
+                            if match:
+                                signal = match.group(1)
+                                msb = int(match.group(2))
+                                lsb = int(match.group(3))
+                                value = int(match.group(4))
+                                decode_info.add_bit_pattern(signal, msb, lsb, value)
+
+                    merger.decode_info[instr_name] = decode_info
+
+                except Exception as e:
+                    return json.dumps({
+                        'success': False,
+                        'error': f'Failed to parse instruction {instr_name}: {str(e)}'
+                    })
+
+            # Merge all graphs
+            graph = merger.merge_graphs()
+
+        elif strategy_key == 'resource_sharing':
+            from opt.sharing.operation_sharing import apply_operation_sharing, SharingMode
+            from opt.sharing.unroll_shared_operations import unroll_shared_operations
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            selected_nodes = params.get('selected_nodes', [])
+            mode = params.get('mode', 'share')
+            sharing_type = params.get('sharing_type', 'spatial')
+
+            if len(selected_nodes) < 2:
+                return json.dumps({'success': False, 'error': 'Please select at least 2 nodes to share/duplicate'})
+
+            if mode == 'share':
+                sharing_mode = SharingMode.TEMPORAL if sharing_type == 'temporal' else SharingMode.SPATIAL
+                success = apply_operation_sharing(graph, selected_node_ids=selected_nodes, mode=sharing_mode)
+            else:  # duplicate
+                success = unroll_shared_operations(graph, selected_nodes)
+
+            if not success:
+                return json.dumps({'success': False, 'error': f'Could not apply resource {mode}'})
+
+        elif strategy_key == 'memory_port_sharing':
+            from memory_sharing import apply_register_file_sharing
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            read_ports = params.get('read_ports', 1)
+            write_ports = params.get('write_ports', 1)
+            read_write_ports = params.get('read_write_ports', 0)
+
+            success = apply_register_file_sharing(graph, read_ports, write_ports, read_write_ports)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not apply memory port sharing'})
+
+        elif strategy_key == 'operation_serialization':
+            from operation_serialization import apply_operation_serialization
+            from operation_parallelization import apply_operation_parallelization
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            selected_nodes = params.get('selected_nodes', [])
+            mode = params.get('mode', 'serialize')
+            granularity_bits = params.get('granularity_bits', 8)
+
+            if not selected_nodes:
+                return json.dumps({'success': False, 'error': 'Please select nodes for operation serialization/parallelization'})
+
+            if mode == 'serialize':
+                success = apply_operation_serialization(graph, selected_nodes[0], granularity_bits)
+            else:  # parallelize
+                success = apply_operation_parallelization(graph, selected_nodes[0])
+
+            if not success:
+                return json.dumps({'success': False, 'error': f'Could not apply operation {mode}'})
+
+        elif strategy_key == 'branch_prediction':
+            from branch_prediction_not_taken import apply_branch_prediction_not_taken
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            success = apply_branch_prediction_not_taken(graph)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not apply branch prediction'})
+
+        elif strategy_key == 'retiming':
+            from retiming_optimization import apply_retiming_forward, apply_retiming_backward
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            selected_nodes = params.get('selected_nodes', [])
+            direction = params.get('direction', 'later')
+
+            if not selected_nodes:
+                return json.dumps({'success': False, 'error': 'Please select microarch state nodes (gray) for retiming'})
+
+            if direction == 'later':
+                success = apply_retiming_forward(graph, selected_nodes)
+            else:  # earlier
+                success = apply_retiming_backward(graph, selected_nodes)
+
+            if not success:
+                return json.dumps({'success': False, 'error': f'Could not apply retiming {direction}'})
+
+        elif strategy_key == 'register_renaming':
+            from register_renaming_optimization import apply_register_renaming
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            selected_nodes = params.get('selected_nodes', [])
+            num_physical_regs = params.get('num_physical_regs', 64)
+            separate_regfiles = params.get('separate_regfiles', False)
+
+            if not selected_nodes:
+                return json.dumps({'success': False, 'error': 'Please select register file node (e.g., rf)'})
+
+            success = apply_register_renaming(graph, selected_nodes[0], num_physical_regs, separate_regfiles)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not apply register renaming'})
+
+        elif strategy_key == 'architectural_retiming':
+            from architectural_retiming import apply_architectural_retiming
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            selected_nodes = params.get('selected_nodes', [])
+            strategy = params.get('strategy', 'precomputation')
+            depth = params.get('depth', 1)
+
+            if not selected_nodes:
+                return json.dumps({'success': False, 'error': 'Please select target node for architectural retiming'})
+
+            success = apply_architectural_retiming(graph, selected_nodes[0], strategy, depth)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not apply architectural retiming'})
+
+        elif strategy_key == 'memory_transform':
+            from memory_access_transform import apply_memory_transformation
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            memory_name = params.get('memory_name', 'dmem')
+            target_width = params.get('target_width', 16)
+            strategy = params.get('strategy', 'serialize_parallelize')
+            dry_run = params.get('dry_run', False)
+
+            success = apply_memory_transformation(graph, memory_name, target_width, strategy, dry_run)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not apply memory transformation'})
+
+        elif strategy_key == 'unpipelining':
+            from unpipelining_optimization import unpipeline_graph
+            graph, node_map = reconstruct_graph_from_json(graph_json)
+
+            success = unpipeline_graph(graph)
+
+            if not success:
+                return json.dumps({'success': False, 'error': 'Could not unpipeline graph'})
+
+        else:
+            return json.dumps({
+                'success': False,
+                'error': f'Unknown optimization strategy: {strategy_key}'
+            })
+
+        # Re-infer timing after optimization
+        graph.infer_uarch_time()
+
+        # Convert back to JSON
+        optimized_dict = graph.to_json()
+        stats = {
+            'nodes': len(graph.nodes),
+            'edges': len(graph.edges)
+        }
+
+        return json.dumps({
+            'success': True,
+            'graph': optimized_dict,
+            'stats': stats
+        })
+
+    except Exception as e:
+        import traceback
+        return json.dumps({
+            'success': False,
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+`);
+
+                console.log('✓ isacomp core loaded successfully');
+
+                // Verify wrapper functions are defined
+                try {
+                    const test = await pyodide.runPythonAsync(`
+'create_graph_from_isa' in globals() and callable(create_graph_from_isa)
+`);
+                    console.log('✓ Wrapper functions verified:', test);
+                } catch (e) {
+                    console.error('✗ Wrapper function verification failed:', e);
+                }
+
+                updateStatus('✓ Ready! Load an example or write your own ISA spec.', 'success');
+                const parseBtn = document.getElementById('parseBtn');
+                if (parseBtn) {
+                    parseBtn.disabled = false;
+                }
+
+            } catch (error) {
+                // Detailed error message
+                let errorMsg = error.message || 'Unknown error';
+                if (error.message && error.message.includes('loadPyodide')) {
+                    errorMsg = 'Failed to load Pyodide from CDN. Check internet connection.';
+                } else if (error.message && error.message.includes('fetch')) {
+                    errorMsg = 'Failed to load Python modules. Make sure you are using an HTTP server.';
+                }
+
+                updateStatus(`✗ Error: ${errorMsg}`, 'error');
+                console.error('❌ FATAL: Pyodide loading failed:', error);
+                console.error('Stack:', error.stack);
+            } finally {
+                pyodideLoadInProgress = false;
+            }
+        }
+        async function parseISA() {
+            if (!pyodide) {
+                updateStatus('Pyodide not loaded yet', 'error');
+                return;
+            }
+
+            const isaText = document.getElementById('isaInput').value;
+            if (!isaText.trim()) {
+                updateStatus('Please enter an ISA specification', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('Parsing ISA specification...', 'loading');
+
+                // Set ISA text as Python variable to avoid escaping issues
+                pyodide.globals.set('isa_text_input', isaText);
+                const resultJson = await pyodide.runPythonAsync(`create_graph_from_isa(isa_text_input)`);
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    originalGraphData = JSON.parse(JSON.stringify(result.graph)); // Deep copy
+                    console.log('Graph data received:', graphData);
+                    console.log(`Nodes: ${graphData.nodes.length}, Edges: ${graphData.edges.length}`);
+                    console.log('First few nodes:', graphData.nodes.slice(0, 5));
+                    console.log('First few edges:', graphData.edges.slice(0, 5));
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`Successfully created graph with ${result.stats.nodes} nodes`, 'success');
+
+                    // Note: Section display is now handled by the parseISA wrapper at the end of this file
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                updateStatus(`Error parsing ISA: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function calculateLayout() {
+            if (!graphData) return;
+
+            const nodes = graphData.nodes;
+            const edges = graphData.edges;
+            const width = canvas.width;
+            const height = canvas.height;
+            const margin = 50;
+
+            console.log('Calculating architectural layout for', nodes.length, 'nodes');
+
+            nodePositions.clear();
+
+            // Build edge lookups for dependency analysis
+            const edgesByTarget = new Map();
+            edges.forEach(edge => {
+                if (!edgesByTarget.has(edge.target)) {
+                    edgesByTarget.set(edge.target, []);
+                }
+                edgesByTarget.get(edge.target).push(edge);
+            });
+
+            // Group nodes by uarch_time (time flows left-to-right)
+            const timeGroups = new Map();
+            nodes.forEach(node => {
+                const time = node.uarch_time !== null && node.uarch_time !== undefined ? node.uarch_time : 0;
+                if (!timeGroups.has(time)) {
+                    timeGroups.set(time, []);
+                }
+                timeGroups.get(time).push(node);
+            });
+
+            const times = Array.from(timeGroups.keys()).sort((a, b) => a - b);
+            const numTimes = times.length;
+
+            if (numTimes === 0) return;
+
+            // Calculate horizontal region boundaries (time flows left-to-right)
+            const availableWidth = width - 2 * margin;
+            const regionWidth = availableWidth / numTimes;
+
+            // Process each time region
+            times.forEach((time, timeIdx) => {
+                const nodesInRegion = timeGroups.get(time);
+
+                // Calculate horizontal center for this time region
+                const regionXCenter = margin + (timeIdx + 0.5) * regionWidth;
+
+                // Split nodes into three categories: reads, writes, logic
+                const reads = [];   // _rd nodes and their arch_state sources
+                const writes = [];  // _wr nodes
+                const logic = [];   // everything else
+
+                // Build node map for quick lookup
+                const regionNodeSet = new Set(nodesInRegion.map(n => n.id));
+
+                nodesInRegion.forEach(node => {
+                    if (node.id.endsWith('_rd')) {
+                        reads.push(node);
+                        // Also include arch_state that feeds this read
+                        const incomingEdges = edges.filter(e => e.target === node.id);
+                        incomingEdges.forEach(edge => {
+                            const sourceNode = nodes.find(n => n.id === edge.source);
+                            if (sourceNode && sourceNode.is_arch_state && regionNodeSet.has(sourceNode.id)) {
+                                if (!reads.find(n => n.id === sourceNode.id)) {
+                                    reads.push(sourceNode);
+                                }
+                            }
+                        });
+                    } else if (node.id.endsWith('_wr')) {
+                        writes.push(node);
+                    } else if (node.is_arch_state) {
+                        // Only add arch_state to reads if not already added
+                        if (!reads.find(n => n.id === node.id)) {
+                            reads.push(node);
+                        }
+                    } else {
+                        logic.push(node);
+                    }
+                });
+
+                // Compute dependency layers for each section
+                const readLayers = computeDependencyLayers(reads, edges);
+                const logicLayers = computeDependencyLayers(logic, edges);
+                const writeLayers = computeDependencyLayers(writes, edges);
+
+                // Calculate vertical space allocation
+                const availableHeight = height - 2 * margin;
+                const numReadLayers = readLayers.length;
+                const numLogicLayers = logicLayers.length;
+                const numWriteLayers = writeLayers.length;
+                const totalLayers = numReadLayers + numLogicLayers + numWriteLayers;
+
+                if (totalLayers === 0) return;
+
+                const layerHeight = availableHeight / Math.max(totalLayers, 1);
+
+                // Position read layers (top)
+                let layerOffset = 0;
+                readLayers.forEach((layerNodes, layerIdx) => {
+                    const layerY = margin + (layerOffset + layerIdx + 0.5) * layerHeight;
+                    positionLayerHorizontal(layerNodes, regionXCenter, layerY, regionWidth);
+                });
+                layerOffset += numReadLayers;
+
+                // Position logic layers (middle)
+                logicLayers.forEach((layerNodes, layerIdx) => {
+                    const layerY = margin + (layerOffset + layerIdx + 0.5) * layerHeight;
+                    positionLayerHorizontal(layerNodes, regionXCenter, layerY, regionWidth);
+                });
+                layerOffset += numLogicLayers;
+
+                // Position write layers (bottom)
+                writeLayers.forEach((layerNodes, layerIdx) => {
+                    const layerY = margin + (layerOffset + layerIdx + 0.5) * layerHeight;
+                    positionLayerHorizontal(layerNodes, regionXCenter, layerY, regionWidth);
+                });
+            });
+
+            console.log('Node positions calculated:', nodePositions.size);
+        }
+
+        function positionLayerHorizontal(layerNodes, xCenter, y, regionWidth) {
+            const numNodes = layerNodes.length;
+            if (numNodes === 1) {
+                nodePositions.set(layerNodes[0].id, { x: xCenter, y, node: layerNodes[0] });
+            } else {
+                // Spread nodes horizontally within the region
+                const horizontalSpacing = Math.min(regionWidth * 0.8 / Math.max(1, numNodes), 80);
+                const totalWidth = horizontalSpacing * numNodes;
+                const startX = xCenter - totalWidth / 2;
+
+                // Sort by node ID for consistency
+                const sorted = layerNodes.slice().sort((a, b) => a.id.localeCompare(b.id));
+                sorted.forEach((node, i) => {
+                    const x = startX + (i + 0.5) * horizontalSpacing;
+                    nodePositions.set(node.id, { x, y, node });
+                });
+            }
+        }
+
+        function computeDependencyLayers(nodes, edges) {
+            if (nodes.length === 0) return [];
+
+            const nodeSet = new Set(nodes.map(n => n.id));
+            const layers = [];
+            const remaining = new Set(nodes);
+            const layerMap = new Map(); // node_id -> layer_index
+
+            while (remaining.size > 0) {
+                const currentLayer = [];
+
+                for (const node of Array.from(remaining)) {
+                    // Check if dependencies are satisfied
+                    let dependenciesSatisfied = true;
+                    const incomingEdges = edges.filter(e => e.target === node.id);
+
+                    for (const edge of incomingEdges) {
+                        // Only consider dependencies within this node set
+                        if (nodeSet.has(edge.source)) {
+                            // If source hasn't been placed yet, dependency not satisfied
+                            if (!layerMap.has(edge.source)) {
+                                dependenciesSatisfied = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (dependenciesSatisfied) {
+                        currentLayer.push(node);
+                    }
+                }
+
+                // If no nodes can be placed, break to avoid infinite loop
+                if (currentLayer.length === 0) {
+                    // Place remaining nodes (handles cycles or disconnected nodes)
+                    currentLayer.push(...Array.from(remaining));
+                }
+
+                // Assign layer index
+                currentLayer.forEach(node => {
+                    layerMap.set(node.id, layers.length);
+                });
+
+                layers.push(currentLayer);
+
+                // Remove placed nodes from remaining
+                currentLayer.forEach(node => remaining.delete(node));
+            }
+
+            return layers;
+        }
+
+        function renderGraph() {
+            if (!graphData) return;
+
+            console.log('Rendering graph...');
+
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Save context state
+            ctx.save();
+
+            // Apply transformations
+            ctx.translate(offsetX, offsetY);
+            ctx.scale(scale, scale);
+
+            // Draw edges first
+            let edgesDrawn = 0;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([]);
+
+            graphData.edges.forEach(edge => {
+                const source = nodePositions.get(edge.source);
+                const target = nodePositions.get(edge.target);
+
+                if (source && target) {
+                    edgesDrawn++;
+
+                    // Check if edge is selected
+                    const isSelected = selectedEdges.has(edge.id);
+
+                    // Choose edge color based on type and selection (matching Python tkinter GUI)
+                    let edgeColor = "black";  // default
+                    let edgeWidth = 1;
+
+                    // Color based on edge type
+                    const edgeType = edge.data?.type || edge.type || '';
+                    if (edgeType === 'assignment') {
+                        edgeColor = "blue";
+                    } else if (edgeType === 'array_index') {
+                        edgeColor = "green";
+                    } else if (edgeType.includes('pipeline')) {
+                        edgeColor = "purple";
+                    } else if (edgeType.includes('hazard')) {
+                        edgeColor = "red";
+                        edgeWidth = 2;
+                    } else if (edgeType === 'resource_control') {
+                        edgeColor = "orange";
+                        edgeWidth = 2;
+                    } else if (edgeType === 'operand') {
+                        edgeColor = "darkblue";
+                    }
+
+                    // Override with selection color
+                    if (isSelected) {
+                        edgeColor = "purple";
+                        edgeWidth = 4;
+                    }
+
+                    ctx.strokeStyle = edgeColor;
+                    ctx.lineWidth = edgeWidth;
+
+                    // Calculate angle and shorten edge to stop before the nodes
+                    const nodeRadius = 20;
+                    const angle = Math.atan2(target.y - source.y, target.x - source.x);
+                    const arrowSize = isSelected ? 12 : 10;
+
+                    // Start point of edge (after source node)
+                    const edgeStartX = source.x + (nodeRadius + 2) * Math.cos(angle);
+                    const edgeStartY = source.y + (nodeRadius + 2) * Math.sin(angle);
+
+                    // End point of edge (before target node)
+                    const edgeEndX = target.x - (nodeRadius + 2) * Math.cos(angle);
+                    const edgeEndY = target.y - (nodeRadius + 2) * Math.sin(angle);
+
+                    // Draw edge line (shortened to stop before nodes)
+                    ctx.beginPath();
+                    ctx.moveTo(edgeStartX, edgeStartY);
+                    ctx.lineTo(edgeEndX, edgeEndY);
+                    ctx.stroke();
+
+                    // Draw filled arrowhead at the edge end point
+                    ctx.beginPath();
+                    ctx.moveTo(edgeEndX, edgeEndY);
+                    ctx.lineTo(
+                        edgeEndX - arrowSize * Math.cos(angle - Math.PI / 6),
+                        edgeEndY - arrowSize * Math.sin(angle - Math.PI / 6)
+                    );
+                    ctx.lineTo(
+                        edgeEndX - arrowSize * Math.cos(angle + Math.PI / 6),
+                        edgeEndY - arrowSize * Math.sin(angle + Math.PI / 6)
+                    );
+                    ctx.closePath();
+                    ctx.fillStyle = ctx.strokeStyle;  // Use same color as edge
+                    ctx.fill();
+                    ctx.stroke();
+                }
+            });
+
+            console.log('Edges drawn:', edgesDrawn, 'of', graphData.edges.length);
+
+            // Draw nodes
+            nodePositions.forEach((pos) => {
+                const node = pos.node;
+                const radius = 20;  // Match original GUI
+
+                // Choose color based on node type (matching Python tkinter GUI)
+                let nodeColor = "lightblue";  // default
+
+                // Check for _rd and _wr nodes (read/write split nodes)
+                const nodeId = node.id || '';
+                const nodeName = node.display_name || nodeId;
+
+                if (nodeId.endsWith('_rd') || nodeName.endsWith('_rd')) {
+                    nodeColor = "lightcyan";  // Cyan for read nodes
+                } else if (nodeId.endsWith('_wr') || nodeName.endsWith('_wr')) {
+                    nodeColor = "peachpuff";  // Peach for write nodes
+                } else {
+                    // Color based on node type
+                    const nodeType = node.data?.type || node.type || '';
+                    if (nodeType === 'isa_state') {
+                        nodeColor = "lightgreen";
+                    } else if (nodeType === 'instruction_enable') {
+                        nodeColor = "orange";
+                    } else if (nodeType === 'uarch_counter') {
+                        nodeColor = "mediumpurple";
+                    } else if (nodeType.includes('pipeline')) {
+                        nodeColor = "lightcoral";
+                    } else if (node.is_arch_state) {
+                        nodeColor = "gold";
+                    } else if (node.is_uarch_state) {
+                        nodeColor = "lightgray";
+                    } else if (node.data?.shared_resource) {
+                        nodeColor = "lightsalmon";
+                    }
+                }
+
+                // Override with selection color
+                if (selectedNodes.has(node.id)) {
+                    nodeColor = "red";
+                }
+
+                // Draw node circle
+                ctx.fillStyle = nodeColor;
+                ctx.beginPath();
+                ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Draw outline
+                ctx.strokeStyle = "black";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Draw label below node (matching Python tkinter GUI)
+                let label = node.display_name || node.id;
+                // Truncate if too long
+                if (label.length > 12) {
+                    label = label.substr(0, 10) + '...';
+                }
+
+                ctx.fillStyle = "black";
+                ctx.font = '8pt Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                ctx.fillText(label, pos.x, pos.y + radius + 5);
+
+                // Draw time label below name
+                if (node.uarch_time !== null && node.uarch_time !== undefined) {
+                    ctx.font = '7pt Arial';
+                    ctx.fillText(`T${node.uarch_time}`, pos.x, pos.y + radius + 20);
+                }
+            });
+
+            console.log('Nodes drawn:', nodePositions.size);
+
+            // Restore context
+            ctx.restore();
+        }
+
+        function getNodeAtPosition(x, y) {
+            // Convert screen coordinates to canvas coordinates
+            const canvasX = (x - offsetX) / scale;
+            const canvasY = (y - offsetY) / scale;
+
+            // Check each node to see if the point is inside it
+            for (const [nodeId, pos] of nodePositions.entries()) {
+                const dx = canvasX - pos.x;
+                const dy = canvasY - pos.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance <= 20) {  // Node radius
+                    return pos;
+                }
+            }
+            return null;
+        }
+
+        function distanceToLineSegment(px, py, x1, y1, x2, y2) {
+            // Calculate distance from point (px,py) to line segment (x1,y1)-(x2,y2)
+            const A = px - x1;
+            const B = py - y1;
+            const C = x2 - x1;
+            const D = y2 - y1;
+
+            const dot = A * C + B * D;
+            const lenSq = C * C + D * D;
+            let param = -1;
+
+            if (lenSq != 0) param = dot / lenSq;
+
+            let xx, yy;
+
+            if (param < 0) {
+                xx = x1;
+                yy = y1;
+            } else if (param > 1) {
+                xx = x2;
+                yy = y2;
+            } else {
+                xx = x1 + param * C;
+                yy = y1 + param * D;
+            }
+
+            const dx = px - xx;
+            const dy = py - yy;
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        function getEdgeAtPosition(x, y) {
+            if (!graphData) return null;
+
+            // Convert screen coordinates to canvas coordinates
+            const canvasX = (x - offsetX) / scale;
+            const canvasY = (y - offsetY) / scale;
+
+            // Check each edge
+            const threshold = 8;  // Click threshold in pixels
+            for (const edge of graphData.edges) {
+                const source = nodePositions.get(edge.source);
+                const target = nodePositions.get(edge.target);
+
+                if (source && target) {
+                    const dist = distanceToLineSegment(canvasX, canvasY, source.x, source.y, target.x, target.y);
+                    if (dist < threshold) {
+                        return edge;
+                    }
+                }
+            }
+            return null;
+        }
+
+        function setupCanvasInteraction() {
+            canvas.addEventListener('mousedown', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                // Check if clicking on a node
+                const clickedNode = getNodeAtPosition(mouseX, mouseY);
+
+                if (clickedNode) {
+                    // Handle node selection
+                    if (e.ctrlKey || e.metaKey) {
+                        // Toggle selection with Ctrl/Cmd
+                        if (selectedNodes.has(clickedNode.node.id)) {
+                            selectedNodes.delete(clickedNode.node.id);
+                        } else {
+                            selectedNodes.add(clickedNode.node.id);
+                        }
+                        renderGraph();
+                        updateSelectionInfo();
+                    } else if (e.shiftKey) {
+                        // Add to selection with Shift
+                        selectedNodes.add(clickedNode.node.id);
+                        renderGraph();
+                        updateSelectionInfo();
+                    } else {
+                        // Regular click - prepare for dragging
+                        draggedNode = clickedNode;
+                        const canvasX = (mouseX - offsetX) / scale;
+                        const canvasY = (mouseY - offsetY) / scale;
+                        dragStartX = canvasX - draggedNode.x;
+                        dragStartY = canvasY - draggedNode.y;
+
+                        // If not already selected, select only this node
+                        if (!selectedNodes.has(clickedNode.node.id)) {
+                            selectedNodes.clear();
+                            selectedNodes.add(clickedNode.node.id);
+                            renderGraph();
+                            updateSelectionInfo();
+                        }
+                    }
+                } else {
+                    // Check if clicking on an edge
+                    const clickedEdge = getEdgeAtPosition(mouseX, mouseY);
+
+                    if (clickedEdge) {
+                        // Handle edge selection
+                        if (e.ctrlKey || e.metaKey) {
+                            // Toggle edge selection
+                            if (selectedEdges.has(clickedEdge.id)) {
+                                selectedEdges.delete(clickedEdge.id);
+                            } else {
+                                selectedEdges.add(clickedEdge.id);
+                            }
+                        } else if (e.shiftKey) {
+                            // Add to edge selection
+                            selectedEdges.add(clickedEdge.id);
+                        } else {
+                            // Select only this edge
+                            selectedNodes.clear();
+                            selectedEdges.clear();
+                            selectedEdges.add(clickedEdge.id);
+                        }
+                        renderGraph();
+                        updateSelectionInfo();
+                    } else {
+                        // Clear selection if clicking on empty space (unless Ctrl/Shift)
+                        if (!e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                            if (selectedNodes.size > 0 || selectedEdges.size > 0) {
+                                selectedNodes.clear();
+                                selectedEdges.clear();
+                                renderGraph();
+                                updateSelectionInfo();
+                            }
+                        }
+
+                        // Panning the canvas
+                        isDragging = true;
+                        dragStartX = mouseX - offsetX;
+                        dragStartY = mouseY - offsetY;
+                    }
+                }
+            });
+
+            canvas.addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+
+                if (draggedNode) {
+                    // Update node position
+                    const canvasX = (mouseX - offsetX) / scale;
+                    const canvasY = (mouseY - offsetY) / scale;
+                    draggedNode.x = canvasX - dragStartX;
+                    draggedNode.y = canvasY - dragStartY;
+                    renderGraph();
+                } else if (isDragging) {
+                    // Pan the canvas
+                    offsetX = mouseX - dragStartX;
+                    offsetY = mouseY - dragStartY;
+                    renderGraph();
+                }
+
+                // Update cursor based on hover
+                const nodeUnderMouse = getNodeAtPosition(mouseX, mouseY);
+                canvas.style.cursor = nodeUnderMouse ? 'move' : 'default';
+            });
+
+            canvas.addEventListener('mouseup', () => {
+                isDragging = false;
+                draggedNode = null;
+            });
+
+            canvas.addEventListener('mouseleave', () => {
+                isDragging = false;
+                draggedNode = null;
+                canvas.style.cursor = 'default';
+            });
+
+            canvas.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                scale *= delta;
+                scale = Math.max(0.1, Math.min(5, scale));
+                renderGraph();
+            });
+        }
+
+        function zoomIn() {
+            scale *= 1.2;
+            scale = Math.min(5, scale);
+            renderGraph();
+        }
+
+        function zoomOut() {
+            scale *= 0.8;
+            scale = Math.max(0.1, scale);
+            renderGraph();
+        }
+
+        function resetView() {
+            scale = 1.0;
+            offsetX = 0;
+            offsetY = 0;
+            renderGraph();
+        }
+
+        function autoLayout() {
+            calculateLayout();
+            resetView();
+        }
+
+        function updateStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.innerHTML = type === 'loading' ? `<span class="spinner"></span> ${message}` : message;
+        }
+
+        function updateStats(stats) {
+            // Note: Stats container visibility is now handled by parseISA wrapper
+            document.getElementById('nodeCount').textContent = stats.nodes;
+            document.getElementById('edgeCount').textContent = stats.edges;
+
+            let maxTime = 0;
+            let archStateCount = 0;
+            let uarchStateCount = 0;
+
+            if (graphData && graphData.nodes) {
+                graphData.nodes.forEach(node => {
+                    if (node.uarch_time !== null && node.uarch_time > maxTime) {
+                        maxTime = node.uarch_time;
+                    }
+                    if (node.is_arch_state) {
+                        archStateCount++;
+                    }
+                    if (node.is_uarch_state) {
+                        uarchStateCount++;
+                    }
+                });
+            }
+
+            document.getElementById('maxTime').textContent = maxTime;
+
+            // Update analysis panel
+            document.getElementById('criticalPath').textContent = maxTime > 0 ? maxTime + ' cycles' : 'N/A';
+            document.getElementById('pipelineDepth').textContent = maxTime > 0 ? (maxTime + 1) + ' stages' : 'N/A';
+            document.getElementById('archStateCount').textContent = archStateCount;
+            document.getElementById('uarchStateCount').textContent = uarchStateCount;
+        }
+
+        async function applyOptimizations() {
+            if (!graphData || !originalGraphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('Applying optimizations...', 'loading');
+
+                const propagateAliases = document.getElementById('optAlias').checked;
+                const mergeMuxes = document.getElementById('optMux').checked;
+                const splitArchState = document.getElementById('optSplit').checked;
+
+                // Convert graph to JSON string and pass as Python variable
+                const graphJson = JSON.stringify(graphData);
+                pyodide.globals.set('graph_json_input', graphJson);
+
+                // Call Python optimization function
+                const resultJson = await pyodide.runPythonAsync(
+                    `optimize_graph(graph_json_input, ${propagateAliases}, ${mergeMuxes}, ${splitArchState})`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`✓ Optimizations applied! ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Optimization error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error applying optimizations: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function resetToOriginal() {
+            if (!originalGraphData) {
+                updateStatus('No original graph available', 'error');
+                return;
+            }
+
+            graphData = JSON.parse(JSON.stringify(originalGraphData)); // Deep copy
+            updateStats({
+                nodes: graphData.nodes.length,
+                edges: graphData.edges.length
+            });
+            calculateLayout();
+            renderGraph();
+            updateStatus('✓ Reset to original graph', 'success');
+        }
+
+        function updateSelectionInfo() {
+            const selectionSection = document.getElementById('selectionSection');
+            const selectionContent = selectionSection ? selectionSection.querySelector('.sidebar-section-content') : null;
+
+            if (!selectionContent) return;
+
+            if (selectedNodes.size === 0 && selectedEdges.size === 0) {
+                selectionSection.style.display = 'none';
+                return;
+            }
+
+            selectionSection.style.display = 'block';
+
+            let infoHtml = '';
+
+            // Show node selection info
+            if (selectedNodes.size === 1) {
+                const nodeId = Array.from(selectedNodes)[0];
+                const node = graphData.nodes.find(n => n.id === nodeId);
+                if (node) {
+                    infoHtml += `<div style="font-size: 10px; margin-bottom: 8px;">`;
+                    infoHtml += `<b>1 node selected:</b><br>`;
+                    infoHtml += `<b>Name:</b> ${node.display_name || node.id}<br>`;
+                    infoHtml += `<b>Type:</b> ${node.type || 'unknown'}<br>`;
+                    if (node.uarch_time !== undefined && node.uarch_time !== null) {
+                        infoHtml += `<b>Time:</b> T${node.uarch_time}<br>`;
+                    }
+                    if (node.is_arch_state) infoHtml += `<b>Arch State:</b> Yes<br>`;
+                    if (node.is_uarch_state) infoHtml += `<b>Microarch State:</b> Yes<br>`;
+                    infoHtml += `</div>`;
+                }
+            } else if (selectedNodes.size > 1) {
+                const types = {};
+                selectedNodes.forEach(nodeId => {
+                    const node = graphData.nodes.find(n => n.id === nodeId);
+                    if (node) {
+                        types[node.type || 'unknown'] = (types[node.type || 'unknown'] || 0) + 1;
+                    }
+                });
+                const typeStr = Object.entries(types).map(([type, count]) => `${count} ${type}`).join(', ');
+                infoHtml += `<div style="font-size: 10px; margin-bottom: 8px;">`;
+                infoHtml += `<b>${selectedNodes.size} nodes selected:</b><br>${typeStr}`;
+                infoHtml += `</div>`;
+            }
+
+            // Show edge selection info
+            if (selectedEdges.size > 0) {
+                const edgeTypes = {};
+                selectedEdges.forEach(edgeId => {
+                    const edge = graphData.edges.find(e => e.id === edgeId);
+                    if (edge) {
+                        const type = edge.type || 'unknown';
+                        edgeTypes[type] = (edgeTypes[type] || 0) + 1;
+                    }
+                });
+                const edgeTypeStr = Object.entries(edgeTypes).map(([type, count]) => `${count} ${type}`).join(', ');
+                infoHtml += `<div style="font-size: 10px; margin-bottom: 8px;">`;
+                infoHtml += `<b>${selectedEdges.size} edge${selectedEdges.size > 1 ? 's' : ''} selected:</b><br>${edgeTypeStr}`;
+                infoHtml += `</div>`;
+            }
+
+            // Update the selection text div
+            const selectionTextDiv = selectionContent.querySelector('div');
+            if (selectionTextDiv) {
+                selectionTextDiv.innerHTML = infoHtml;
+            }
+        }
+
+        function clearSelection() {
+            selectedNodes.clear();
+            selectedEdges.clear();
+            renderGraph();
+            updateSelectionInfo();
+        }
+
+        async function generateVerilog() {
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('Generating Verilog...', 'loading');
+
+                const moduleName = document.getElementById('moduleName').value || 'processor';
+                const graphJson = JSON.stringify(graphData);
+
+                // Call Python Verilog generation function
+                pyodide.globals.set('graph_json_input', graphJson);
+                pyodide.globals.set('module_name_input', moduleName);
+                const resultJson = await pyodide.runPythonAsync(
+                    `generate_verilog_code(graph_json_input, module_name_input)`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    // Create download link for Verilog file
+                    const blob = new Blob([result.verilog], { type: 'text/plain' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${moduleName}.v`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+
+                    updateStatus(`✓ Verilog generated! Downloaded as ${moduleName}.v`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Verilog generation error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error generating Verilog: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function applyAutoPipelining() {
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                const numStages = parseInt(document.getElementById('numStages').value) || 2;
+
+                if (numStages < 1 || numStages > 10) {
+                    updateStatus('Number of stages must be between 1 and 10', 'error');
+                    return;
+                }
+
+                updateStatus(`Applying automatic ${numStages}-stage pipelining...`, 'loading');
+
+                const graphJson = JSON.stringify(graphData);
+
+                // Call Python automatic pipelining function
+                pyodide.globals.set('graph_json_input', graphJson);
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_automatic_pipelining_to_graph(graph_json_input, ${numStages})`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`✓ ${result.message}. ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Auto-pipelining error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error applying automatic pipelining: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function applyManualPipelining() {
+            if (!graphData || selectedEdges.size === 0) {
+                updateStatus('Please select edges for pipelining', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('Inserting pipeline registers...', 'loading');
+
+                const stageName = document.getElementById('stageName').value || 'pipeline_stage';
+                const graphJson = JSON.stringify(graphData);
+                const edgeIds = JSON.stringify(Array.from(selectedEdges));
+
+                // Call Python pipelining function
+                pyodide.globals.set('graph_json_input', graphJson);
+                pyodide.globals.set('edge_ids_input', edgeIds);
+                pyodide.globals.set('stage_name_input', stageName);
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_manual_pipelining_to_graph(graph_json_input, edge_ids_input, stage_name_input)`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    // Clear edge selection after successful pipelining
+                    selectedEdges.clear();
+                    calculateLayout();
+                    renderGraph();
+                    updateSelectionInfo();
+                    updateStatus(`✓ ${result.message}. ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Pipelining error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error applying pipelining: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function applyRetiming(direction) {
+            if (!graphData || selectedNodes.size === 0) {
+                updateStatus('Please select nodes to retime', 'error');
+                return;
+            }
+
+            try {
+                updateStatus(`Applying ${direction} retiming...`, 'loading');
+
+                const graphJson = JSON.stringify(graphData);
+                const nodeIds = JSON.stringify(Array.from(selectedNodes));
+
+                // Call Python retiming function
+                pyodide.globals.set('graph_json_input', graphJson);
+                pyodide.globals.set('node_ids_input', nodeIds);
+                pyodide.globals.set('direction_input', direction);
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_retiming_to_graph(graph_json_input, node_ids_input, direction_input)`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`✓ ${direction} retiming applied! ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Retiming error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error applying retiming: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function applyResourceSharing() {
+            const mode = document.getElementById('resourceMode').value;
+
+            if (mode === 'share' && (!graphData || selectedNodes.size < 2)) {
+                updateStatus('Please select at least 2 nodes of the same type to share', 'error');
+                return;
+            }
+
+            if (mode === 'duplicate' && !graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                const modeLabel = mode === 'share' ? 'resource sharing' : 'resource duplication';
+                updateStatus(`Applying ${modeLabel}...`, 'loading');
+
+                const graphJson = JSON.stringify(graphData);
+                const nodeIds = JSON.stringify(Array.from(selectedNodes));
+
+                // Call Python resource sharing/duplication function
+                pyodide.globals.set('graph_json_input', graphJson);
+                pyodide.globals.set('node_ids_input', nodeIds);
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_resource_sharing_to_selected(graph_json_input, node_ids_input, '${mode}')`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    // Clear selection after successful transformation
+                    selectedNodes.clear();
+                    calculateLayout();
+                    renderGraph();
+                    updateSelectionInfo();
+                    updateStatus(`✓ ${result.message}. ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Resource sharing/duplication error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function applyOperationSerialization() {
+            const mode = document.getElementById('serializationMode').value;
+            const granularityBits = parseInt(document.getElementById('granularityBits').value) || 8;
+
+            if (mode === 'serialize' && (!graphData || selectedNodes.size === 0)) {
+                updateStatus('Please select at least one operation node to serialize', 'error');
+                return;
+            }
+
+            if (mode === 'parallelize' && !graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                const modeLabel = mode === 'serialize' ? 'serialization' : 'parallelization';
+                updateStatus(`Applying operation ${modeLabel}...`, 'loading');
+
+                const graphJson = JSON.stringify(graphData);
+                const nodeIds = JSON.stringify(Array.from(selectedNodes));
+
+                // Call Python serialization/parallelization function
+                pyodide.globals.set('graph_json_input', graphJson);
+                pyodide.globals.set('node_ids_input', nodeIds);
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_operation_serialization_or_parallelization(graph_json_input, node_ids_input, '${mode}', ${granularityBits})`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    // Clear selection after successful transformation
+                    selectedNodes.clear();
+                    calculateLayout();
+                    renderGraph();
+                    updateSelectionInfo();
+                    updateStatus(`✓ ${result.message}. ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Operation serialization/parallelization error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function analyzeDependencies() {
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('Analyzing dependencies...', 'loading');
+
+                const graphJson = JSON.stringify(graphData);
+
+                // Call Python dependency analysis function
+                pyodide.globals.set('graph_json_input', graphJson);
+                const resultJson = await pyodide.runPythonAsync(
+                    `analyze_graph_dependencies(graph_json_input)`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    // Update dependency info in analysis panel
+                    const dependencyInfo = document.getElementById('dependencyInfo');
+                    if (result.num_violations === 0) {
+                        dependencyInfo.textContent = '✓ No violations';
+                        dependencyInfo.style.color = '#155724';
+                        updateStatus('✓ No dependency violations found', 'success');
+                    } else {
+                        dependencyInfo.innerHTML = `<span style="color: #721c24; font-weight: bold;">${result.num_violations} violation(s)</span>`;
+
+                        // Show violations in status
+                        let violationSummary = `Found ${result.num_violations} dependency violation(s):\n`;
+                        result.violations.forEach((v, i) => {
+                            violationSummary += `${i+1}. ${v.description}\n`;
+                        });
+                        updateStatus(violationSummary, 'error');
+
+                        // Log detailed information
+                        console.log('Dependency Analysis Results:', result);
+                    }
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Dependency analysis error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error analyzing dependencies: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function applyUnpipelining() {
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                updateStatus('Removing all pipeline components...', 'loading');
+
+                const graphJson = JSON.stringify(graphData);
+
+                pyodide.globals.set('graph_json_input', graphJson);
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_unpipelining_optimization(graph_json_input)`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`✓ ${result.message}. ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Unpipelining error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function showFeatureInfo(title, description) {
+            const message = `${title}:\n\n${description}\n\nNote: These advanced features are available in the full Python GUI (graph_visualizer.py) which provides complete parameter configuration, file uploads, and interactive node selection.`;
+            alert(message);
+            console.log(`Feature Info: ${title}`, description);
+        }
+
+        async function applyInstructionMerging() {
+            const fileInput = document.getElementById('mergeIsaFiles');
+            const files = fileInput.files;
+
+            if (files.length < 2) {
+                updateStatus('Please select at least 2 ISA files to merge', 'error');
+                return;
+            }
+
+            try {
+                updateStatus(`Reading ${files.length} ISA files...`, 'loading');
+
+                // Read all files
+                const isaTexts = {};
+                for (let i = 0; i < files.length; i++) {
+                    const file = files[i];
+                    const text = await file.text();
+                    const name = file.name.replace(/\.(isa|txt)$/, '');
+                    isaTexts[name] = text;
+                }
+
+                updateStatus('Merging instructions...', 'loading');
+
+                // Call Python merge function
+                const isaTextsJson = JSON.stringify(isaTexts);
+                pyodide.globals.set('isa_texts_input', isaTextsJson);
+                const resultJson = await pyodide.runPythonAsync(
+                    `merge_multiple_instructions(isa_texts_input)`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`✓ ${result.message}. ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Instruction merging error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function applyMemoryPortSharing() {
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                const readPorts = parseInt(document.getElementById('readPorts').value) || 1;
+                const writePorts = parseInt(document.getElementById('writePorts').value) || 1;
+                const readWritePorts = parseInt(document.getElementById('readWritePorts').value) || 0;
+
+                updateStatus('Applying memory port sharing...', 'loading');
+
+                const graphJson = JSON.stringify(graphData);
+
+                pyodide.globals.set('graph_json_input', graphJson);
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_memory_port_sharing(graph_json_input, ${readPorts}, ${writePorts}, ${readWritePorts})`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`✓ ${result.message}. ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Memory port sharing error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function applyAluIntegration() {
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            try {
+                const aluLatency = parseInt(document.getElementById('aluLatency').value) || 1;
+
+                updateStatus('Applying ALU integration...', 'loading');
+
+                const graphJson = JSON.stringify(graphData);
+
+                pyodide.globals.set('graph_json_input', graphJson);
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_alu_integration_opt(graph_json_input, ${aluLatency})`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+                    updateStatus(`✓ ${result.message}. ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('ALU integration error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function zoomIn() {
+            scale *= 1.2;
+            scale = Math.min(5, scale);
+            renderGraph();
+        }
+
+        function zoomOut() {
+            scale *= 0.8;
+            scale = Math.max(0.1, scale);
+            renderGraph();
+        }
+
+        function resetView() {
+            scale = 1.0;
+            offsetX = 0;
+            offsetY = 0;
+            renderGraph();
+        }
+
+        function autoLayout() {
+            if (!graphData) return;
+            calculateLayout();
+            renderGraph();
+            updateStatus('✓ Layout recalculated', 'success');
+        }
+
+        function exportGraph() {
+            if (!graphData) {
+                updateStatus('No graph to export', 'error');
+                return;
+            }
+
+            const exportData = {
+                graph: graphData,
+                originalGraph: originalGraphData,
+                version: '1.0',
+                timestamp: new Date().toISOString()
+            };
+
+            const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'isacomp_graph.json';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            updateStatus('✓ Graph exported successfully', 'success');
+        }
+
+        function importGraph(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const importData = JSON.parse(e.target.result);
+
+                    if (!importData.graph || !importData.graph.nodes || !importData.graph.edges) {
+                        updateStatus('Invalid graph file format', 'error');
+                        return;
+                    }
+
+                    graphData = importData.graph;
+                    originalGraphData = importData.originalGraph || JSON.parse(JSON.stringify(importData.graph));
+
+                    updateStats({
+                        nodes: graphData.nodes.length,
+                        edges: graphData.edges.length
+                    });
+
+                    calculateLayout();
+                    renderGraph();
+
+                    // Show sections (same as after parsing)
+                    document.getElementById('graphInfoSection').style.display = 'block';
+                    document.getElementById('optimizationSection').style.display = 'block';
+                    document.getElementById('dependencySection').style.display = 'block';
+                    document.getElementById('viewControlsSection').style.display = 'block';
+                    document.getElementById('legendSection').style.display = 'block';
+                    document.getElementById('verilogSection').style.display = 'block';
+
+                    updateStatus(`✓ Graph imported: ${graphData.nodes.length} nodes, ${graphData.edges.length} edges`, 'success');
+                } catch (error) {
+                    updateStatus(`Error importing graph: ${error.message}`, 'error');
+                    console.error(error);
+                }
+            };
+            reader.readAsText(file);
+
+            // Reset the file input
+            event.target.value = '';
+        }
+
+        // ========== NEW OPTIMIZATION STRATEGY FUNCTIONS ==========
+
+        // Strategy descriptions and parameters
+        const strategyDefinitions = {
+            manual_pipelining: {
+                description: "Add a single pipeline stage at selected edges. Click edges to select them (they turn purple with arrows and labels showing direction). Select edges where you want to insert pipeline registers, then apply this optimization repeatedly to build up your pipeline.",
+                parameters: [
+                    { name: 'stage_name', type: 'str', default: 'pipeline_stage', label: 'Stage Name' }
+                ],
+                usesSelection: ['edges']
+            },
+            multi_stage_pipelining: {
+                description: "Build multi-stage pipelines step-by-step. Set the number of stages, name each stage, then select edges for each stage one at a time. Each stage insertion adds pipeline registers with automatic hazard detection.",
+                parameters: [
+                    { name: 'num_stages', type: 'int', default: 2, min: 1, max: 10, label: 'Number of Stages' },
+                    { name: 'stage_names', type: 'str', default: 'fetch,decode', label: 'Stage Names (comma-separated)' }
+                ]
+            },
+            change_latency: {
+                description: "Change the latency of an operation. Select an operation node and choose: Fixed (specify cycles 0-16) or Variable (unknown completion time, for caches/I/O). Note: latency_value is only used when type=Fixed. Automatically handles transitions between modes with proper cleanup.",
+                parameters: [
+                    { name: 'latency_type', type: 'choice', choices: ['fixed', 'variable'], default: 'fixed', label: 'Latency Type' },
+                    { name: 'latency_value', type: 'int', default: 1, min: 0, max: 16, label: 'Latency Value (cycles)' }
+                ],
+                usesSelection: ['nodes']
+            },
+            alu_integration: {
+                description: "Integrate dedicated ALU units for arithmetic operations.",
+                parameters: [
+                    { name: 'alu_latency', type: 'int', default: 1, min: 1, max: 5, label: 'ALU Latency (cycles)' }
+                ]
+            },
+            instruction_merging: {
+                description: "Merge multiple instruction ISA files with decode logic. Upload multiple ISA files (.isa) to create a merged processor design with instruction decode logic.",
+                parameters: [
+                    { name: 'instruction_files', type: 'file_list', label: 'Instruction Files (.isa)' }
+                ]
+            },
+            resource_sharing: {
+                description: "Share or duplicate hardware resources. SHARE: Multiplex operations across cycles to save area. DUPLICATE: Unroll shared operations into parallel hardware for lower latency. Select 2+ nodes of the same type to share/duplicate them.",
+                parameters: [
+                    { name: 'mode', type: 'choice', choices: ['share', 'duplicate'], default: 'share', label: 'Mode' }
+                ],
+                usesSelection: ['nodes']
+            },
+            memory_port_sharing: {
+                description: "Optimize memory access with configurable port types: dedicated read, dedicated write, and dual read-write ports.",
+                parameters: [
+                    { name: 'read_ports', type: 'int', default: 1, min: 0, max: 8, label: 'Read Ports' },
+                    { name: 'write_ports', type: 'int', default: 1, min: 0, max: 8, label: 'Write Ports' },
+                    { name: 'read_write_ports', type: 'int', default: 0, min: 0, max: 8, label: 'Read-Write Ports' }
+                ]
+            },
+            operation_serialization: {
+                description: "SERIALIZE: Convert wide operations into narrower operations over multiple cycles to save area. Select an operation node and specify granularity. PARALLELIZE: Convert a serialized operation back into wide parallel form for lower latency. Select any node from the serialization infrastructure (counter, narrow operation, bit slice, etc.).",
+                parameters: [
+                    { name: 'mode', type: 'choice', choices: ['serialize', 'parallelize'], default: 'serialize', label: 'Mode' },
+                    { name: 'granularity_bits', type: 'int', default: 8, min: 1, max: 64, label: 'Granularity (bits)' }
+                ],
+                usesSelection: ['nodes']
+            },
+            branch_prediction: {
+                description: "Add static not-taken branch prediction with pipeline flush on misprediction. Select nodes in order: (1) PC write node, (2) PC mux/ternary, (3) not-taken input (e.g., PC+4), (4) taken input (e.g., branch target). Leave unselected to auto-detect.",
+                parameters: [],
+                usesSelection: ['nodes']
+            },
+            retiming: {
+                description: "Move selected uarch_state registers earlier or later in the pipeline by one cycle. Select one or more uarch_state registers (gray nodes) and choose the direction to move them. This respects retiming rules and properly handles combinational logic.",
+                parameters: [
+                    { name: 'direction', type: 'choice', choices: ['earlier', 'later'], default: 'later', label: 'Direction' }
+                ],
+                usesSelection: ['nodes']
+            },
+            register_renaming: {
+                description: "Eliminate false dependencies (WAW/WAR hazards) by mapping architectural registers to a larger pool of physical registers. Select the architectural state resource to rename (e.g., 'rf' node). Optionally select specific index nodes (e.g., 'rs', 'rt', 'rd') to rename only those - if none selected, all indices are renamed.\n\nTwo modes:\n• Index Renaming (separate_regfiles=False): Renames indices only, same storage\n• Separate Regfiles (separate_regfiles=True): Creates separate Physical RF (PRF) for execution",
+                parameters: [
+                    { name: 'num_physical_regs', type: 'int', default: 64, min: 8, max: 256, label: 'Number of Physical Registers' },
+                    { name: 'separate_regfiles', type: 'bool', default: false, label: 'Create Separate Physical RF' }
+                ],
+                usesSelection: ['nodes']
+            },
+            architectural_retiming: {
+                description: "Optimize critical paths using 'negative registers' via precomputation or prediction. Select a target node (critical signal), choose strategy (precomputation duplicates logic to run earlier, prediction uses last-value prediction with correction), and set depth (how many cycles early). Depth is limited by the target node's current uarch_time.",
+                parameters: [
+                    { name: 'strategy', type: 'choice', choices: ['precomputation', 'prediction'], default: 'precomputation', label: 'Strategy' },
+                    { name: 'depth', type: 'int', default: 1, min: 1, label: 'Depth (cycles early)' }
+                ],
+                usesSelection: ['node']
+            },
+            ooo_execution: {
+                description: "Add out-of-order execution capabilities with Issue Queue and Reorder Buffer. REQUIRED: Select the register file node (e.g., 'rf', 'r', 'regs', etc.). The Issue Queue tracks register dependencies from this resource. The Reorder Buffer commits results to this resource in order. Works best on merged instruction graphs with register-based data dependencies.",
+                parameters: [
+                    { name: 'num_iq_entries', type: 'int', default: 8, min: 4, max: 64, label: 'Issue Queue Entries' },
+                    { name: 'num_rob_entries', type: 'int', default: 16, min: 4, max: 128, label: 'Reorder Buffer Entries' }
+                ],
+                usesSelection: ['nodes']
+            },
+            memory_transform: {
+                description: "Transform memory accesses to match memory width constraints using bidirectional transformations. First, set the target memory width. Then choose a transformation strategy:\n\n1. SERIALIZE/PARALLELIZE (Multi-cycle with counter)\n2. SPLIT/MERGE (Parallel multi-port)\n3. NO TRANSFORMATION\n\nDirection is auto-detected by comparing current access width vs target memory width.",
+                parameters: [
+                    { name: 'memory_name', type: 'str', default: 'dmem', label: 'Memory Name (e.g., dmem, imem)' },
+                    { name: 'target_width', type: 'int', default: 16, min: 1, max: 128, label: 'Target Memory Width (bits)' },
+                    { name: 'strategy', type: 'choice', choices: ['none', 'serialize_parallelize', 'split_merge'], default: 'serialize_parallelize', label: 'Transformation Strategy' },
+                    { name: 'dry_run', type: 'bool', default: false, label: 'Preview Only (Dry Run)' }
+                ]
+            },
+            unpipelining: {
+                description: "Remove all pipeline components and restore the design to a single-cycle implementation. This optimization reverses pipelining by removing pipeline registers, hazard detection hardware, and stall controllers, then re-inferring timing to collapse all stages to cycle 0. Use cases: testing single-cycle vs. pipelined performance, reverting optimizations, simplifying for debugging, exploring different pipeline configurations.",
+                parameters: []
+            }
+        };
+
+        function onStrategySelected() {
+            const select = document.getElementById('strategySelect');
+            const strategyKey = select.value;
+            const descDiv = document.getElementById('strategyDescription');
+            const paramsDiv = document.getElementById('strategyParameters');
+            const applyBtn = document.getElementById('applyStrategyBtn');
+
+            if (!strategyKey) {
+                descDiv.style.display = 'none';
+                paramsDiv.innerHTML = '';
+                applyBtn.style.display = 'none';
+                return;
+            }
+
+            const strategy = strategyDefinitions[strategyKey];
+            if (!strategy) {
+                console.error('Unknown strategy:', strategyKey);
+                return;
+            }
+
+            // Show description
+            descDiv.textContent = strategy.description;
+            descDiv.style.display = 'block';
+
+            // Generate parameter inputs
+            paramsDiv.innerHTML = generateParameterInputs(strategyKey, strategy.parameters);
+
+            // Show apply button
+            applyBtn.style.display = 'block';
+        }
+
+        function generateParameterInputs(strategyKey, parameters) {
+            let html = '';
+
+            for (const param of parameters) {
+                html += `<div style="margin-bottom: 8px;">`;
+                html += `<label for="${strategyKey}_${param.name}" style="font-size: 10px; display: block; margin-bottom: 4px;">${param.label}:</label>`;
+
+                if (param.type === 'int') {
+                    html += `<input type="number" id="${strategyKey}_${param.name}" value="${param.default}" min="${param.min || 0}" max="${param.max || 999}" style="width: 100%; padding: 4px; font-size: 10px; border: 1px solid #ddd; border-radius: 4px;">`;
+                } else if (param.type === 'str') {
+                    html += `<input type="text" id="${strategyKey}_${param.name}" value="${param.default || ''}" style="width: 100%; padding: 4px; font-size: 10px; border: 1px solid #ddd; border-radius: 4px;">`;
+                } else if (param.type === 'choice') {
+                    html += `<select id="${strategyKey}_${param.name}" style="width: 100%; padding: 4px; font-size: 10px; border: 1px solid #ddd; border-radius: 4px;">`;
+                    for (const choice of param.choices) {
+                        const selected = choice === param.default ? 'selected' : '';
+                        html += `<option value="${choice}" ${selected}>${choice}</option>`;
+                    }
+                    html += `</select>`;
+                } else if (param.type === 'bool') {
+                    const checked = param.default ? 'checked' : '';
+                    html += `<label style="font-size: 10px;"><input type="checkbox" id="${strategyKey}_${param.name}" ${checked}> ${param.label}</label>`;
+                } else if (param.type === 'file') {
+                    html += `<input type="file" id="${strategyKey}_${param.name}" accept=".isa,.txt,.rgraph" style="width: 100%; font-size: 10px; padding: 4px;">`;
+                } else if (param.type === 'file_list') {
+                    html += `<input type="file" id="${strategyKey}_${param.name}" accept=".isa,.txt" multiple style="width: 100%; font-size: 10px; padding: 4px;">`;
+                }
+
+                html += `</div>`;
+            }
+
+            // Add info about selection if strategy uses it
+            const strategy = strategyDefinitions[strategyKey];
+            if (strategy.usesSelection) {
+                const types = strategy.usesSelection.join(' or ');
+                html += `<div style="font-size: 9px; color: #666; background: #fff9e6; padding: 6px; border-radius: 4px; margin-top: 8px;">`;
+                html += `<b>Note:</b> Select ${types} on the graph before applying.`;
+                html += `</div>`;
+            }
+
+            return html;
+        }
+
+        async function applyStrategy() {
+            const select = document.getElementById('strategySelect');
+            const strategyKey = select.value;
+
+            if (!strategyKey) {
+                updateStatus('No strategy selected', 'error');
+                return;
+            }
+
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            const strategy = strategyDefinitions[strategyKey];
+            const params = {};
+
+            // Helper function to read a file as text
+            const readFileAsText = (file) => {
+                return new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => resolve(e.target.result);
+                    reader.onerror = (e) => reject(new Error(`Failed to read file: ${file.name}`));
+                    reader.readAsText(file);
+                });
+            };
+
+            // Collect parameter values
+            for (const param of strategy.parameters) {
+                const inputId = `${strategyKey}_${param.name}`;
+                const input = document.getElementById(inputId);
+
+                if (!input) continue;
+
+                if (param.type === 'int') {
+                    params[param.name] = parseInt(input.value);
+                } else if (param.type === 'str') {
+                    params[param.name] = input.value;
+                } else if (param.type === 'bool') {
+                    params[param.name] = input.checked;
+                } else if (param.type === 'choice') {
+                    params[param.name] = input.value;
+                } else if (param.type === 'file') {
+                    // Handle single file input
+                    if (input.files.length > 0) {
+                        try {
+                            const fileContent = await readFileAsText(input.files[0]);
+                            params[param.name] = fileContent;
+                            params[param.name + '_filename'] = input.files[0].name;
+                        } catch (error) {
+                            updateStatus(`Error reading file: ${error.message}`, 'error');
+                            return;
+                        }
+                    } else {
+                        params[param.name] = null;
+                    }
+                } else if (param.type === 'file_list') {
+                    // Handle multiple file input
+                    if (input.files.length > 0) {
+                        try {
+                            const fileContents = {};
+                            for (let i = 0; i < input.files.length; i++) {
+                                const file = input.files[i];
+                                const content = await readFileAsText(file);
+
+                                // Extract instruction name from filename (like Python GUI does)
+                                // e.g., "add_instr.isa" -> "add"
+                                let baseName = file.name.replace(/\.[^.]+$/, '');  // Remove extension
+                                if (baseName.endsWith('_instr')) {
+                                    baseName = baseName.slice(0, -6);  // Remove '_instr' suffix
+                                }
+
+                                fileContents[baseName] = content;
+                            }
+                            params[param.name] = fileContents;
+                        } catch (error) {
+                            updateStatus(`Error reading files: ${error.message}`, 'error');
+                            return;
+                        }
+                    } else {
+                        params[param.name] = {};
+                    }
+                }
+            }
+
+            // Add selected nodes/edges if strategy uses them
+            if (strategy.usesSelection) {
+                if (strategy.usesSelection.includes('nodes') || strategy.usesSelection.includes('node')) {
+                    params.selected_nodes = Array.from(selectedNodes);
+                }
+                if (strategy.usesSelection.includes('edges')) {
+                    params.selected_edges = Array.from(selectedEdges);
+                }
+            }
+
+            try {
+                updateStatus(`Applying ${select.options[select.selectedIndex].text}...`, 'loading');
+
+                // Convert graph to JSON and pass to Python
+                const graphJson = JSON.stringify(graphData);
+                pyodide.globals.set('graph_json_input', graphJson);
+                pyodide.globals.set('strategy_params', JSON.stringify(params));
+
+                // Call Python optimization function
+                const resultJson = await pyodide.runPythonAsync(
+                    `apply_optimization_strategy("${strategyKey}", graph_json_input, strategy_params)`
+                );
+                const result = JSON.parse(resultJson);
+
+                if (result.success) {
+                    graphData = result.graph;
+                    updateStats(result.stats);
+                    calculateLayout();
+                    renderGraph();
+
+                    // Add to optimization tree
+                    const strategyName = select.options[select.selectedIndex].text;
+                    addTreeNode(graphData, strategyName, strategyName, params);
+
+                    updateStatus(`✓ ${strategyName} applied! ${result.stats.nodes} nodes, ${result.stats.edges} edges`, 'success');
+                } else {
+                    updateStatus(`Error: ${result.error}`, 'error');
+                    console.error('Strategy error:', result.traceback);
+                }
+            } catch (error) {
+                updateStatus(`Error applying strategy: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const header = section.previousElementSibling;
+
+            if (section.style.display === 'none') {
+                section.style.display = 'block';
+                if (header && header.textContent.startsWith('▶')) {
+                    header.textContent = header.textContent.replace('▶', '▼');
+                }
+            } else {
+                section.style.display = 'none';
+                if (header && header.textContent.startsWith('▼')) {
+                    header.textContent = header.textContent.replace('▼', '▶');
+                }
+            }
+        }
+
+        function analyzeDependencies() {
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            const resultsDiv = document.getElementById('dependencyResults');
+            let html = '<div style="padding: 6px; background: #f9f9f9; border-radius: 4px;">';
+
+            // Count hazards
+            const hazardEdges = graphData.edges.filter(e => e.type && e.type.includes('hazard'));
+            html += `<b>Hazards:</b> ${hazardEdges.length}<br>`;
+
+            // Count different edge types
+            const edgeTypes = {};
+            graphData.edges.forEach(e => {
+                const type = e.type || 'unknown';
+                edgeTypes[type] = (edgeTypes[type] || 0) + 1;
+            });
+
+            html += '<br><b>Edge Types:</b><br>';
+            for (const [type, count] of Object.entries(edgeTypes)) {
+                html += `${type}: ${count}<br>`;
+            }
+
+            html += '</div>';
+            resultsDiv.innerHTML = html;
+        }
+
+        function showCriticalPath() {
+            if (!graphData) {
+                updateStatus('No graph loaded', 'error');
+                return;
+            }
+
+            // Find nodes with highest uarch_time
+            let maxTime = 0;
+            graphData.nodes.forEach(n => {
+                if (n.uarch_time !== undefined && n.uarch_time !== null) {
+                    maxTime = Math.max(maxTime, n.uarch_time);
+                }
+            });
+
+            const criticalNodes = graphData.nodes.filter(n => n.uarch_time === maxTime);
+
+            // Highlight critical path nodes
+            selectedNodes.clear();
+            criticalNodes.forEach(n => selectedNodes.add(n.id));
+
+            renderGraph();
+            updateStatus(`Critical path highlighted: ${criticalNodes.length} nodes at time ${maxTime}`, 'success');
+        }
+
+        // ========== OPTIMIZATION TREE FUNCTIONS ==========
+
+        function toggleTreePane() {
+            const treePane = document.getElementById('treePane');
+            const toggleBtn = document.getElementById('toggleTreeBtn');
+
+            treeVisible = !treeVisible;
+
+            if (treeVisible) {
+                treePane.classList.remove('hidden');
+                toggleBtn.textContent = '◀';
+            } else {
+                treePane.classList.add('hidden');
+                toggleBtn.textContent = '▶';
+            }
+        }
+
+        function addTreeNode(graph, label, optimizationName = null, optimizationParams = null) {
+            // Create tree node object
+            const nodeId = ++treeNodeCounter;
+            const treeNode = {
+                id: nodeId,
+                graph: JSON.parse(JSON.stringify(graph)),  // Deep copy
+                label: label,
+                optimizationName: optimizationName,
+                optimizationParams: optimizationParams,
+                parent: currentTreeNode,
+                children: [],
+                timestamp: new Date()
+            };
+
+            // Add to tree structure
+            if (!treeRoot) {
+                treeRoot = treeNode;
+                currentTreeNode = treeNode;
+            } else {
+                currentTreeNode.children.push(treeNode);
+            }
+
+            // Add to DOM
+            renderTreeView();
+
+            // Select the new node
+            selectTreeNode(nodeId);
+
+            return treeNode;
+        }
+
+        function renderTreeView() {
+            const container = document.getElementById('treeContainer');
+            container.innerHTML = '';
+
+            if (!treeRoot) {
+                container.innerHTML = '<div style="font-size: 11px; color: #666; padding: 10px;">No graph loaded yet</div>';
+                return;
+            }
+
+            // Recursively render tree nodes
+            function renderNode(node, depth = 0) {
+                const div = document.createElement('div');
+                div.className = `tree-node ${depth === 0 ? 'root' : 'child'}`;
+                if (currentTreeNode && currentTreeNode.id === node.id) {
+                    div.classList.add('selected');
+                }
+                div.dataset.nodeId = node.id;
+                div.textContent = node.label;
+                div.onclick = () => selectTreeNode(node.id);
+
+                // Add depth-based left margin for children
+                if (depth > 0) {
+                    div.style.marginLeft = `${depth * 16}px`;
+                }
+
+                container.appendChild(div);
+
+                // Render children
+                node.children.forEach(child => renderNode(child, depth + 1));
+            }
+
+            renderNode(treeRoot);
+        }
+
+        function selectTreeNode(nodeId) {
+            // Find the node in the tree
+            function findNode(node) {
+                if (node.id === nodeId) return node;
+                for (const child of node.children) {
+                    const found = findNode(child);
+                    if (found) return found;
+                }
+                return null;
+            }
+
+            const treeNode = findNode(treeRoot);
+            if (!treeNode) return;
+
+            // Update current node
+            currentTreeNode = treeNode;
+
+            // Restore graph state
+            graphData = JSON.parse(JSON.stringify(treeNode.graph));
+            originalGraphData = JSON.parse(JSON.stringify(treeNode.graph));
+
+            // Clear selection
+            selectedNodes.clear();
+            selectedEdges.clear();
+
+            // Update display
+            updateStats({
+                nodes: graphData.nodes.length,
+                edges: graphData.edges.length
+            });
+            calculateLayout();
+            renderGraph();
+            renderTreeView();
+
+            updateStatus(`Switched to: ${treeNode.label}`, 'success');
+        }
+
+        function generateScript() {
+            if (!currentTreeNode) {
+                updateStatus('No optimization history available', 'error');
+                return;
+            }
+
+            // Get path from root to current node
+            const path = [];
+            let node = currentTreeNode;
+            while (node) {
+                path.unshift(node);
+                node = node.parent;
+            }
+
+            // Build the script
+            const scriptLines = [];
+            scriptLines.push('#!/usr/bin/env python3');
+            scriptLines.push('"""');
+            scriptLines.push('Auto-generated optimization script');
+            scriptLines.push(`Generated: ${new Date().toISOString()}`);
+            scriptLines.push('"""');
+            scriptLines.push('');
+            scriptLines.push('from resource_graph import ResourceGraph');
+            scriptLines.push('from isa_parser import ISAParser');
+            scriptLines.push('');
+
+            // Root node - ISA loading
+            const rootNode = path[0];
+            if (rootNode.optimizationParams && rootNode.optimizationParams.isaFile) {
+                scriptLines.push(`# Load ISA file`);
+                scriptLines.push(`parser = ISAParser()`);
+                scriptLines.push(`graph = parser.parse_file("${rootNode.optimizationParams.isaFile}")`);
+                scriptLines.push('graph.infer_uarch_time()');
+            } else {
+                scriptLines.push(`# Load your ISA file here`);
+                scriptLines.push(`parser = ISAParser()`);
+                scriptLines.push(`graph = parser.parse_file("your_instruction.isa")`);
+                scriptLines.push('graph.infer_uarch_time()');
+            }
+            scriptLines.push('');
+
+            // Add imports for optimizations
+            const imports = new Set();
+            for (let i = 1; i < path.length; i++) {
+                const node = path[i];
+                if (node.optimizationName) {
+                    // Map optimization names to imports
+                    const importMap = {
+                        'Manual Pipelining': 'from pipelining_optimization import apply_manual_pipelining',
+                        'Retiming': 'from retiming_optimization import apply_retiming_forward, apply_retiming_backward',
+                        'Resource Sharing/Duplication': 'from opt.sharing.operation_sharing import apply_operation_sharing, SharingMode',
+                        'ALU Integration': 'from alu_integration import apply_alu_integration',
+                        // Add more mappings as needed
+                    };
+
+                    const importLine = importMap[node.optimizationName];
+                    if (importLine) imports.add(importLine);
+                }
+            }
+
+            imports.forEach(line => scriptLines.push(line));
+            if (imports.size > 0) scriptLines.push('');
+
+            // Add optimization calls
+            for (let i = 1; i < path.length; i++) {
+                const node = path[i];
+                scriptLines.push(`# ${node.label}`);
+
+                if (node.optimizationName && node.optimizationParams) {
+                    const params = node.optimizationParams;
+                    scriptLines.push(`# Optimization: ${node.optimizationName}`);
+                    scriptLines.push(`# Parameters: ${JSON.stringify(params)}`);
+                    scriptLines.push('# (Implementation depends on specific optimization)');
+                } else {
+                    scriptLines.push('# Custom optimization - review manually');
+                }
+
+                scriptLines.push('graph.infer_uarch_time()');
+                scriptLines.push('');
+            }
+
+            scriptLines.push('# Final graph');
+            scriptLines.push(`print(f"Nodes: {len(graph.nodes)}, Edges: {len(graph.edges)}")`);
+            scriptLines.push(`print(f"Pipeline depth: {graph.get_max_uarch_time()} cycles")`);
+
+            const script = scriptLines.join('\n');
+
+            // Download the script
+            const blob = new Blob([script], { type: 'text/x-python' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'optimization_script.py';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            updateStatus('✓ Python script generated and downloaded', 'success');
+        }
+
+        // Update the graph display to show new sections when graph is loaded
+        const originalParseISA = parseISA;
+        parseISA = async function() {
+            await originalParseISA();
+
+            // Add root node to tree
+            if (graphData) {
+                const isaInput = document.getElementById('isaInput');
+                const isaSelect = document.getElementById('isaSelect');
+                const fileUpload = document.getElementById('isaFileUpload');
+
+                let label = 'ISA Loaded';
+                if (isaSelect.value) {
+                    label = isaSelect.options[isaSelect.selectedIndex].text;
+                } else if (fileUpload.files.length > 0) {
+                    label = fileUpload.files[0].name;
+                }
+
+                addTreeNode(graphData, label, null, { isaFile: label });
+            }
+
+            // Show the new sections after a graph is loaded
+            document.getElementById('graphInfoSection').style.display = 'block';
+            document.getElementById('selectionSection').style.display = 'none'; // Only show when something is selected
+            document.getElementById('optimizationSection').style.display = 'block';
+            document.getElementById('dependencySection').style.display = 'block';
+            document.getElementById('viewControlsSection').style.display = 'block';
+            document.getElementById('legendSection').style.display = 'block';
+            document.getElementById('verilogSection').style.display = 'block';
+        };
+    </script>
+</body>
+</html>

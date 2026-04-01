@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC.L Rm_BANK,@-Rn - Store banked register to memory with pre-decrement (privileged)
+// Encoding: 0100nnnn1mmm0011 (0x4n83..0x4nF3 for mmm=0..7)
+// Decrements Rn by 4, then stores Rm_BANK to memory at @Rn
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm_bank[2:0];
+var stcl_bank_rn_lo[2:0];
+var Rn[31:0];
+var Rm_bank[31:0];
+var new_rn[31:0];
+
+var stcl_bank_rb[0:0];
+var stcl_bank_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot;
+#endif
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x4;
+assume instr[7] == 1'b1;
+assume instr[3:0] == 0x3;
+rn = instr[11:8];
+rm_bank = instr[6:4];
+stcl_bank_rn_lo = rn[2:0];
+
+// SR[29] is RB (register bank), SR[28] is BL (block exceptions)
+stcl_bank_rb = sr[29];  // RB bit (bit 29 in SR)
+stcl_bank_rn_bk = (rn[3] == 1'b0) & stcl_bank_rb;
+
+// Read address register (with banking consideration)
+Rn = stcl_bank_rn_bk ? rf_bank[stcl_bank_rn_lo] : rf[rn];
+
+// Pre-decrement by 4
+new_rn = Rn - 4;
+
+// Read from the specified banked register (R0_BANK..R7_BANK)
+// CRITICAL: Rm_BANK refers to the OPPOSITE bank from current SR.RB
+// When RB=0: Rm_BANK reads from bank1 (rf_bank[])
+// When RB=1: Rm_BANK reads from bank0 (rf[])
+Rm_bank = stcl_bank_rb ? rf[{1'b0, rm_bank}] : rf_bank[rm_bank];
+
+// Store to memory
+umem[new_rn] = Rm_bank;
+
+// Update Rn with decremented value
+rf[rn] when (stcl_bank_rn_bk == 0) = new_rn;
+rf_bank[stcl_bank_rn_lo] when (stcl_bank_rn_bk) = new_rn;
+
+pc = pc + 2;

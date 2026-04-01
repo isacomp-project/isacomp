@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 67-prefix MOV Sreg, r/m16 (0x8E)
+// Move r/m16 to segment register
+// Supports all addressing modes via ModR/M byte:
+//   mod=00: [SI], [DI], [BX] - indirect
+//   mod=01: [SI+disp8], [DI+disp8], [BX+disp8] - indirect + 8-bit displacement
+//   mod=10: [SI+disp16], [DI+disp16], [BX+disp16] - indirect + 16-bit displacement
+//   mod=11: AX, CX, DX, BX, SP, BP, SI, DI - register direct
+//
+// Segment register encoding (reg field):
+//   000 = ES, 001 = CS, 010 = SS, 011 = DS, 100 = FS, 101 = GS
+
+isa_state xregs[31:0][2:0];    // 16-bit registers array
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+
+// Segment registers
+isa_state ES[15:0];
+isa_state CS[15:0];
+isa_state SS[15:0];
+isa_state DS[15:0];
+isa_state FS[15:0];
+isa_state GS[15:0];
+
+var src_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var disp32_b0[7:0];
+var disp32_b1[7:0];
+var disp32_b2[7:0];
+var disp32_b3[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+var src_mem_val_lo[7:0];
+var src_mem_val_hi[7:0];
+var src_mem_val[15:0];
+var src_reg_val[15:0];
+var src_val[15:0];
+var is_mem_src[0:0];
+
+// Fetch instruction
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0x8E;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 4];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];  // Destination segment register
+rm_bits = modrm[2:0];   // Source r/m
+
+src_reg_idx = rm_bits;
+
+// Pre-calculate address register index for memory modes
+// 32-bit addressing mode: rm_bits directly selects base register
+
+// Read base offset from address register
+base_val = xregs[rm_bits];
+
+// Read potential displacement bytes
+disp8 = imem[eip + 4];
+disp16_lo = imem[eip + 4];
+disp16_hi = imem[eip + 4];
+disp16 = {disp16_hi, disp16_lo};
+disp32_b0 = imem[eip + 3];
+disp32_b1 = imem[eip + 4];
+disp32_b2 = imem[eip + 5];
+disp32_b3 = imem[eip + 6];
+disp32 = {disp32_b3, disp32_b2, disp32_b1, disp32_b0};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+// Calculate offset based on addressing mode
+case (mod_bits) {
+  0b00: offset = base_val;
+  0b01: offset = base_val + signed_disp8;
+  0b10: offset = base_val + disp32;
+  0b11: offset = 16'h0000;
+}
+
+// Set source type flag
+case (mod_bits) {
+  0b00: is_mem_src = 1'b1;
+  0b01: is_mem_src = 1'b1;
+  0b10: is_mem_src = 1'b1;
+  0b11: is_mem_src = 1'b0;
+}
+
+// Calculate physical addresses for 16-bit memory access (little-endian)
+physical_addr_lo = ({16'h0000, DS} << 4) + offset;
+physical_addr_hi = ({16'h0000, DS} << 4) + offset + 16'h0001;
+
+// Read source values (both memory and register)
+src_mem_val_lo = dmem[physical_addr_lo];
+src_mem_val_hi = dmem[physical_addr_hi];
+src_mem_val = {src_mem_val_hi, src_mem_val_lo};
+src_reg_val = xregs[src_reg_idx];
+
+// Select actual source value based on mode
+case (is_mem_src) {
+  1'b1: src_val = src_mem_val;
+  1'b0: src_val = src_reg_val;
+}
+
+// Write to destination segment register based on reg_bits encoding
+case (reg_bits) {
+  0b000: ES = src_val;
+  0b001: CS = src_val;
+  0b010: SS = src_val;
+  0b011: DS = src_val;
+  0b100: FS = src_val;
+  0b101: GS = src_val;
+}
+
+// Update EIP based on instruction length
+case (mod_bits) {
+  0b00: eip = eip + 7;  // opcode + ModR/M
+  0b01: eip = eip + 7;  // opcode + ModR/M + disp8
+  0b10: eip = eip + 7;  // opcode + ModR/M + disp16
+  0b11: eip = eip + 7;  // opcode + ModR/M
+}

@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vluxei32.v - Vector Load Indexed Unordered 32-bit
+// Encoding: vluxei32.v vd, (rs1), vs2, vm
+// Operation: vd[i] = mem[rs1 + vs2[i]]
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+mem dmem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var base[31:0];
+var indices[127:0];
+var data[127:0];
+var idx0[31:0];
+var idx1[31:0];
+var idx2[31:0];
+var idx3[31:0];
+
+instr = umem[pc];
+// Opcode: 0000111 (LOAD-FP, vector load)
+assume instr[6:0] == 0b0000111;
+// width = 110 (32-bit)
+assume instr[14:12] == 0b110;
+// mop = 01 (indexed-unordered)
+assume instr[27:26] == 0b01;
+// nf = 000 (single field)
+assume instr[31:29] == 0b000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+base = rf[rs1];
+indices = vrf[vs2];
+
+// Extract indices to separate vars
+idx0 = indices[31:0];
+idx1 = indices[63:32];
+idx2 = indices[95:64];
+idx3 = indices[127:96];
+
+// Load using indices from vs2
+data[31:0] = dmem[base + idx0];
+data[63:32] = dmem[base + idx1];
+data[95:64] = dmem[base + idx2];
+data[127:96] = dmem[base + idx3];
+
+vrf[vd] = data;

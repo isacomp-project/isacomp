@@ -1,0 +1,91 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REPE SCASD (0xF3 0xAF) - WITH PROPER SEGMENTATION
+// Repeat while ECX != 0 AND ZF == 1: Compare EAX with ES:[EDI]
+// Exit when ECX == 0 OR ZF == 0 (not equal)
+// IP stays constant until loop exits
+// Uses ES segment for destination
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state ES[15:0];            // Extra segment register
+isa_state xregs[31:0][2:0];
+isa_state EAX[31:0] of xregs[0];
+isa_state EDI[31:0] of xregs[7];
+isa_state ECX[31:0] of xregs[1];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_PF[0:0];
+
+var physical_addr[31:0];
+var dword_value[31:0];
+var result[32:0];
+var new_zf[0:0];
+var ecx_is_zero[0:0];
+var ecx_not_zero_and_equal[0:0];
+var ecx_not_zero_and_not_equal[0:0];
+var new_edi_inc[31:0];
+var new_edi_dec[31:0];
+var new_ip[31:0];
+
+// Fetch REPE prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+
+// Fetch SCASD instruction (at IP+1)
+instr = imem[eip + 1];
+assume instr == 0xAF;
+
+// Check counter
+ecx_is_zero = ECX == 32'h00000000;
+
+// Calculate physical address (protected mode flat addressing)
+physical_addr = EDI;
+
+// Load dword from ES:[EDI]
+dword_value = {dmem[physical_addr + 3], dmem[physical_addr + 2], dmem[physical_addr + 1], dmem[physical_addr]};
+
+// Compare EAX with dword (subtraction)
+result = EAX - dword_value;
+
+// Calculate new flags based on result
+new_zf = result[31:0] == 32'h00000000 ? 1'b1 : 1'b0;
+
+// Three mutually exclusive conditions
+ecx_not_zero_and_equal = (ECX != 32'h00000000) & (new_zf == 1'b1);
+ecx_not_zero_and_not_equal = (ECX != 32'h00000000) & (new_zf == 1'b0);
+
+// Calculate new EDI (increment or decrement by 4)
+new_edi_inc = EDI + 32'h00000004;
+new_edi_dec = EDI - 32'h00000004;
+
+// Calculate new IP (advance past instruction)
+new_ip = eip + 32'h0002;
+
+// When ECX == 0: Just advance IP (don't execute)
+eip when(ecx_is_zero) = new_ip;
+
+// When ECX != 0 AND equal: Execute and continue (keep IP)
+flag_CF when(ecx_not_zero_and_equal) = EAX < dword_value ? 1'b1 : 1'b0;
+flag_ZF when(ecx_not_zero_and_equal) = new_zf;
+flag_SF when(ecx_not_zero_and_equal) = result[31];
+flag_PF when(ecx_not_zero_and_equal) = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_OF when(ecx_not_zero_and_equal) = ((EAX[31] != dword_value[31]) & (result[31] != EAX[31])) ? 1'b1 : 1'b0;
+EDI when(ecx_not_zero_and_equal) = flag_DF == 1'b0 ? new_edi_inc : new_edi_dec;
+ECX when(ecx_not_zero_and_equal) = ECX - 32'h00000001;
+eip when(ecx_not_zero_and_equal) = eip;  // Stay at same IP (loop continues)
+
+// When ECX != 0 AND not equal: Execute and exit (advance IP)
+flag_CF when(ecx_not_zero_and_not_equal) = EAX < dword_value ? 1'b1 : 1'b0;
+flag_ZF when(ecx_not_zero_and_not_equal) = new_zf;
+flag_SF when(ecx_not_zero_and_not_equal) = result[31];
+flag_PF when(ecx_not_zero_and_not_equal) = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_OF when(ecx_not_zero_and_not_equal) = ((EAX[31] != dword_value[31]) & (result[31] != EAX[31])) ? 1'b1 : 1'b0;
+EDI when(ecx_not_zero_and_not_equal) = flag_DF == 1'b0 ? new_edi_inc : new_edi_dec;
+ECX when(ecx_not_zero_and_not_equal) = ECX - 32'h00000001;
+eip when(ecx_not_zero_and_not_equal) = new_ip;

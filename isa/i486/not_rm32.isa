@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 NOT r/m32 (0xF7 /2)
+// One's complement negation
+// No flags affected
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var result[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xF7;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+eip = eip + 2;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is NOT (reg_bits = 010)
+assume reg_bits == 0b010;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read destination value
+dst_val = xregs[rm_bits];
+
+// Perform NOT operation (one's complement)
+result = ~dst_val;
+
+// Write result back
+xregs[rm_bits] = result;
+
+// No flags affected by NOT

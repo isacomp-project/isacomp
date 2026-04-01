@@ -1,0 +1,118 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 67-prefix MOV r/m8, imm8 (0x67 0xC6/0)
+// Move immediate byte to register or memory
+// With 67 prefix: 32-bit addressing mode
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var imm8[7:0];
+var dst_reg_idx[1:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp32_b0[7:0];
+var disp32_b1[7:0];
+var disp32_b2[7:0];
+var disp32_b3[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr[31:0];
+var is_mem_dst[0:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xC6;
+
+modrm = imem[eip + 2];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 3'b000;  // MOV opcode extension
+
+dst_reg_idx = rm_bits[1:0];
+
+// 32-bit addressing: rm_bits directly indexes xregs
+base_val = xregs[rm_bits];
+
+// Read displacement bytes (position depends on mod)
+disp8 = imem[eip + 3];
+disp32_b0 = imem[eip + 3];
+disp32_b1 = imem[eip + 4];
+disp32_b2 = imem[eip + 5];
+disp32_b3 = imem[eip + 6];
+disp32 = {disp32_b3, disp32_b2, disp32_b1, disp32_b0};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+// Calculate offset based on mod
+case (mod_bits) {
+  2'b00: offset = base_val;
+  2'b01: offset = base_val + signed_disp8;
+  2'b10: offset = base_val + disp32;
+  2'b11: offset = 32'h00000000;
+}
+
+case (mod_bits) {
+  2'b00: is_mem_dst = 1'b1;
+  2'b01: is_mem_dst = 1'b1;
+  2'b10: is_mem_dst = 1'b1;
+  2'b11: is_mem_dst = 1'b0;
+}
+
+// Calculate EIP based on instruction length
+// prefix(1) + opcode(1) + modrm(1) + disp(0/1/4) + imm8(1)
+var imm_offset[31:0];
+case (mod_bits) {
+  2'b00: imm_offset = eip + 3;
+  2'b01: imm_offset = eip + 4;
+  2'b10: imm_offset = eip + 7;
+  2'b11: imm_offset = eip + 3;
+}
+
+// Read immediate byte
+imm8 = imem[imm_offset];
+
+// Update EIP to next instruction
+case (mod_bits) {
+  2'b00: eip = eip + 4;
+  2'b01: eip = eip + 5;
+  2'b10: eip = eip + 8;
+  2'b11: eip = eip + 4;
+}
+
+physical_addr = ({16'h0000, DS} << 4) + offset;
+
+// Write to destination
+case (is_mem_dst) {
+  1'b1: dmem[physical_addr] = imm8;
+  1'b0: dmem[physical_addr] = dmem[physical_addr];
+}
+
+var write_high[0:0];
+write_high = (~is_mem_dst) & rm_bits[2];
+case (write_high) {
+  1'b1: hregs[dst_reg_idx] = imm8;
+  1'b0: hregs[dst_reg_idx] = hregs[dst_reg_idx];
+}
+
+var write_low[0:0];
+write_low = (~is_mem_dst) & (~rm_bits[2]);
+case (write_low) {
+  1'b1: lregs[dst_reg_idx] = imm8;
+  1'b0: lregs[dst_reg_idx] = lregs[dst_reg_idx];
+}

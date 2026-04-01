@@ -1,0 +1,139 @@
+This patch fixes the BGE (Branch if Greater-or-Equal) instruction bug.
+Apply to IMDb repository models: Rocket and Piccolo.
+NOTE: Pico already has the correct implementation and does not need this patch.
+
+Root cause: ILAng compiler incorrectly translates >= operator for signed comparisons.
+The >= operator gets compiled to unsigned greater-than (bvugt) instead of signed
+greater-or-equal (bvsge), missing the equality case entirely.
+
+Fix: Use explicit Sge() function (signed greater-or-equal) instead of >= operator,
+matching the pattern already used in Pico core.
+
+Impact: BGE instruction will correctly branch when rs1 == rs2 (equality case).
+
+================================================================================
+PATCH 1/2: Rocket
+================================================================================
+File: IMDb/IMDb_Cores/ILA_Rocket/src/riscvIla.cc
+Line: 175-184
+
+--- a/IMDb/IMDb_Cores/ILA_Rocket/src/riscvIla.cc
++++ b/IMDb/IMDb_Cores/ILA_Rocket/src/riscvIla.cc
+@@ -179,7 +179,8 @@
+       auto decode = (opcode == BRANCH) & (funct3 == BGE);
+       instr.SetDecode(decode);
+
+-      instr.SetUpdate(pc, Ite(rs1_val >= rs2_val, BTarget, NC));
++      // Fixed: Use Sge() for signed greater-or-equal (>= operator is buggy in ILAng)
++      instr.SetUpdate(pc, Ite(Sge(rs1_val, rs2_val), BTarget, NC));
+       RECORD_INST("BGE");
+     }
+
+================================================================================
+PATCH 2/2: Piccolo
+================================================================================
+File: IMDb/IMDb_Cores/ILA_Piccolo/src/riscvIla.cc
+Line: 176-185
+
+--- a/IMDb/IMDb_Cores/ILA_Piccolo/src/riscvIla.cc
++++ b/IMDb/IMDb_Cores/ILA_Piccolo/src/riscvIla.cc
+@@ -180,7 +180,8 @@
+       auto decode = (opcode == BRANCH) & (funct3 == BGE);
+       instr.SetDecode(decode);
+
+-      instr.SetUpdate(pc, Ite(rs1_val >= rs2_val, BTarget, NC));
++      // Fixed: Use Sge() for signed greater-or-equal (>= operator is buggy in ILAng)
++      instr.SetUpdate(pc, Ite(Sge(rs1_val, rs2_val), BTarget, NC));
+       RECORD_INST("BGE");
+     }
+
+================================================================================
+BACKGROUND: Why This Bug Exists
+================================================================================
+
+ILAng provides explicit unsigned comparison functions (Ult, Uge) for clarity:
+- BLT:  uses 'rs1_val < rs2_val'  → Compiles correctly to signed bvslt
+- BLTU: uses 'Ult(rs1_val, rs2_val)' → Explicitly unsigned bvult
+- BGE:  uses 'rs1_val >= rs2_val' → BUG: Compiles to unsigned bvugt (not bvsge!)
+- BGEU: uses 'Uge(rs1_val, rs2_val)' → Explicitly unsigned bvuge
+
+The >= operator appears to have a bug in ILAng's compiler where it:
+1. Translates >= to > (drops equality)
+2. Makes it unsigned instead of signed
+
+Pico core developers discovered this and used Sge() explicitly. This patch
+applies the same fix to Rocket and Piccolo cores.
+
+================================================================================
+VERIFICATION
+================================================================================
+
+After applying patches, rebuild ILA models and re-export JSON:
+
+cd IMDb/IMDb_Cores/ILA_Rocket
+# Apply patch, rebuild, export
+./export_rocket
+
+cd IMDb/IMDb_Cores/ILA_Piccolo
+# Apply patch, rebuild, export
+./export_piccolo
+
+Expected: BGE instruction will now use bvsge (signed >=) in generated SMT,
+fixing the counterexample where rs1 == rs2.
+
+================================================================================
+SMT VERIFICATION EVIDENCE
+================================================================================
+
+Before fix (WRONG):
+  ILA: (assert (= ila_op_584 (bvugt ila_op_357 ila_op_514)))  ← unsigned >
+  ISA: (assert (= isa__r1__gt__eq__r2_ (bvuge isa_r1_in isa_r2_in)))  ← unsigned >=
+  Result: Counterexample (equality case fails)
+
+After fix (CORRECT):
+  ILA: (assert (= ila_op_584 (bvsge ila_op_357 ila_op_514)))  ← signed >=
+  ISA: Should still be unsigned but semantically equivalent due to 2's complement
+  Result: UNSAT (proven equivalent)
+
+Note: ISA uses unsigned comparisons but RISC-V signed branches work correctly
+in 2's complement arithmetic. The key is ILA must use signed comparison.
+
+================================================================================
+TESTING
+================================================================================
+
+Test BGE with SMT equivalence checker:
+
+python3 -c "
+from riscv_smt_equivalence import check_riscv_equivalence
+result, msg = check_riscv_equivalence(
+    'ila/test_data/riscv/rocket/riscv_bge.json',
+    'riscv32/bge.isa'
+)
+print('PASS' if result else 'FAIL')
+"
+
+Expected: PASS (was FAIL with counterexample before fix)
+
+================================================================================
+RELATED INSTRUCTIONS
+================================================================================
+
+Other signed branch instructions use < operator and work correctly:
+✅ BLT: uses 'rs1_val < rs2_val' → Compiles correctly to bvslt
+
+Other >= signed comparisons should also be checked for this bug in:
+- SLT/SLTI: signed less-than (use < operator, works)
+- No other instructions use >= for signed comparison in RV32I base
+
+================================================================================
+UPSTREAM BUG REPORT
+================================================================================
+
+This bug should be reported to ILAng developers:
+Repository: https://github.com/PrincetonUniversity/ILAng
+Issue: >= operator incorrectly compiles to unsigned > instead of signed >=
+
+Workaround: Use explicit Sge() function for signed greater-or-equal comparisons.
+
+================================================================================

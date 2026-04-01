@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rs1[4:0];
+var rd[4:0];
+var r1[31:0];
+var bit_index[4:0];
+var bit_mask[31:0];
+var res[31:0];
+
+instr = imem[pc];
+assume instr[6:0] == 0b0010011;
+assume instr[14:12] == 0b001;
+assume instr[31:25] == 0b0110100;
+pc = pc + 4;
+rs1 = instr[19:15];
+rd = instr[11:7];
+
+r1 = rf[rs1];
+
+// BINVI: Invert bit at immediate index in rs1
+bit_index = instr[24:20];
+bit_mask = 1 << bit_index;
+res = r1 ^ bit_mask;
+
+rf[rd] when (rd != 0) = res;

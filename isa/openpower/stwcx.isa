@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER stwcx. - Store Word Conditional Indexed (X-Form)
+// stwcx. RS,RA,RB (Rc=1 always set)
+// Primary opcode 31, XO=150
+// if RA = 0 then b <- 0 else b <- (RA)
+// EA <- b + (RB)
+// If reservation valid and address matches:
+//   MEM(EA, 4) <- (RS)[32:63]
+//   CR0 <- 0b0010 (EQ=1, success)
+// Else:
+//   CR0 <- 0b0000 (EQ=0, failure)
+// Clear reservation
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state resv_addr[63:0];
+isa_state resv_valid[0:0];
+isa_state cr[31:0];
+
+var rs[4:0];
+var ra[4:0];
+var rb[4:0];
+var rs_val[63:0];
+var ra_val[63:0];
+var rb_val[63:0];
+var ra_or_zero[63:0];
+var ea[63:0];
+var word_data[31:0];
+var success[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 150
+assume instr[10:1] == 150;
+// Rc = 1 (always set for store conditional)
+assume instr[0] == 1;
+
+// Extract register fields
+rs = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+ra_val = rf[ra];
+rb_val = rf[rb];
+
+// If RA=0, use 0; otherwise use (RA)
+ra_or_zero = ra == 0 ? 64'h0 : ra_val;
+
+// Calculate effective address
+ea = ra_or_zero + rb_val;
+
+// Check if reservation is valid and address matches
+success = resv_valid && (resv_addr == ea);
+
+// Get word to store
+rs_val = rf[rs];
+word_data = rs_val[31:0];
+
+// Conditionally store word to memory
+#ifdef VM
+aspect mmu_store.isa gates pc, msr, srr0, srr1, dar, dsisr;
+umem[ea_pa] when (~store_exception_taken & ~instr_trap_taken) = success ? word_data : umem[ea_pa];
+#else
+umem[ea] = success ? word_data : umem[ea_pa];
+#endif
+
+// Update CR0: LT=0, GT=0, EQ=success, SO=0
+cr = success ? {4'b0010, cr[27:0]} : {4'b0000, cr[27:0]};
+
+// Clear reservation
+resv_valid = 1'b0;
+
+pc = pc + 4;

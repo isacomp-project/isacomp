@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LEA BX, [SI+disp] (0x8D with modrm 0x5C) - WITH PROPER SEGMENTATION
+// Load Effective Address - computes offset [SI+disp8] and stores in BX
+// Does NOT access memory, just calculates the offset portion of the address
+// Note: LEA never applies segment registers - it only calculates offsets
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var si_val[15:0];
+var disp[7:0];
+var signed_disp[15:0];
+var effective_addr[15:0];
+
+instr = imem[eip];
+assume instr == 0x8D;
+eip = eip + 1;
+
+modrm = imem[eip];
+assume modrm == 0x5C;  // mod=01, reg=011 (BX), rm=100 (SI+disp8)
+eip = eip + 1;
+
+// Read 8-bit displacement
+disp = imem[eip];
+eip = eip + 1;
+
+// Sign-extend displacement to 16 bits
+signed_disp = {{8{disp[7]}}, disp};
+
+// Read SI (xregs[6]) - use 16-bit view
+si_val = xregs[6][15:0];
+
+// Calculate effective address (just the 16-bit offset)
+effective_addr = si_val + signed_disp;
+
+// Store offset in BX (xregs[3]) - only update lower 16 bits
+xregs[3][15:0] = effective_addr;

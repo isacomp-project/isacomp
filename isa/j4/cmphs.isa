@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state t[0:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var cmphs_rn_lo[2:0];
+var cmphs_rm_lo[2:0];
+var Rn[31:0];
+var Rm[31:0];
+
+var cmphs_rb[0:0];
+var cmphs_rn_bk[0:0];
+var cmphs_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x3;
+assume instr[3:0] == 0x2;
+rn = instr[11:8];
+rm = instr[7:4];
+cmphs_rn_lo = rn[2:0];
+cmphs_rm_lo = rm[2:0];
+
+cmphs_rb = sr[29];  // RB bit (bit 29 in SR)
+cmphs_rn_bk = (rn[3] == 1'b0) & cmphs_rb;
+cmphs_rm_bk = (rm[3] == 1'b0) & cmphs_rb;
+
+Rn = cmphs_rn_bk ? rf_bank[cmphs_rn_lo] : rf[rn];
+Rm = cmphs_rm_bk ? rf_bank[cmphs_rm_lo] : rf[rm];
+
+// Unsigned comparison: Rn >= Rm
+t = (Rn >= Rm);
+pc = pc + 2;

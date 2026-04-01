@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX SWYM - Sympathize With Your Machinery (NOP)
+// SWYM XYZ: no operation
+// Opcode: 0xFD
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xFD;
+
+// SWYM is a no-op
+pc = pc + 4;

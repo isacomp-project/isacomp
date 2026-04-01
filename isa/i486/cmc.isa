@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CMC (0xF5)
+// Complement (toggle) Carry Flag
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xF5;
+eip = eip + 1;
+
+// Complement carry flag
+flag_CF = ~flag_CF;

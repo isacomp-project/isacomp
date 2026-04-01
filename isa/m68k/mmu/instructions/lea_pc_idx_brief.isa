@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 LEA (d8,PC,Xn),An - Load effective address with PC-relative 8-bit displacement and index
+// Opcode: 0100 AAA1 11111 011 followed by brief extension word
+// Brief extension word format: D/A Xn2 Xn1 Xn0 W/L Scale 0 d7 d6 d5 d4 d3 d2 d1 d0
+// Mode 7, Register 3 with bit 8 = 0 indicates brief format
+// D/A=0 means index is Dn, D/A=1 means index is An
+// W/L=0 means sign-extend index.W, W/L=1 means use full index.L
+// Scale (bits 10:9): 00=x1, 01=x2, 10=x4, 11=x8
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var ext_word[15:0];
+var idx_is_addr[0:0];
+var idx_reg[2:0];
+var idx_is_long[0:0];
+var scale[1:0];
+var disp8[7:0];
+var sign_ext_disp[31:0];
+var base_pc[31:0];
+var lea_pc_idx_raw[31:0];
+var lea_pc_idx_val[31:0];
+var lea_pc_scaled_idx[31:0];
+var eff_addr[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0100;  // LEA opcode
+assume instr[8:6] == 0b111;     // LEA encoding
+assume instr[5:3] == 0b111;     // Mode 7 (PC-relative)
+assume instr[2:0] == 0b011;     // Register 3 = (d8,PC,Xn) brief format
+base_pc = pc + 2;               // PC for address calculation
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode destination register
+dst_reg = instr[11:9];
+
+// Fetch brief extension word
+ext_word = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Check for brief extension word format (bit 8 = 0)
+assume ext_word[8] == 0;  // Brief format
+
+// Decode brief extension word
+idx_is_addr = ext_word[15];
+idx_reg = ext_word[14:12];
+idx_is_long = ext_word[11];
+scale = ext_word[10:9];
+disp8 = ext_word[7:0];
+
+// Sign extend 8-bit displacement to 32 bits
+sign_ext_disp = {{24{disp8[7]}}, disp8};
+
+// Get index register value (from data or address register)
+lea_pc_idx_raw = idx_is_addr ? aregs[idx_reg] : dregs[idx_reg];
+
+// Sign-extend to 32 bits if word index
+lea_pc_idx_val = idx_is_long ? lea_pc_idx_raw : (lea_pc_idx_raw[15] ? {16'hFFFF, lea_pc_idx_raw[15:0]} : {16'h0000, lea_pc_idx_raw[15:0]});
+
+// Apply scale factor
+lea_pc_scaled_idx = scale == 0 ? lea_pc_idx_val :
+                    scale == 1 ? (lea_pc_idx_val << 1) :
+                    scale == 2 ? (lea_pc_idx_val << 2) :
+                                 (lea_pc_idx_val << 3);
+
+// Calculate effective address: PC + disp8 + scaled_index
+eff_addr = base_pc + sign_ext_disp + lea_pc_scaled_idx;
+
+// Store effective address in destination register
+aregs[dst_reg] when (~m68k_exc_taken) = eff_addr;
+
+// LEA does not affect flags

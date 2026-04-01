@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// J2 (SuperH-2) External Interrupt Handling Aspect
+// This aspect handles external interrupt requests from the AIC.
+// It should be included by all instructions that can be interrupted.
+//
+// Interrupt conditions (SH-2 semantics):
+// 1. irq_i input is high (interrupt request pending)
+// 2. BL=0 in SR (exceptions not blocked)
+// 3. Interrupt priority > IMASK (SR bits 7-4)
+// 4. Not in a branch delay slot
+//
+// When an interrupt is taken:
+// - Sets exc_taken=1 to trigger exception.isa
+// - Sets exc_vector from the AIC's irq_vector input
+//
+// SR Register layout (SH-2):
+//   Bits 4-7:  I0-I3 - Interrupt mask (IMASK, 0-15)
+//   Bit 29:    BL - Block exceptions (1=blocked)
+
+// External interrupt input signals (declared as ext isa_state to become module inputs)
+ext isa_state irq_i[0:0];           // Interrupt request from AIC
+ext isa_state irq_vector[7:0];      // Interrupt vector from AIC
+ext isa_state irq_priority[3:0];    // Interrupt priority level from AIC (0-15)
+
+// System registers (shared with exception.isa)
+isa_state sr[31:0];
+
+// Delay slot state (must not take interrupts during delay slot)
+isa_state delay_slot[0:0];
+
+// Internal variables
+var int_bl[0:0];            // BL bit from SR (block exceptions)
+var int_imask[3:0];         // IMASK from SR bits 7-4
+var int_priority_ok[0:0];   // Priority check passed
+var int_should_take[0:0];   // All conditions met for interrupt
+
+// Extract BL (bit 29) and IMASK (bits 7-4) from SR
+int_bl = sr[29];
+int_imask = sr[7:4];
+
+// Priority check: interrupt priority must be strictly greater than IMASK
+// Note: priority 0 is lowest, 15 is highest
+// An interrupt is taken if priority > IMASK
+int_priority_ok = irq_priority > int_imask;
+
+// Interrupt should be taken if:
+// 1. irq_i is asserted
+// 2. BL=0 (not blocking exceptions)
+// 3. priority > IMASK
+// 4. NOT in a delay slot
+int_should_take = irq_i & ~int_bl & int_priority_ok & ~delay_slot;
+
+// Set exception variables (used by exception.isa)
+// These will trigger the exception handling mechanism
+exc_taken = int_should_take;
+exc_vector = irq_vector;

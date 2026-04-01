@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SAR r32, 1 (0xD1 /7 with mod=11)
+// Shift Arithmetic Right by 1 bit (preserves sign)
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var result[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xD1;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is SAR (reg_bits = 111)
+assume reg_bits == 0b111;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read destination value
+dst_val = xregs[rm_bits];
+
+// CF gets the bit that was shifted out (LSB)
+flag_CF = dst_val[0];
+
+// Shift right by 1 (arithmetic - preserves sign bit)
+result = {dst_val[31], dst_val[31:1]};
+
+// Write result
+xregs[rm_bits] = result;
+
+// Update flags
+flag_ZF = result == 0 ? 1'b1 : 1'b0;
+flag_SF = result[31];
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+// OF is cleared for SAR with count=1
+flag_OF = 1'b0;

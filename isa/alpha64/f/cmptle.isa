@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 - CMPTLE (Compare T_floating Less Equal, IEEE double-precision)
+// Opcode: 0x16, Function: fphi << 5 | 0x27
+// Format: CMPTLE Fa, Fb, Fc
+// Result: Fc = 2.0 if true, 0.0 if false (canonical Alpha FP compare result)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit)
+isa_state fpcr[63:0];          // FP control register
+mem umem[13:0];
+
+var fa[4:0];
+var fb[4:0];
+var fc[4:0];
+var fphi[4:0];
+var fplo[5:0];
+var f1[63:0];
+var f2[63:0];
+var cmp_result[0:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:26] == 22;     // Opcode 0x16 = FP operate
+fphi = instr[15:11];
+fplo = instr[10:5];
+assume fplo == 6'b100111;      // CMPTLE function code = 0x27
+
+fa = instr[25:21];
+fb = instr[20:16];
+fc = instr[4:0];
+
+// Read double-precision operands
+f1 = frf[fa];
+f2 = frf[fb];
+
+// Perform FP comparison
+cmp_result = fp_le_d(f1, f2);
+
+// Alpha returns 2.0 (0x4000000000000000) for true, 0.0 for false
+result = cmp_result ? 64'h4000000000000000 : 64'h0000000000000000;
+
+// Write result to FP register
+frf[fc] when (fc != 31) = result;
+pc = pc + 4;

@@ -1,0 +1,112 @@
+diff --git a/ila/ila_opcodes.py b/ila/ila_opcodes.py
+index 9bce15f..9c035d1 100644
+--- a/ila/ila_opcodes.py
++++ b/ila/ila_opcodes.py
+@@ -10,41 +10,47 @@ EXPR_UID_CONST = 2    # Constant
+ EXPR_UID_OP = 3       # Operation
+ 
+ # ILAng operation codes
+-OP_NEG = 0           # Negate
+-OP_NOT = 1           # Logical NOT
+-OP_COMPL = 2         # Bitwise complement
+-OP_AND = 3           # Bitwise AND
+-OP_OR = 4            # Bitwise OR
+-OP_XOR = 5           # Bitwise XOR
+-OP_SHL = 6           # Shift left
+-OP_ASHR = 7          # Arithmetic shift right
+-OP_LSHR = 8          # Logical shift right
++# NOTE: These MUST match the enum AstUidExprOp in ILAng's ilang/ila/ast/expr_op.h
++OP_INVALID = 0       # Invalid
++OP_NEG = 1           # Negate
++OP_NOT = 2           # Logical NOT
++OP_COMPL = 3         # Bitwise complement
++OP_AND = 4           # Bitwise AND  ← FIXED: Was 3, now 4
++OP_OR = 5            # Bitwise OR   ← FIXED: Was 4, now 5
++OP_XOR = 6           # Bitwise XOR  ← FIXED: Was 5, now 6
++OP_SHL = 7           # Shift left   ← FIXED: Was 6, now 7
++OP_ASHR = 8          # Arithmetic shift right ← FIXED: Was 7, now 8
++OP_LSHR = 9          # Logical shift right    ← FIXED: Was 8, now 9
+ OP_ADD = 10          # Addition
+ OP_SUB = 11          # Subtraction
+ OP_MUL = 12          # Multiplication
+ OP_EQ = 13           # Equal
+-OP_NE = 14           # Not equal
+-OP_LT = 15           # Less than
+-OP_GT = 16           # Greater than
+-OP_ULT = 17          # Unsigned less than
+-OP_LOAD = 18         # Memory load (NOTE: Actual ILAng has LOAD=18, docs say 19)
+-OP_UGT = 19          # Unsigned greater than (NOTE: Actual ILAng has UGT=19, docs say 18)
+-OP_STORE = 20        # Memory store
+-OP_CONCAT = 21       # Concatenation
+-OP_EXTRACT = 22      # Extract bits
+-OP_ZEXT = 23         # Zero extend
+-OP_SEXT = 24         # Sign extend
++OP_LT = 14           # Less than    ← FIXED: Was 15, now 14
++OP_GT = 15           # Greater than ← FIXED: Was 16, now 15
++OP_ULT = 16          # Unsigned less than    ← FIXED: Was 17, now 16
++OP_UGT = 17          # Unsigned greater than ← FIXED: Was 19, now 17
++OP_LOAD = 18         # Memory load
++OP_STORE = 19        # Memory store ← FIXED: Was 20, now 19
++OP_CONCAT = 20       # Concatenation ← FIXED: Was 21, now 20
++OP_EXTRACT = 21      # Extract bits  ← FIXED: Was 22, now 21
++OP_ZEXT = 22         # Zero extend   ← FIXED: Was 23, now 22
++OP_SEXT = 23         # Sign extend   ← FIXED: Was 24, now 23
++OP_APP_FUNC = 24     # Apply function ← FIXED: Was 31, now 24
++OP_IMPLY = 25        # Logical implication ← FIXED: Was 27, now 25
+ OP_ITE = 26          # If-then-else
+-OP_IMPLY = 27        # Logical implication
+-OP_APP_FUNC = 31     # Apply function
+-OP_BOOL_CONST = 40   # Boolean constant
+-OP_BV_CONST = 41     # Bitvector constant
++OP_DIV = 27          # Divide (added - was missing!)
++OP_LROTATE = 28      # Left rotate (added - was missing!)
++OP_RROTATE = 29      # Right rotate (added - was missing!)
++OP_SREM = 30         # Signed remainder (added - was missing!)
++OP_UREM = 31         # Unsigned remainder (added - was missing!)
++OP_SMOD = 32         # Signed modular (added - was missing!)
+ 
+ # Map ILAng opcodes to ResourceGraph node types
+ OPCODE_TO_NODE_TYPE = {
+     OP_ADD: "addition",
+     OP_SUB: "subtraction",
+     OP_MUL: "multiplication",
++    OP_DIV: "division",
+     OP_AND: "bitwise_and",
+     OP_OR: "bitwise_or",
+     OP_XOR: "bitwise_xor",
+@@ -53,8 +59,9 @@ OPCODE_TO_NODE_TYPE = {
+     OP_SHL: "shift_left",
+     OP_ASHR: "arithmetic_shift_right",
+     OP_LSHR: "logical_shift_right",
++    OP_LROTATE: "rotate_left",
++    OP_RROTATE: "rotate_right",
+     OP_EQ: "comparison",
+-    OP_NE: "comparison",
+     OP_LT: "comparison",
+     OP_GT: "comparison",
+     OP_ULT: "comparison",
+@@ -69,6 +76,9 @@ OPCODE_TO_NODE_TYPE = {
+     OP_NEG: "negation",
+     OP_IMPLY: "implication",
+     OP_APP_FUNC: "function_application",
++    OP_SREM: "signed_remainder",
++    OP_UREM: "unsigned_remainder",
++    OP_SMOD: "signed_modular",
+ }
+ 
+ # Sort UIDs (type identifiers)
+diff --git a/ila/ila_parser_real.py b/ila/ila_parser_real.py
+index 12ad1cb..0975b47 100644
+--- a/ila/ila_parser_real.py
++++ b/ila/ila_parser_real.py
+@@ -231,9 +231,9 @@ class RealILAParser:
+             node_data["type"] = "memory_write"
+         elif node_type == "comparison":
+             # Map ILAng comparison opcodes to SMT operations
++            # Note: NE (!= ) is not a separate opcode - it's implemented as NOT(EQ)
+             opcode_to_smt_op = {
+                 OP_EQ: '==',
+-                OP_NE: '!=',
+                 OP_LT: '<',
+                 OP_GT: '>',
+                 OP_ULT: '<',   # Unsigned less than

@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER lbz - Load Byte and Zero (D-Form)
+// lbz RT,D(RA)
+// Primary opcode 34
+// if RA = 0 then b <- 0 else b <- (RA)
+// EA <- b + EXTS(D)
+// RT <- 0x00_0000_0000_0000 || MEM(EA, 1)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var d[15:0];
+var ra_val[63:0];
+var ra_or_zero[63:0];
+var sign_ext_d[63:0];
+var ea[63:0];
+var byte_data[7:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 34
+assume instr[31:26] == 34;
+
+// Extract fields
+rt = instr[25:21];
+ra = instr[20:16];
+d = instr[15:0];
+
+// Sign-extend displacement
+sign_ext_d = {{48{d[15]}}, d};
+
+// If RA=0, use 0; otherwise use (RA)
+ra_val = rf[ra];
+ra_or_zero = ra == 0 ? 64'h0 : ra_val;
+
+// Calculate effective address
+ea = ra_or_zero + sign_ext_d;
+
+// Load byte from memory
+#ifdef VM
+aspect mmu_load.isa gates pc, msr, srr0, srr1, dar, dsisr;
+byte_data = umem[ea_pa];
+#else
+byte_data = umem[ea];
+#endif
+
+// Zero-extend to 64 bits
+result = {56'h0, byte_data};
+
+#ifdef VM
+rf[rt] when (~load_exception_taken & ~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

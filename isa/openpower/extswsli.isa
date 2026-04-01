@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER extswsli - Extend Sign Word and Shift Left Immediate (XS-Form)
+// extswsli RA,RS,SH
+// Primary opcode 31, XO=445
+// n <- SH
+// r <- EXTS(RS[32:63])
+// RA <- r << n
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var sh[5:0];
+var rs_val[63:0];
+var word_val[31:0];
+var sign_ext[63:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 445 (bits 2:10, with bit 1 as part of SH for XS-form)
+assume instr[10:2] == 445;
+
+// Extract fields (XS-form: SH is split between bits 15:11 and bit 1)
+rs = instr[25:21];
+ra = instr[20:16];
+sh = {instr[1], instr[15:11]};
+
+rs_val = rf[rs];
+
+// Get low 32 bits
+word_val = rs_val[31:0];
+
+// Sign-extend to 64 bits
+sign_ext = {{32{word_val[31]}}, word_val};
+
+// Shift left by SH
+result = sign_ext << sh;
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+pc = pc + 4;

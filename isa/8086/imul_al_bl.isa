@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 IMUL BL (0xF6 with modrm 0xEB)
+// Signed multiply: AX = AL * BL (signed)
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state AX[15:0];
+isa_state AL[7:0] of AX[7:0];
+isa_state BX[15:0];
+isa_state BL[7:0] of BX[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var result[15:0];
+
+instr = imem[ip];
+assume instr == 0xF6;
+ip = ip + 1;
+
+modrm = imem[ip];
+assume modrm == 0xEB;
+ip = ip + 1;
+
+// IMUL: signed multiply AL by BL
+// Sign-extend operands to 16 bits for signed multiplication
+result = {{8{AL[7]}}, AL} * {{8{BL[7]}}, BL};
+
+// Store result in AX
+AX = result[15:0];
+
+// Set CF and OF if result doesn't fit in AL (high byte is not sign extension of low byte)
+flag_CF = (result[15:8] != {{8{result[7]}}}) ? 1'b1 : 1'b0;
+flag_OF = flag_CF;

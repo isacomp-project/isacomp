@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA DIAG BTLB Insert instruction
+// Implementation-specific DIAG sub-operation for Block TLB entry insertion.
+// Opcode: 0x05 (bits 31:26), bits[5:0]=6'b000001 (BTLB_INSERT)
+//
+// Register operands (encoded in DIAG function field):
+//   bits[25:21] = r1 (VA base register)
+//   bits[20:16] = r2 (PA base register)
+//   bits[15:11] = r3 (page mask register)
+//   bits[10:6]  = r4 (packed params: space[31:16], slot[4:2], type[1:0])
+//
+// On real PA-RISC, BTLB is managed by PDC firmware using implementation-
+// specific mechanisms. Our implementation exposes it as a DIAG instruction
+// that firmware (bootrom.S) executes to configure BTLB before kernel boot.
+//
+// BTLB entries provide permanent address translation for kernel equivalent
+// mapping (VA = PA + PAGE_OFFSET). Unlike regular TLB entries, BTLB entries
+// are NOT affected by PITLBE/PDTLBE purge instructions.
+//
+// Type encoding: bit0=I (instruction fetch), bit1=D (data access)
+//   0b01 = I-BTLB only
+//   0b10 = D-BTLB only
+//   0b11 = Combined I+D BTLB
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Block TLB state - 8 entries, variable page size
+isa_state btlb_valid[0:0][2:0];
+isa_state btlb_va_base[31:0][2:0];
+isa_state btlb_pa_base[31:0][2:0];
+isa_state btlb_page_mask[31:0][2:0];
+isa_state btlb_space[31:0][2:0];
+isa_state btlb_type_i[0:0][2:0];
+isa_state btlb_type_d[0:0][2:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+instr = umem[pc_pa];
+
+// DIAG BTLB INSERT encoding
+assume instr[31:26] == 0b000101;
+assume instr[5:0] == 6'b000001;
+
+// Decode register fields
+var r1[4:0]; r1 = instr[25:21];
+var r2[4:0]; r2 = instr[20:16];
+var r3[4:0]; r3 = instr[15:11];
+var r4[4:0]; r4 = instr[10:6];
+
+// Read register values
+var va_val[31:0];   va_val   = (r1 == 0) ? 32'h0 : rf[r1];
+var pa_val[31:0];   pa_val   = (r2 == 0) ? 32'h0 : rf[r2];
+var mask_val[31:0]; mask_val = (r3 == 0) ? 32'h0 : rf[r3];
+var params[31:0];   params   = (r4 == 0) ? 32'h0 : rf[r4];
+
+// Unpack params register
+var slot[2:0];        slot      = params[4:2];
+var type_i[0:0];      type_i    = params[0];
+var type_d[0:0];      type_d    = params[1];
+var space_val[31:0];  space_val = {16'h0, params[31:16]};
+
+// Write BTLB entry (gated on not trapped/nullified)
+var active[0:0];
+active = ~instr_trap_taken & ~in_nullified;
+
+btlb_valid[slot] when (active) = 1'b1;
+btlb_va_base[slot] when (active) = va_val;
+btlb_pa_base[slot] when (active) = pa_val;
+btlb_page_mask[slot] when (active) = mask_val;
+btlb_space[slot] when (active) = space_val;
+btlb_type_i[slot] when (active) = type_i;
+btlb_type_d[slot] when (active) = type_d;
+
+pc = pc + 4;

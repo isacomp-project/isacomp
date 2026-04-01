@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 Scc Dn - Set byte in data register on condition
+// Opcode: 0101 cccc 11 000 DDD
+// Sets low byte of Dn to 0xFF if condition true, 0x00 if false
+// Does NOT affect CCR
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var cond[3:0];
+var cond_true[0:0];
+var old_val[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0101;  // Scc opcode prefix
+assume instr[11:8] == 0b0100;   // Condition: CC (Carry Clear)
+assume instr[7:6] == 0b11;      // Scc indicator
+assume instr[5:3] == 0b000;     // EA mode: Dn
+pc when (~m68k_exc_taken) = pc + 2;
+
+dst_reg = instr[2:0];
+
+// SCC: Set if Carry Clear
+cond_true = ~flag_C;
+
+// Set low byte, preserve upper 24 bits
+old_val = dregs[dst_reg];
+dregs[dst_reg] when (~m68k_exc_taken) = cond_true ? {old_val[31:8], 8'hFF} : {old_val[31:8], 8'h00};

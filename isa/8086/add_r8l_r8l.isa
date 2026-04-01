@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 ADD r8_low, r8_low - Parameterized with wildcard ** syntax
+// Opcode: 0x00 + ModR/M byte
+// Handles low byte to low byte: AL,CL,DL,BL
+// Replaces 16 separate files (4×4 combinations)
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// Word register file (8 registers: AX, CX, DX, BX, SP, BP, SI, DI)
+isa_state xregs[15:0][2:0];
+
+// Low byte register array using wildcard ** syntax
+// The 0b0** means: bit[2]=0 (fixed), bits[1:0]=variable (from array index)
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];   // AL,CL,DL,BL
+
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+// Flags
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var reg_idx[2:0];        // Source register index [5:3]
+var rm_idx[2:0];         // Destination register index [2:0]
+var mod_bits[1:0];       // Mod field [7:6]
+
+var src_val[7:0];
+var dst_val[7:0];
+var result[8:0];
+
+// Fetch instruction and ModR/M byte
+instr = imem[ip];
+assume instr == 0x00;  // ADD byte opcode
+ip = ip + 1;
+
+modrm = imem[ip];
+ip = ip + 1;
+
+// Decode ModR/M byte
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_idx = modrm[2:0];
+
+// For register-to-register mode
+assume mod_bits == 0b11;
+
+// Both source and dest are low bytes (bit[2] == 0)
+assume reg_idx[2] == 0;
+assume rm_idx[2] == 0;
+
+// Extract bits [1:0] for array indexing (which of the 4 word regs)
+// For 8086: AL=000, CL=001, DL=010, BL=011 (bits[1:0] give word reg index)
+var src_idx[1:0];
+var dst_idx[1:0];
+src_idx = reg_idx[1:0];
+dst_idx = rm_idx[1:0];
+
+// Direct access to low byte arrays - no conditionals!
+src_val = lregs[src_idx];
+dst_val = lregs[dst_idx];
+
+// Perform addition
+result = dst_val + src_val;
+
+// Write back to destination
+lregs[dst_idx] = result[7:0];
+
+// Update flags
+flag_CF = result[8];
+flag_ZF = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_SF = result[7];
+flag_OF = dst_val[7] & src_val[7] & ~result[7] | ~dst_val[7] & ~src_val[7] & result[7];
+flag_PF = result[0];
+flag_AF = dst_val[3] & src_val[3] | src_val[3] & ~result[3] | ~result[3] & dst_val[3];

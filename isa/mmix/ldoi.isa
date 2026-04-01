@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX LDOI - Load Octa Immediate (64-bit)
+// LDO $X,$Y,Z: $X = M[$Y + Z] (octa/64-bit)
+// Opcode: 0x8D
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_ext[63:0];
+var addr[63:0];
+var data[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x8D;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_ext = {56'b0, z};
+
+addr = y_val + z_ext;
+data = umem[addr];
+
+rf[x] = data;
+pc = pc + 4;

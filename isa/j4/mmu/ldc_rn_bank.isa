@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// LDC Rm,Rn_BANK - Load banked register from general register (privileged)
+// Encoding: 0100mmmm1nnn1110 (0x4m8e..0x4mFe for nnn=0..7)
+// When SR.RB=1, banks R0-R7. This instruction loads to the banked version.
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rm[3:0];
+var rn_bank[2:0];
+var ldc_bank_rm_lo[2:0];
+var Rm[31:0];
+
+var ldc_bank_rb[0:0];
+var ldc_bank_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x4;
+assume instr[7] == 1'b1;
+assume instr[3:0] == 0xE;
+rm = instr[11:8];
+rn_bank = instr[6:4];
+ldc_bank_rm_lo = rm[2:0];
+
+// SR[29] is RB (register bank), SR[28] is BL (block exceptions)
+ldc_bank_rb = sr[29];
+ldc_bank_rm_bk = (rm[3] == 1'b0) & ldc_bank_rb;
+
+// Read source register (with banking consideration)
+Rm = ldc_bank_rm_bk ? rf_bank[ldc_bank_rm_lo] : rf[rm];
+
+// Store to the specified banked register (R0_BANK..R7_BANK)
+// CRITICAL: Rn_BANK refers to the OPPOSITE bank from current SR.RB
+// When RB=0: Rn_BANK accesses bank1 (rf_bank[])
+// When RB=1: Rn_BANK accesses bank0 (rf[])
+// Note: rn_bank is 3-bit index (0-7), so we extend it to 4-bit for rf[]
+rf_bank[rn_bank] when (~int_should_take & ~itlb_exc_actually_taken & (ldc_bank_rb == 0)) = Rm;
+rf[{1'b0, rn_bank}] when (~int_should_take & ~itlb_exc_actually_taken & (ldc_bank_rb == 1)) = Rm;
+pc = pc + 2;

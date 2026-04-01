@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA MOVB,= instruction
+// MOVB,= r1,r2,target - Move and branch if equal to zero
+// Opcode: 0x32 (bits 31:26)
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var src[31:0];
+var w[11:0];
+var target_offset[31:0];
+var target[31:0];
+var taken[0:0];
+var n_bit[0:0];
+
+instr = umem[pc_pa];
+
+// MOVB encoding: opcode=0x32 (bits 31:26)
+assume instr[31:26] == 0b110010;
+
+// Condition field (bits 15:13) - 001 for =
+assume instr[15:13] == 0b001;
+
+// Extract register fields
+r2 = instr[25:21];
+r1 = instr[20:16];
+
+// N bit (bit 1) - nullify delay slot when taken
+n_bit = instr[1];
+
+// Read source register
+src = (r1 == 0) ? 32'h0 : rf[r1];
+
+// Move (copy) value to r2
+rf[r2] when (r2 != 0 & ~instr_trap_taken & ~in_nullified) = src;
+
+// HPPA branch displacement encoding:
+// w[10] (sign) = instr[0]
+// w[9:1] = instr[12:4]  (instr[12] = N bit, also used as displacement bit)
+// w[0] = instr[3]
+w = {instr[0], instr[2], instr[12:4], instr[3]};
+
+// Sign-extend the 11-bit w to 32 bits and multiply by 4 (shift left 2)
+target_offset = {{20{w[11]}}, w, 2'b00};
+
+// Calculate target (relative to PC+8 due to delay slot)
+target = pc + 8 + target_offset;
+
+// Check condition (src == 0)
+taken = (src == 32'h0);
+
+// ,n flag: forward (instr[0]=0) nullifies when taken; backward (instr[0]=1) nullifies when not taken
+var n_nullify[0:0];
+n_nullify = n_bit & (taken ^ instr[0]);
+psw when (n_nullify & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 32'h00200000;
+
+// Branch if condition met
+// Set up delay slot when branch is taken
+delay_slot when (~in_delay_slot & taken & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (~in_delay_slot & taken & ~instr_trap_taken & ~in_nullified) = target;
+pc = pc + 4;

@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV AL, imm8 (0xB0)
+// Move immediate byte to AL register
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state AX[15:0];
+isa_state AL[7:0] of AX[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var imm[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xB0;
+eip = eip + 1;
+
+// Read immediate byte
+imm = imem[eip];
+eip = eip + 1;
+
+// Move immediate to AL
+AL = imm;

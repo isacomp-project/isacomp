@@ -1,0 +1,105 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TDMI SWI (Software Interrupt)
+// Encoding: cond|1111|imm24
+// SWI{cond} #imm24
+//
+// Operation:
+// 1. Save CPSR to SPSR_svc
+// 2. Set CPSR mode to Supervisor (0b10011)
+// 3. Disable IRQ (set I bit)
+// 4. Save PC to LR_svc
+// 5. Branch to SWI vector (0x00000008)
+//
+// The imm24 field is available to the SWI handler to determine which system call
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];           // R0-R14 User/System mode
+isa_state cpsr[31:0];
+
+// Banked registers for FIQ mode (R8-R14)
+isa_state rf_fiq[31:0][2:0];       // R8_fiq(0) - R14_fiq(6)
+
+// Banked SP/LR for other privileged modes
+isa_state rf_irq_sp[31:0];
+isa_state rf_irq_lr[31:0];
+isa_state rf_svc_sp[31:0];
+isa_state rf_svc_lr[31:0];
+isa_state rf_abt_sp[31:0];
+isa_state rf_abt_lr[31:0];
+isa_state rf_und_sp[31:0];
+isa_state rf_und_lr[31:0];
+
+// Saved Program Status Registers
+isa_state spsr_fiq[31:0];
+isa_state spsr_irq[31:0];
+isa_state spsr_svc[31:0];
+isa_state spsr_abt[31:0];
+isa_state spsr_und[31:0];
+
+mem umem[21:0];
+
+var cond[3:0];
+var imm24[23:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+
+var new_cpsr[31:0];
+var return_addr[31:0];
+
+instr = umem[pc];
+
+// SWI encoding
+assume instr[27:24] == 0b1111;
+
+cond = instr[31:28];
+imm24 = instr[23:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |
+            ((cond == 0b0000) & z_flag) |
+            ((cond == 0b0001) & ~z_flag) |
+            ((cond == 0b0010) & c_flag) |
+            ((cond == 0b0011) & ~c_flag) |
+            ((cond == 0b0100) & n_flag) |
+            ((cond == 0b0101) & ~n_flag) |
+            ((cond == 0b0110) & v_flag) |
+            ((cond == 0b0111) & ~v_flag) |
+            ((cond == 0b1000) & c_flag & ~z_flag) |
+            ((cond == 0b1001) & (~c_flag | z_flag)) |
+            ((cond == 0b1010) & (n_flag == v_flag)) |
+            ((cond == 0b1011) & (n_flag != v_flag)) |
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) |
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag)));
+
+// Return address is next instruction
+return_addr = pc + 4;
+
+// New CPSR:
+// - Keep N, Z, C, V flags (bits 31:28)
+// - Set I bit (bit 7) to disable IRQ
+// - Keep F bit unchanged (bit 6)
+// - Clear T bit (bit 5) for A mode
+// - Set mode to Supervisor (bits 4:0 = 10011)
+new_cpsr = {cpsr[31:8], 1'b1, cpsr[6], 1'b0, 5'b10011};
+
+// Save CPSR to SPSR_svc
+spsr_svc when (cond_pass) = cpsr;
+
+// Save return address to LR_svc
+// SWI always writes to LR_svc regardless of current processor mode
+rf_svc_lr when (cond_pass) = return_addr;
+
+// Update CPSR to Supervisor mode with IRQ disabled
+cpsr when (cond_pass) = new_cpsr;
+
+// Branch to SWI vector
+pc = cond_pass ? 32'h00000008 : (pc + 4);

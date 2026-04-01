@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 STOP #imm - Stop and Load Status Register
+// Opcode: 0100 1110 0111 0010 (4E72) followed by 16-bit immediate
+// Privileged instruction - loads SR from immediate, then halts until interrupt
+// Processor resumes at next instruction when interrupt of sufficient priority occurs
+
+isa_state pc[31:0];
+var instr[15:0];
+var imm_sr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[23:0];
+
+// Full Status Register
+isa_state sr[15:0];
+isa_state usp[31:0];
+isa_state ssp[31:0];
+
+// CCR flags
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+// Halt state (processor stops until interrupt)
+isa_state halted[0:0];
+
+var old_s[0:0];
+var new_s[0:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr == 16'h4E72;  // STOP opcode
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Must be in supervisor mode
+assume sr[13] == 1'b1;
+
+// Fetch immediate SR value
+imm_sr = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Check for mode change
+old_s = sr[13];
+new_s = imm_sr[13];
+
+// Handle stack pointer switching
+ssp when (old_s & ~new_s & ~m68k_exc_taken) = aregs[7];
+aregs[7] when (old_s & ~new_s & ~m68k_exc_taken) = usp;
+usp when (~old_s & new_s & ~m68k_exc_taken) = aregs[7];
+aregs[7] when (~old_s & new_s & ~m68k_exc_taken) = ssp;
+
+// Load new SR value
+sr when (~m68k_exc_taken) = imm_sr;
+
+// Update CCR flag aliases
+flag_C when (~m68k_exc_taken) = imm_sr[0];
+flag_V when (~m68k_exc_taken) = imm_sr[1];
+flag_Z when (~m68k_exc_taken) = imm_sr[2];
+flag_N when (~m68k_exc_taken) = imm_sr[3];
+flag_X when (~m68k_exc_taken) = imm_sr[4];
+
+// Enter halted state (waits for interrupt)
+halted when (~m68k_exc_taken) = 1'b1;

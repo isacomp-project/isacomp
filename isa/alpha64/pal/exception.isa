@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha Exception Dispatch
+//
+// This file defines the PAL entry points for various exceptions and
+// the dispatch logic for routing exceptions to the correct handler.
+//
+// Alpha exception model:
+// - All exceptions trap to PALcode entry points
+// - Entry point address = pal_base + (exception_type_offset)
+// - PALcode saves state, handles exception, returns via HW_REI
+//
+// Exception Types and PAL Entry Offsets (0x80 spacing per EV5):
+//
+// Hardware Exceptions (traps to PALcode):
+//   RESET            0x0000 - Processor reset
+//   MCHK             0x0080 - Machine check
+//   ARITH            0x0100 - Arithmetic exception (overflow, etc.)
+//   INTERRUPT        0x0180 - External interrupt
+//   D_FAULT          0x0200 - Data fault (alignment, etc.)
+//   ITB_MISS         0x0280 - Instruction TLB miss
+//   ITB_ACV          0x0300 - Instruction access violation
+//   DTB_MISS_NATIVE  0x0380 - Data TLB miss (native mode)
+//   UNALIGN          0x0400 - Unaligned access
+//   OPCDEC           0x0480 - Opcode reserved to Digital
+//   FEN              0x0500 - Floating-point disabled
+//
+// CALL_PAL Entry Points:
+//   Privileged:   pal_base + 0x2000 + (func[5:0] * 64)
+//   Unprivileged: pal_base + 0x3000 + (func[5:0] * 64)
+//
+// CALL_PAL Function Codes (from arch/alpha/include/asm/pal.h):
+//
+// Privileged (func[7:6]==00, requires kernel mode):
+//   0x00: halt       0x01: cflush     0x02: draina     0x09: cserve
+//   0x0A: swppal     0x0D: wripir     0x10: rdmces     0x11: wrmces
+//   0x2B: wrfen      0x2D: wrvptptr   0x30: swpctx     0x31: wrval
+//   0x32: rdval      0x33: tbi        0x34: wrent      0x35: swpipl
+//   0x36: rdps       0x37: wrkgp      0x38: wrusp      0x3A: rdusp
+//   0x3C: whami      0x3D: retsys     0x3E: wtint      0x3F: rti
+//
+// Unprivileged (func[7:6]==10):
+//   0x80: bpt        0x81: bugchk     0x83: callsys    0x86: imb
+//   0x9E: rdunique   0x9F: wrunique   0xAA: gentrap
+
+// ============================================================================
+// PAL Entry Point Offsets (EV5: 0x80 spacing)
+// ============================================================================
+
+// Hardware exceptions (at pal_base + offset)
+// RESET_ENTRY            = 0x0000
+// MCHK_ENTRY             = 0x0080
+// ARITH_ENTRY            = 0x0100
+// INTERRUPT_ENTRY        = 0x0180
+// DFAULT_ENTRY           = 0x0200
+// ITB_MISS_ENTRY         = 0x0280
+// ITB_ACV_ENTRY          = 0x0300
+// DTB_MISS_NATIVE_ENTRY  = 0x0380
+// UNALIGN_ENTRY          = 0x0400
+// OPCDEC_ENTRY           = 0x0480
+// FEN_ENTRY              = 0x0500
+
+// CALL_PAL (at pal_base + 0x2000/0x3000 + func[5:0]*64)
+// Privileged CALL_PAL base  = 0x2000
+// Unprivileged CALL_PAL base = 0x3000
+
+// ============================================================================
+// Exception State
+// ============================================================================
+
+// The following IPRs are set on exception:
+// - exc_addr: PC of faulting instruction (or next instruction for traps)
+// - exc_sum: Exception summary (type-specific information)
+// - va: Faulting virtual address (for memory exceptions)
+// - mm_stat: Memory management status (for TLB/memory exceptions)
+//   - Bit 0: Write (1) vs Read (0)
+//   - Bits 5:1: Opcode of faulting instruction
+//   - Bit 6: D-stream (1) vs I-stream (0)
+
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state ipl[5:0];
+isa_state pc[63:0];
+isa_state lock_flag[0:0];
+
+var exception_pending[0:0];
+var exception_type[7:0];
+var exception_entry[63:0];
+
+// Compute entry point from exception type using 0x80 spacing
+// exception_entry = pal_base + {exception_type, 7'b0000000};
+// (each entry is 128 bytes / 0x80 apart)
+
+// On any exception:
+// 1. Save PC to exc_addr
+// 2. Save exception-specific info to exc_sum, va, mm_stat as appropriate
+// 3. Enter PAL mode
+// 4. Jump to exception entry point
+// 5. PALcode handles exception and returns via HW_REI
+
+// ============================================================================
+// Exception Priority (highest to lowest)
+// ============================================================================
+//
+// 1. Reset
+// 2. Machine check
+// 3. Interrupt (when not masked by IPL)
+// 4. ITB miss
+// 5. ITB access violation
+// 6. Illegal instruction / Privileged instruction (OPCDEC)
+// 7. Floating-point disabled (FEN)
+// 8. DTB miss (native)
+// 9. Data alignment fault (UNALIGN)
+// 10. Data access violation (D_FAULT)
+// 11. Arithmetic exception
+// 12. Software trap (CALL_PAL)
+
+// ============================================================================
+// Exception Dispatch Logic
+// ============================================================================
+
+// This aspect provides centralized exception handling.
+// It should be checked at the end of each instruction execution.
+
+// Check for pending exceptions (priority order)
+// These would be set by other aspects (ITB, DTB, arithmetic, etc.)
+
+exc_addr when (exception_pending) = pc;
+pal_mode when (exception_pending) = 1;
+lock_flag when (exception_pending) = 0;
+pc when (exception_pending) = exception_entry;

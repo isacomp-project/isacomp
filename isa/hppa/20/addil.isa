@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA 2.0 ADDIL instruction
+// ADDIL im21,r,gr1 - Add Immediate Left: gr1 = r + (im21 << 11)
+// Opcode: 0x0A (bits 31:26)
+// Result always goes to gr1
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var im21[20:0];
+var src[63:0];
+var imm_shifted[63:0];
+var result[63:0];
+
+instr = umem[pc_pa];
+
+// ADDIL encoding: opcode=0x0A (bits 31:26)
+assume instr[31:26] == 0b001010;
+
+// Extract source register (bits 25:21)
+r = instr[25:21];
+
+// Extract 21-bit immediate (bits 20:0)
+im21 = instr[20:0];
+
+// Read source register
+src = (r == 0) ? 64'h0 : rf[r];
+
+// Shift immediate left by 11
+// PA-RISC uses assemble_21() to encode the immediate in the instruction word.
+// We must apply the inverse (extract_21) to decode it back to the actual value.
+// assemble_21 mapping: opcode[0]=x[20], opcode[11:1]=x[19:9], opcode[13:12]=x[1:0],
+//                      opcode[14]=x[7], opcode[15]=x[8], opcode[20:16]=x[6:2]
+// So extract_21: x = {im21[0], im21[11:1], im21[15], im21[14], im21[20:16], im21[13:12]}
+imm_shifted = {{32{im21[0]}}, im21[0], im21[11:1], im21[15], im21[14], im21[20:16], im21[13:12], 11'b0};
+
+// Add
+result = src + imm_shifted;
+
+// Result always goes to gr1 (register 1)
+rf[1] when (1 != 0 & ~instr_trap_taken & ~in_nullified) = result;
+
+// Advance PC
+pc = pc + 4;

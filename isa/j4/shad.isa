@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SHAD - Shift Arithmetic Dynamic (J2/J4 specific barrel shift)
+// If Rm >= 0: Rn = Rn << Rm (logical left shift)
+// If Rm < 0:  Rn = Rn >> (-Rm) (arithmetic right shift)
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var shad_rn_lo[2:0];
+var shad_rm_lo[2:0];
+var Rn[31:0];
+var Rm[31:0];
+var shift_amt[4:0];
+var neg_shift_amt[4:0];
+var res_left[31:0];
+var res_right[31:0];
+var res[31:0];
+var is_negative[0:0];
+
+var shad_rb[0:0];
+var shad_rn_bk[0:0];
+var shad_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[3:0] == 0xC;
+rn = instr[11:8];
+rm = instr[7:4];
+shad_rn_lo = rn[2:0];
+shad_rm_lo = rm[2:0];
+
+shad_rb = sr[29];  // RB bit (bit 29 in SR)
+shad_rn_bk = (rn[3] == 1'b0) & shad_rb;
+shad_rm_bk = (rm[3] == 1'b0) & shad_rb;
+
+Rn = shad_rn_bk ? rf_bank[shad_rn_lo] : rf[rn];
+Rm = shad_rm_bk ? rf_bank[shad_rm_lo] : rf[rm];
+
+is_negative = Rm[31];
+shift_amt = Rm[4:0];
+neg_shift_amt = (~Rm[4:0]) + 1;
+
+// Left shift (when Rm >= 0)
+res_left = Rn << shift_amt;
+
+// Arithmetic right shift (when Rm < 0)
+// Use sign extension for arithmetic shift
+res_right = {{31{Rn[31]}}, Rn} >> neg_shift_amt;
+
+res = is_negative ? res_right[31:0] : res_left;
+
+rf[rn] when (shad_rn_bk == 0) = res;
+rf_bank[shad_rn_lo] when (shad_rn_bk) = res;
+pc = pc + 2;

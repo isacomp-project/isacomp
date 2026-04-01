@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 CB B6 - RES 6,(HL) (Reset bit 6)
+// Does not affect flags
+
+isa_state pc[15:0];
+var cb_instr[15:0];
+var pc_plus_1[15:0];
+isa_state H[7:0];
+isa_state L[7:0];
+mem mainmem[15:0];
+var addr[15:0];
+var value[7:0];
+
+pc_plus_1 = pc + 1;
+cb_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume cb_instr == 0xB6CB;
+pc = pc_plus_1 + 1;
+
+addr = {H, L};
+value = mainmem[addr];
+
+mainmem[addr] = value & 8'hBF;

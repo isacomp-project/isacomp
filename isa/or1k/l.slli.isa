@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.slli - Shift Left Logical Immediate
+// Format: l.slli rD, rA, L
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rD[4:0];
+var rA[4:0];
+var L[4:0];
+var r1[31:0];
+var res[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x2E;
+assume instr[7:6] == 0x0;
+pc = pc + 4;
+rD = instr[25:21];
+rA = instr[20:16];
+L = instr[4:0];
+
+r1 = rf[rA];
+
+res = r1 << L;
+
+rf[rD] = res;

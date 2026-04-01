@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER maddld - Multiply-Add Low Doubleword (VA-Form)
+// maddld RT,RA,RB,RC
+// Primary opcode 4, XO=51 (bits 5:0)
+// RT = (RA * RB + RC)[63:0]
+// POWER9 instruction used in integer arithmetic.
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var rb[4:0];
+var rc[4:0];
+var ra_val[63:0];
+var rb_val[63:0];
+var rc_val[63:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 4 (bits 31:26)
+assume instr[31:26] == 4;
+// XO field = 51 (bits 5:0)
+assume instr[5:0] == 51;
+
+rt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+rc = instr[10:6];
+
+ra_val = rf[ra];
+rb_val = rf[rb];
+rc_val = rf[rc];
+
+// Multiply-Add Low Doubleword: (RA * RB + RC) truncated to 64 bits
+result = ra_val * rb_val + rc_val;
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: SHR3 src, dst (immediate, stack offset)
+// One-parcel encoding: opcode 0x1F, 2 bytes
+// Acc = dst >>> unsigned(imm5); arithmetic right shift, result in accumulator
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var opcode[4:0];
+var uimm[4:0];
+var dst_off[4:0];
+var dst_addr[31:0];
+var acc_addr[31:0];
+var dst_val[31:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+opcode = instr[14:10];
+assume opcode == 0x1F;
+
+uimm = instr[9:5];
+dst_off = instr[4:0];
+
+dst_addr = sp + {25'b0, dst_off, 2'b00};
+acc_addr = sp + 4;
+
+dst_val = umem[dst_addr];
+
+umem[acc_addr] = dst_val >>> uimm;
+
+pc = pc + 2;

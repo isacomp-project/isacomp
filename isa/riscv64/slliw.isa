@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V SLLIW (Shift Left Logical Immediate Word) instruction - RV64I only
+// Performs 32-bit left shift and sign-extends result to 64 bits
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var shamt[4:0];
+var r1[63:0];
+var slliw_r1_word[31:0];
+var slliw_res_word[31:0];
+var slliw_res[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0011011;
+assume instr[14:12] == 0x1;
+assume instr[31:25] == 0x00;
+pc = pc + 4;
+rs1 = instr[19:15];
+rd = instr[11:7];
+shamt = instr[24:20];
+
+r1 = rf[rs1];
+slliw_r1_word = r1[31:0];
+slliw_res_word = slliw_r1_word << shamt;
+
+// Sign-extend 32-bit result to 64 bits
+slliw_res = {{32{slliw_res_word[31]}}, slliw_res_word};
+
+rf[rd] when (rd != 0) = slliw_res;

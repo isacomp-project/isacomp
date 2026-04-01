@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 POP SS (0x17)
+// Pop SS segment register from stack at SS:[ESP]
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// Word register file: EAX, ECX, EDX, EBX, ESP, EBP, ESI, EDI
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];            // Stack segment register
+
+var offset_lo[31:0];             // 32-bit stack offset
+var offset_hi[31:0];             // 32-bit stack offset + 1
+var physical_addr_lo[31:0];      // 32-bit physical address
+var physical_addr_hi[31:0];      // 32-bit physical address
+var data_lo[7:0];
+var data_hi[7:0];
+var popped_value[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x17;
+eip = eip + 1;
+
+// Calculate stack offsets (ESP and ESP+1)
+// ESP is xregs[4]
+offset_lo = xregs[4];
+offset_hi = xregs[4] + 32'h00000001;
+
+// Calculate physical addresses using SS segment (32-bit)
+// Use concatenation instead of shift to ensure 32-bit result
+physical_addr_lo = {SS, 4'b0} + {4'b0, offset_lo[15:0]};
+physical_addr_hi = {SS, 4'b0} + {4'b0, offset_hi[15:0]};
+
+// Read from stack (little-endian: low byte at lower address)
+data_lo = dmem[physical_addr_lo];
+data_hi = dmem[physical_addr_hi];
+
+// Combine bytes into 16-bit value
+popped_value = {data_hi, data_lo};
+
+// Write to SS segment register
+SS = popped_value;
+
+// Increment ESP by 2 (word size) - stack shrinks
+xregs[4] = xregs[4] + 32'h00000002;

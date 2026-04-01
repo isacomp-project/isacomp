@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: NOP (no operation)
+// One-parcel encoding: opcode 0x0B, subcode 0x2, 2 bytes
+// No operation performed
+
+isa_state pc[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+assume instr[14:10] == 0x0B;
+assume instr[9:7] == 0b010;
+
+pc = pc + 2;

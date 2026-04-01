@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// J2 (SuperH-2) Exception Handling Aspect
+// This aspect handles the mechanics of taking an exception:
+// 1. Push PC and SR to stack (R15)
+// 2. Set MD=1 (privileged mode), BL=1 (block exceptions)
+// 3. Jump to handler at VBR + vector*4
+//
+// Instructions that use this aspect must set:
+// - exc_taken: 1 if exception should be taken
+// - exc_vector: 8-bit vector number
+//
+// SR Register layout (SH-2):
+//   Bit 0:     T  - Test/condition flag
+//   Bit 1:     S  - Saturation flag
+//   Bits 4-7:  I3-I0 - Interrupt mask (0-15)
+//   Bit 8:     Q  - DIV1 quotient bit
+//   Bit 9:     M  - DIV0S/DIV1 sign bit
+//   Bit 28:    RB - Register bank select (0=bank0, 1=bank1)
+//   Bit 29:    BL - Block exceptions (1=blocked)
+//   Bit 30:    MD - Processor mode (0=user, 1=privileged)
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state t[0:0];  // T flag (tracked separately from SR for instruction updates)
+
+// Variables for exception handling - set by instruction
+var exc_taken[0:0];
+var exc_vector[7:0];
+
+// Internal variables for stack operations
+var exc_stack_ptr[31:0];
+var exc_new_sp[31:0];
+var exc_handler_addr[31:0];
+var exc_saved_sr[31:0];
+var exc_saved_pc[31:0];
+var exc_new_sr[31:0];
+
+// Read current stack pointer (R15)
+exc_stack_ptr = rf[15];
+
+// Compute new stack pointer (push 8 bytes: PC + SR)
+exc_new_sp = exc_stack_ptr - 8;
+
+// Save current PC and SR for pushing
+// Include T flag in bit 0 of saved SR (T is tracked separately from SR)
+exc_saved_pc = pc;
+exc_saved_sr = {sr[31:1], t};
+
+// Read handler address from vector table (SH-2 indirect vectoring)
+// Vector table entry is at VBR + vector * 4
+exc_handler_addr = umem[vbr + {22'b0, exc_vector, 2'b0}];
+
+// Compute new SR: set MD=1 (privileged), BL=1 (block exceptions)
+// RB kept unchanged - handler needs to see interrupted code's registers
+// Use t register for bit 0 since sr[0] may be stale (only t is updated by T-modifying instructions)
+exc_new_sr = {sr[31], 2'b11, sr[28:1], t};
+
+// Push SR to stack (at higher address: sp+4)
+umem[exc_new_sp + 4] when (exc_taken) = exc_saved_sr;
+
+// Push PC to stack (at lower address: sp)
+umem[exc_new_sp] when (exc_taken) = exc_saved_pc;
+
+// Update stack pointer (R15)
+rf[15] when (exc_taken) = exc_new_sp;
+
+// Update SR (enter privileged mode, block exceptions)
+sr when (exc_taken) = exc_new_sr;
+
+// Jump to exception handler
+pc when (exc_taken) = exc_handler_addr;

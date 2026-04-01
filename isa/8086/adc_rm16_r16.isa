@@ -1,0 +1,150 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 ADC r/m16, r16 (0x01) - CONSOLIDATED ALL ADCRESSING MODES
+// Uses multiple case statements for parser compatibility
+// Add 16-bit register to r/m16 (register or memory destination)
+// Supports all addressing modes via ModR/M byte:
+//   mod=00: [SI], [DI], [BX] - indirect
+//   mod=01: [SI+disp8], [DI+disp8], [BX+disp8] - indirect + 16-bit displacement
+//   mod=10: [SI+disp16], [DI+disp16], [BX+disp16] - indirect + 16-bit displacement
+//   mod=11: AX, CX, DX, BX, SP, BP, SI, DI - register direct
+
+isa_state xregs[15:0][7:0];    // 16-bit registers array
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var src_idx[2:0];
+var dst_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var offset_hi[15:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+var src_val[15:0];
+var result_lo[7:0];
+var result_hi[7:0];
+var dst_mem_val_lo[7:0];
+var dst_mem_val_hi[7:0];
+var dst_mem_val[15:0];
+var dst_reg_val[15:0];
+var dst_val[15:0];
+var result[16:0];
+var is_mem_dest[0:0];
+
+// Fetch instruction
+instr = imem[ip];
+assume instr == 0x01;
+ip = ip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[ip];
+ip = ip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+src_idx = reg_idx;
+dst_reg_idx = rm_bits;
+
+// Read source value (always from 16-bit register)
+src_val = xregs[src_idx];
+
+// Pre-calculate address register index for memory modes
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+// Read base offset from address register
+base_offset = xregs[addr_reg_idx];
+
+// Read potential displacement bytes
+disp8 = imem[ip];
+disp16_lo = imem[ip];
+disp16_hi = imem[ip + 1];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+// Calculate offset based on addressing mode
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+// Set destination type flag
+case (mod_bits) {
+  0b00: is_mem_dest = 1'b1;
+  0b01: is_mem_dest = 1'b1;
+  0b10: is_mem_dest = 1'b1;
+  0b11: is_mem_dest = 1'b0;
+}
+
+// Advance IP based on displacement bytes consumed
+case (mod_bits) {
+  0b00: ip = ip;
+  0b01: ip = ip + 1;
+  0b10: ip = ip + 2;
+  0b11: ip = ip;
+}
+
+// Calculate physical addresses for 16-bit memory access
+offset_hi = offset + 16'h0001;  // Wraps at 16-bit boundary
+physical_addr_lo = (DS << 4) + offset;
+physical_addr_hi = (DS << 4) + offset_hi;
+
+// Read destination values (both memory and register)
+dst_mem_val_lo = dmem[physical_addr_lo];
+dst_mem_val_hi = dmem[physical_addr_hi];
+dst_mem_val = {dst_mem_val_hi, dst_mem_val_lo};
+dst_reg_val = xregs[dst_reg_idx];
+
+// Select actual destination value based on mode
+case (is_mem_dest) {
+  1'b1: dst_val = dst_mem_val;
+  1'b0: dst_val = dst_reg_val;
+}
+
+// Perform ADC operation
+result = dst_val + src_val;
+
+// Set flags
+flag_CF = result[16];
+flag_OF = (dst_val[15] == src_val[15]) & (dst_val[15] != result[15]);
+flag_SF = result[15];
+flag_ZF = result[15:0] == 16'h0000;
+flag_AF = (dst_val[3:0] + src_val[3:0]) > 4'hF;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[15]);
+
+// Write result to destination (memory write needs two operations)
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr_lo] = result[7:0];
+  1'b0: xregs[dst_reg_idx] = result[15:0];
+}
+
+case (is_mem_dest) {
+  1'b1: dmem[physical_addr_hi] = result[15:8];
+  1'b0: xregs[dst_reg_idx] = result[15:0];
+}

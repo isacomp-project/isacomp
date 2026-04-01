@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PITLBE instruction
+// PITLBE x(sr,b) - Purge Instruction TLB Entry (equivalence purge)
+// Opcode: 0x01 (bits 31:26), bits[11:5]=0b0010010, bit[12]=0 (instruction TLB)
+// Differs from PITLB in bit[6]=1 (equivalence mode)
+//
+// Same behavior as PITLB for our implementation.
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Space registers (ITLB uses 3-bit SR, needs SR0-SR7)
+isa_state sr0[31:0];
+isa_state sr1[31:0];
+isa_state sr2[31:0];
+isa_state sr3[31:0];
+isa_state sr4[31:0];
+isa_state sr5[31:0];
+isa_state sr6[31:0];
+isa_state sr7[31:0];
+
+// ITLB CAM state
+isa_state cam itlb_vpn[19:0]@[3:0][];
+isa_state itlb_space[31:0][3:0];
+isa_state itlb_valid[0:0][3:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var b[4:0];
+var x[4:0];
+
+instr = umem[pc_pa];
+
+// PITLBE encoding: opcode=0x01, bits[11:5]=0b0010010, bit[12]=0 (instruction TLB)
+assume instr[31:26] == 0b000001;
+assume instr[11:5] == 0b0010010;
+assume instr[12] == 1'b0;
+
+b = instr[25:21];
+x = instr[20:16];
+
+// Compute virtual address to purge
+var base[31:0];
+var index[31:0];
+var vaddr[31:0];
+base = (b == 0) ? 32'h0 : rf[b];
+index = (x == 0) ? 32'h0 : rf[x];
+vaddr = base + index;
+
+var purge_vpn[19:0];
+purge_vpn = vaddr[31:12];
+
+// Space register selection — ITLB uses 3-bit non-contiguous: {instr[13], instr[15:14]}
+var sr_sel[2:0];
+sr_sel = {instr[13], instr[15:14]};
+var purge_space[31:0];
+purge_space = (sr_sel == 3'd0) ? sr0 :
+              (sr_sel == 3'd1) ? sr1 :
+              (sr_sel == 3'd2) ? sr2 :
+              (sr_sel == 3'd3) ? sr3 :
+              (sr_sel == 3'd4) ? sr4 :
+              (sr_sel == 3'd5) ? sr5 :
+              (sr_sel == 3'd6) ? sr6 : sr7;
+
+// CAM lookup to find matching entries
+var purge_matches[15:0];
+purge_matches = itlb_vpn@[purge_vpn];
+
+// Filter by valid + space match
+var pv_0[0:0];  pv_0  = purge_matches[0]  & itlb_valid[0]  & (itlb_space[0]  == purge_space);
+var pv_1[0:0];  pv_1  = purge_matches[1]  & itlb_valid[1]  & (itlb_space[1]  == purge_space);
+var pv_2[0:0];  pv_2  = purge_matches[2]  & itlb_valid[2]  & (itlb_space[2]  == purge_space);
+var pv_3[0:0];  pv_3  = purge_matches[3]  & itlb_valid[3]  & (itlb_space[3]  == purge_space);
+var pv_4[0:0];  pv_4  = purge_matches[4]  & itlb_valid[4]  & (itlb_space[4]  == purge_space);
+var pv_5[0:0];  pv_5  = purge_matches[5]  & itlb_valid[5]  & (itlb_space[5]  == purge_space);
+var pv_6[0:0];  pv_6  = purge_matches[6]  & itlb_valid[6]  & (itlb_space[6]  == purge_space);
+var pv_7[0:0];  pv_7  = purge_matches[7]  & itlb_valid[7]  & (itlb_space[7]  == purge_space);
+var pv_8[0:0];  pv_8  = purge_matches[8]  & itlb_valid[8]  & (itlb_space[8]  == purge_space);
+var pv_9[0:0];  pv_9  = purge_matches[9]  & itlb_valid[9]  & (itlb_space[9]  == purge_space);
+var pv_10[0:0]; pv_10 = purge_matches[10] & itlb_valid[10] & (itlb_space[10] == purge_space);
+var pv_11[0:0]; pv_11 = purge_matches[11] & itlb_valid[11] & (itlb_space[11] == purge_space);
+var pv_12[0:0]; pv_12 = purge_matches[12] & itlb_valid[12] & (itlb_space[12] == purge_space);
+var pv_13[0:0]; pv_13 = purge_matches[13] & itlb_valid[13] & (itlb_space[13] == purge_space);
+var pv_14[0:0]; pv_14 = purge_matches[14] & itlb_valid[14] & (itlb_space[14] == purge_space);
+var pv_15[0:0]; pv_15 = purge_matches[15] & itlb_valid[15] & (itlb_space[15] == purge_space);
+
+// Invalidate all matching entries
+var active[0:0];
+active = ~instr_trap_taken & ~in_nullified;
+
+itlb_valid[0]  when (active & pv_0)  = 1'b0;
+itlb_valid[1]  when (active & pv_1)  = 1'b0;
+itlb_valid[2]  when (active & pv_2)  = 1'b0;
+itlb_valid[3]  when (active & pv_3)  = 1'b0;
+itlb_valid[4]  when (active & pv_4)  = 1'b0;
+itlb_valid[5]  when (active & pv_5)  = 1'b0;
+itlb_valid[6]  when (active & pv_6)  = 1'b0;
+itlb_valid[7]  when (active & pv_7)  = 1'b0;
+itlb_valid[8]  when (active & pv_8)  = 1'b0;
+itlb_valid[9]  when (active & pv_9)  = 1'b0;
+itlb_valid[10] when (active & pv_10) = 1'b0;
+itlb_valid[11] when (active & pv_11) = 1'b0;
+itlb_valid[12] when (active & pv_12) = 1'b0;
+itlb_valid[13] when (active & pv_13) = 1'b0;
+itlb_valid[14] when (active & pv_14) = 1'b0;
+itlb_valid[15] when (active & pv_15) = 1'b0;
+
+pc = pc + 4;

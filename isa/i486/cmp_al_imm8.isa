@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CMP AL, imm8 (0x3C)
+// Direct accumulator addressing - no ModR/M byte
+
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var imm_val[7:0];
+var result[8:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x3C;
+eip = eip + 1;
+
+// Fetch immediate value
+imm_val = imem[eip];
+eip = eip + 1;
+
+// Perform CMP operation
+result = AL - imm_val;
+
+// Set flags
+flag_CF = result[8];
+flag_OF = (AL[7] != imm_val[7]) & (AL[7] != result[7]);
+flag_SF = result[7];
+flag_ZF = result[7:0] == 8'h00;
+flag_AF = (AL[3:0] < imm_val[3:0]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+// Write result
+// CMP does not write result

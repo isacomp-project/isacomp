@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 EXTRD,U instruction (64-bit extract unsigned)
+// EXTRD,U r,pos,len,t - Extract Doubleword Unsigned: extracts 'len' bits
+// from full 64-bit register r starting at position 'pos', zero-extends.
+// NEW in PA-RISC 2.0: operates on full 64-bit register width.
+// Opcode: 0x36 (bits 31:26), bit[10]=0 (unsigned)
+// bit[12]: 0=len(1-32), 1=len(33-64)
+// Position: pos = {instr[11], instr[9:5]} (6 bits, direct encoding)
+// r=instr[25:21], t=instr[20:16]
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var t[4:0];
+var pos[5:0];
+var len_base[6:0];
+var len[6:0];
+var shift_amt[5:0];
+var src[63:0];
+var mask[63:0];
+var res[63:0];
+var cond_eq[0:0];
+var cond_lt[0:0];
+var cond_od[0:0];
+var cond_base[0:0];
+var cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// EXTRD,U encoding: opcode=0x36, bit[10]=0 (unsigned)
+// bit[11] is pos[5], bit[12] selects length mode
+assume instr[31:26] == 0b110110;
+assume instr[10] == 0b0;
+
+// Extract fields
+r = instr[25:21];
+t = instr[20:16];
+// 6-bit position: {instr[11], instr[9:5]} (direct, not complement)
+pos = {instr[11], instr[9:5]};
+// Length: bit[12]=0 → len=32-instr[4:0], bit[12]=1 → len=64-instr[4:0]
+len_base = instr[12] ? 7'b1000000 : 7'b0100000;
+len = len_base - {2'b0, instr[4:0]};
+
+// shift_amt = 63 - pos (convert PA-RISC position to right-shift amount)
+shift_amt = 6'b111111 - pos;
+
+// Read source register
+src = (r == 0) ? 64'h0 : rf[r];
+
+// Shift right and mask to extract 'len' bits
+// Zero-extend (unsigned): just mask
+mask = (64'h1 << len) - 64'h1;
+res = (src >> shift_amt) & mask;
+
+// 3-bit conditional nullification (c=instr[15:13])
+cond_eq = (res == 0);
+cond_lt = res[63];
+cond_od = res[0];
+cond_base = (instr[13] & ~instr[14] & cond_eq) | (~instr[13] & instr[14] & cond_lt) | (instr[13] & instr[14] & cond_od);
+cond_met = cond_base ^ instr[15];
+psw when (cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC
+pc = pc + 4;

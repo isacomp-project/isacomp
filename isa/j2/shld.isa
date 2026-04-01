@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var shld_rn_lo[2:0];
+var shld_rm_lo[2:0];
+var Rn[31:0];
+var Rm[31:0];
+var shld_amt[4:0];
+var shld_neg_amt[4:0];
+var shld_left_res[31:0];
+var shld_right_res[31:0];
+var shld_out[31:0];
+
+// Register banking variables (unique to shld instruction)
+var shld_rb[0:0];
+var shld_rn_bk[0:0];
+var shld_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[3:0] == 0xD;
+rn = instr[11:8];
+rm = instr[7:4];
+shld_rn_lo = rn[2:0];
+shld_rm_lo = rm[2:0];
+
+// Banking: R0-R7 use rf_bank when SR.RB=1
+shld_rb = sr[28];
+shld_rn_bk = (rn[3] == 1'b0) & shld_rb;
+shld_rm_bk = (rm[3] == 1'b0) & shld_rb;
+
+Rn = shld_rn_bk ? rf_bank[shld_rn_lo] : rf[rn];
+Rm = shld_rm_bk ? rf_bank[shld_rm_lo] : rf[rm];
+
+// SHLD - Shift Logical Dynamic
+// If Rm >= 0: shift left by Rm[4:0]
+// If Rm < 0: shift right logical by (0 - Rm[4:0])
+shld_amt = Rm[4:0];
+shld_neg_amt = 5'b0 - shld_amt;
+
+// Left shift for positive Rm
+shld_left_res = Rn << shld_amt;
+
+// Right logical shift for negative Rm (zero fill)
+// When shift amount is 0 and Rm<0, result is 0
+shld_right_res = (shld_amt == 5'b0) ? 32'b0 : (Rn >> shld_neg_amt);
+
+// Select based on Rm sign
+shld_out = (Rm[31] == 1'b0) ? shld_left_res : shld_right_res;
+
+rf[rn] when (shld_rn_bk == 0) = shld_out;
+rf_bank[shld_rn_lo] when (shld_rn_bk) = shld_out;
+pc = pc + 2;

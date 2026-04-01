@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 AAS (0x3F)
+// ASCII adjust AL after subtraction
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state AX[15:0];
+isa_state AL[7:0] of AX[7:0];
+isa_state AH[7:0] of AX[15:8];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];
+isa_state flag_AF[0:0];
+
+instr = imem[ip];
+assume instr == 0x3F;
+ip = ip + 1;
+
+// If low nibble > 9 or AF=1, adjust
+// Subtract 6 from AL, subtract 1 from AH, set AF and CF
+AL = ((AL[3:0] > 4'h9) | (flag_AF == 1'b1)) ? ((AL - 8'h06) & 8'h0F) : (AL & 8'h0F);
+AH = ((AL[3:0] > 4'h9) | (flag_AF == 1'b1)) ? (AH - 8'h01) : AH;
+flag_AF = ((AL[3:0] > 4'h9) | (flag_AF == 1'b1)) ? 1'b1 : 1'b0;
+flag_CF = flag_AF;

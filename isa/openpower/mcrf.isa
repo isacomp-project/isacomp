@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mcrf - Move Condition Register Field (XL-Form)
+// mcrf BF,BFA
+// Primary opcode 19, XO=0
+// CR[4*BF:4*BF+3] <- CR[4*BFA:4*BFA+3]
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state cr[31:0];
+
+var bf[2:0];
+var bfa[2:0];
+var src_shift[4:0];
+var dst_shift[4:0];
+var src_field[3:0];
+var dst_mask[31:0];
+var new_cr[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 19
+assume instr[31:26] == 19;
+// XO field = 0
+assume instr[10:1] == 0;
+
+// Extract fields
+bf = instr[25:23];
+bfa = instr[20:18];
+
+// Calculate shift amounts for 4-bit fields
+src_shift = (7 - bfa) << 2;
+dst_shift = (7 - bf) << 2;
+
+// Extract source CR field
+src_field = (cr >> src_shift) & 4'hF;
+
+// Create mask and update destination field (widen src_field to 32 bits before shift)
+dst_mask = ~(32'hF << dst_shift);
+new_cr = (cr & dst_mask) | ({28'b0, src_field} << dst_shift);
+cr = new_cr;
+
+pc = pc + 4;

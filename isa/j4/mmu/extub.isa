@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// EXTU.B Rm,Rn - Extend unsigned from byte
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var eub_rn_lo[2:0];
+var eub_rm_lo[2:0];
+var Rm[31:0];
+var res[31:0];
+
+var eub_rb[0:0];
+var eub_rn_bk[0:0];
+var eub_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x6;
+assume instr[3:0] == 0xC;
+rn = instr[11:8];
+rm = instr[7:4];
+eub_rn_lo = rn[2:0];
+eub_rm_lo = rm[2:0];
+
+eub_rb = sr[29];  // RB bit (bit 29 in SR)
+eub_rn_bk = (rn[3] == 1'b0) & eub_rb;
+eub_rm_bk = (rm[3] == 1'b0) & eub_rb;
+
+Rm = eub_rm_bk ? rf_bank[eub_rm_lo] : rf[rm];
+
+res = {24'b0, Rm[7:0]};
+
+rf[rn] when (~int_should_take & ~itlb_exc_actually_taken & (eub_rn_bk == 0)) = res;
+rf_bank[eub_rn_lo] when (~int_should_take & ~itlb_exc_actually_taken & (eub_rn_bk)) = res;
+pc = pc + 2;

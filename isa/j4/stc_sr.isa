@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC SR,Rn - Store SR to register
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state t[0:0];
+mem umem[23:0];
+
+var rn[3:0];
+var stc_sr_rn_lo[2:0];
+var combined_sr[31:0];
+
+var stc_sr_rb[0:0];
+var stc_sr_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x0;
+assume instr[7:0] == 0x02;
+rn = instr[11:8];
+stc_sr_rn_lo = rn[2:0];
+
+stc_sr_rb = sr[29];  // RB bit (bit 29 in SR)
+stc_sr_rn_bk = (rn[3] == 1'b0) & stc_sr_rb;
+
+// Combine SR with T in bit 0
+combined_sr = {sr[31:1], t};
+
+rf[rn] when (stc_sr_rn_bk == 0) = combined_sr;
+rf_bank[stc_sr_rn_lo] when (stc_sr_rn_bk) = combined_sr;
+pc = pc + 2;

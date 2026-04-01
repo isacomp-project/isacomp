@@ -1,0 +1,337 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030 ATC Data Store Translation Aspect
+// Translates effective address (ea) to ea_pa for write operations
+// Additionally checks write protection and updates Modified bit
+// On ATC miss: performs 3-level page table walk (68030 short format descriptors)
+// On walk failure or write protection violation: sets access_exception
+//
+// Input: ea (effective address, defined by instruction)
+// Output: ea_pa (physical address), access_exception (fault flag)
+
+// ============================================================================
+// State declarations (required for aspect integration)
+// ============================================================================
+isa_state sr[15:0];
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+
+// ATC arrays (22 entries)
+isa_state cam atc_va[19:0]@[4:0][];
+isa_state atc_fc[2:0][4:0];
+isa_state atc_v[0:0][4:0];
+isa_state atc_pa[19:0][4:0];
+isa_state atc_wp[0:0][4:0];
+isa_state atc_m[0:0][4:0];
+isa_state atc_u[0:0][4:0];
+isa_state atc_s[0:0][4:0];
+isa_state atc_next[4:0];
+
+// Physical address output
+var ea_pa[31:0];
+
+// Data memory for page table walks (physical access)
+mem dmem[25:0];
+
+// ============================================================================
+// Extract processor state
+// ============================================================================
+var is_supervisor[0:0];
+is_supervisor = sr[13];
+
+var mmu_enabled[0:0];
+mmu_enabled = tc[31];
+
+// Function code for data write
+var fc[2:0];
+fc = is_supervisor ? 3'b101 : 3'b001;
+
+// ============================================================================
+// Transparent Translation Check
+// ============================================================================
+var tt0_base[7:0];
+var tt0_mask[7:0];
+var tt0_enable[0:0];
+var tt0_match[0:0];
+
+var tt1_base[7:0];
+var tt1_mask[7:0];
+var tt1_enable[0:0];
+var tt1_match[0:0];
+
+var transparent[0:0];
+
+tt0_base = tt0[31:24];
+tt0_mask = tt0[23:16];
+tt0_enable = tt0[15];
+
+tt1_base = tt1[31:24];
+tt1_mask = tt1[23:16];
+tt1_enable = tt1[15];
+
+// S-field: 00=match always, 01=user only, 10=supervisor only, 11=never match
+var tt0_sfield[1:0];
+var tt1_sfield[1:0];
+var tt0_s_ok[0:0];
+var tt1_s_ok[0:0];
+
+tt0_sfield = tt0[14:13];
+tt1_sfield = tt1[14:13];
+
+tt0_s_ok = (tt0_sfield == 2'b00) | ((tt0_sfield == 2'b01) & ~is_supervisor) | ((tt0_sfield == 2'b10) & is_supervisor);
+tt1_s_ok = (tt1_sfield == 2'b00) | ((tt1_sfield == 2'b01) & ~is_supervisor) | ((tt1_sfield == 2'b10) & is_supervisor);
+
+tt0_match = tt0_enable & tt0_s_ok & ((ea[31:24] & ~tt0_mask) == (tt0_base & ~tt0_mask));
+tt1_match = tt1_enable & tt1_s_ok & ((ea[31:24] & ~tt1_mask) == (tt1_base & ~tt1_mask));
+
+transparent = tt0_match | tt1_match;
+
+// ============================================================================
+// Address decomposition
+// ============================================================================
+var ea_vpn[19:0];
+var ea_offset[11:0];
+
+ea_vpn = ea[31:12];
+ea_offset = ea[11:0];
+
+// ============================================================================
+// ATC CAM Lookup
+// ============================================================================
+var vpn_matches[21:0];
+vpn_matches = atc_va@[ea_vpn];
+
+var cv_0[0:0]; var cv_1[0:0]; var cv_2[0:0]; var cv_3[0:0];
+var cv_4[0:0]; var cv_5[0:0]; var cv_6[0:0]; var cv_7[0:0];
+var cv_8[0:0]; var cv_9[0:0]; var cv_10[0:0]; var cv_11[0:0];
+var cv_12[0:0]; var cv_13[0:0]; var cv_14[0:0]; var cv_15[0:0];
+var cv_16[0:0]; var cv_17[0:0]; var cv_18[0:0]; var cv_19[0:0];
+var cv_20[0:0]; var cv_21[0:0];
+
+cv_0 = atc_v[0] & (atc_fc[0] == fc);
+cv_1 = atc_v[1] & (atc_fc[1] == fc);
+cv_2 = atc_v[2] & (atc_fc[2] == fc);
+cv_3 = atc_v[3] & (atc_fc[3] == fc);
+cv_4 = atc_v[4] & (atc_fc[4] == fc);
+cv_5 = atc_v[5] & (atc_fc[5] == fc);
+cv_6 = atc_v[6] & (atc_fc[6] == fc);
+cv_7 = atc_v[7] & (atc_fc[7] == fc);
+cv_8 = atc_v[8] & (atc_fc[8] == fc);
+cv_9 = atc_v[9] & (atc_fc[9] == fc);
+cv_10 = atc_v[10] & (atc_fc[10] == fc);
+cv_11 = atc_v[11] & (atc_fc[11] == fc);
+cv_12 = atc_v[12] & (atc_fc[12] == fc);
+cv_13 = atc_v[13] & (atc_fc[13] == fc);
+cv_14 = atc_v[14] & (atc_fc[14] == fc);
+cv_15 = atc_v[15] & (atc_fc[15] == fc);
+cv_16 = atc_v[16] & (atc_fc[16] == fc);
+cv_17 = atc_v[17] & (atc_fc[17] == fc);
+cv_18 = atc_v[18] & (atc_fc[18] == fc);
+cv_19 = atc_v[19] & (atc_fc[19] == fc);
+cv_20 = atc_v[20] & (atc_fc[20] == fc);
+cv_21 = atc_v[21] & (atc_fc[21] == fc);
+
+var fc_valid_mask[21:0];
+fc_valid_mask = {cv_21, cv_20, cv_19, cv_18, cv_17, cv_16, cv_15, cv_14,
+                 cv_13, cv_12, cv_11, cv_10, cv_9, cv_8, cv_7, cv_6,
+                 cv_5, cv_4, cv_3, cv_2, cv_1, cv_0};
+
+var atc_match[21:0];
+atc_match = vpn_matches & fc_valid_mask;
+
+// ============================================================================
+// Find matching entry
+// ============================================================================
+var atc_hit[0:0];
+var hit_idx[4:0];
+
+atc_hit = |atc_match;
+hit_idx = ctz(atc_match);
+
+// ============================================================================
+// Read matched entry
+// ============================================================================
+var matched_pa[19:0];
+var matched_s[0:0];
+var matched_wp[0:0];
+
+matched_pa = atc_pa[hit_idx];
+matched_s = atc_s[hit_idx];
+matched_wp = atc_wp[hit_idx];
+
+// ============================================================================
+// Permission checking for write
+// ============================================================================
+var supervisor_violation[0:0];
+var write_protection[0:0];
+
+supervisor_violation = matched_s & ~is_supervisor;
+write_protection = matched_wp;
+
+// ============================================================================
+// Page Table Walk on ATC Miss (68030 short format descriptors)
+// ============================================================================
+// Walk 3-level page table: Root -> Level A -> Level B -> Level C (page)
+// Standard Linux/m68k layout: TIA=7, TIB=7, TIC=6, PS=4 (4KB pages)
+
+// Select root pointer: SRP if SRE=1 and supervisor, else CRP
+var use_srp[0:0];
+use_srp = tc[30] & is_supervisor;
+
+var root_desc[31:0];
+root_desc = use_srp ? srp[31:0] : crp[31:0];
+
+var root_dt[1:0];
+root_dt = root_desc[1:0];
+var root_valid[0:0];
+root_valid = (root_dt == 2'b10) | (root_dt == 2'b11);
+
+// Level A: index from VA[31:25] (TIA=7 bits)
+var level_a_idx[6:0];
+level_a_idx = ea[31:25];
+
+var root_table_base[31:0];
+root_table_base = {root_desc[31:2], 2'b00};
+
+var level_a_desc_addr[31:0];
+level_a_desc_addr = root_table_base + {23'b0, level_a_idx, 2'b00};
+
+var level_a_desc_hi[15:0];
+var level_a_desc_lo[15:0];
+level_a_desc_hi = dmem[level_a_desc_addr];
+level_a_desc_lo = dmem[level_a_desc_addr + 2];
+
+var level_a_desc[31:0];
+level_a_desc = {level_a_desc_hi, level_a_desc_lo};
+
+var level_a_dt[1:0];
+level_a_dt = level_a_desc[1:0];
+var level_a_valid[0:0];
+level_a_valid = (level_a_dt == 2'b10) | (level_a_dt == 2'b11);
+
+// Level B: index from VA[24:18] (TIB=7 bits)
+var level_b_idx[6:0];
+level_b_idx = ea[24:18];
+
+var level_b_table_base[31:0];
+level_b_table_base = {level_a_desc[31:2], 2'b00};
+
+var level_b_desc_addr[31:0];
+level_b_desc_addr = level_b_table_base + {23'b0, level_b_idx, 2'b00};
+
+var level_b_desc_hi[15:0];
+var level_b_desc_lo[15:0];
+level_b_desc_hi = dmem[level_b_desc_addr];
+level_b_desc_lo = dmem[level_b_desc_addr + 2];
+
+var level_b_desc[31:0];
+level_b_desc = {level_b_desc_hi, level_b_desc_lo};
+
+var level_b_dt[1:0];
+level_b_dt = level_b_desc[1:0];
+var level_b_valid[0:0];
+level_b_valid = (level_b_dt == 2'b10) | (level_b_dt == 2'b11);
+
+// Level C: index from VA[17:12] (TIC=6 bits)
+var level_c_idx[5:0];
+level_c_idx = ea[17:12];
+
+var level_c_table_base[31:0];
+level_c_table_base = {level_b_desc[31:2], 2'b00};
+
+var level_c_desc_addr[31:0];
+level_c_desc_addr = level_c_table_base + {24'b0, level_c_idx, 2'b00};
+
+var level_c_desc_hi[15:0];
+var level_c_desc_lo[15:0];
+level_c_desc_hi = dmem[level_c_desc_addr];
+level_c_desc_lo = dmem[level_c_desc_addr + 2];
+
+var level_c_desc[31:0];
+level_c_desc = {level_c_desc_hi, level_c_desc_lo};
+
+var level_c_dt[1:0];
+level_c_dt = level_c_desc[1:0];
+var level_c_is_page[0:0];
+level_c_is_page = (level_c_dt == 2'b01);
+
+// Extract page descriptor fields
+var walked_ppn[19:0];
+var walked_wp[0:0];
+var walked_m[0:0];
+
+walked_ppn = level_c_desc[31:12];
+walked_wp = level_c_desc[2];
+walked_m = level_c_desc[4];
+
+// Walk result
+var need_walk[0:0];
+need_walk = mmu_enabled & ~transparent & ~atc_hit;
+
+var walk_success[0:0];
+walk_success = need_walk & root_valid & level_a_valid & level_b_valid & level_c_is_page;
+
+var walk_fault[0:0];
+walk_fault = need_walk & (~root_valid | ~level_a_valid | ~level_b_valid | ~level_c_is_page);
+
+// Write protection from walked page descriptor
+var walk_write_protected[0:0];
+walk_write_protected = walk_success & walked_wp;
+
+// ============================================================================
+// ATC Fill on successful walk (only if not write-protected)
+// ============================================================================
+var atc_fill_idx[4:0];
+atc_fill_idx = atc_next;
+
+var do_fill[0:0];
+do_fill = walk_success & ~walked_wp;
+
+atc_va[atc_fill_idx] when (do_fill & ~m68k_exc_taken) = ea_vpn;
+atc_fc[atc_fill_idx] when (do_fill & ~m68k_exc_taken) = fc;
+atc_v[atc_fill_idx] when (do_fill & ~m68k_exc_taken) = 1'b1;
+atc_pa[atc_fill_idx] when (do_fill & ~m68k_exc_taken) = walked_ppn;
+atc_wp[atc_fill_idx] when (do_fill & ~m68k_exc_taken) = walked_wp;
+atc_s[atc_fill_idx] when (do_fill & ~m68k_exc_taken) = 1'b0;
+atc_m[atc_fill_idx] when (do_fill & ~m68k_exc_taken) = 1'b1;
+atc_u[atc_fill_idx] when (do_fill & ~m68k_exc_taken) = 1'b1;
+
+var next_atc_ptr[4:0];
+next_atc_ptr = (atc_next == 5'd21) ? 5'd0 : (atc_next + 5'd1);
+atc_next when (do_fill & ~m68k_exc_taken) = next_atc_ptr;
+
+// ============================================================================
+// Access exception: permission violation, write protection, or walk fault
+// ============================================================================
+var access_exception[0:0];
+access_exception = mmu_enabled & ~transparent &
+                   ((atc_hit & (supervisor_violation | write_protection)) |
+                    walk_fault | walk_write_protected);
+
+// ============================================================================
+// Compute physical address
+// ============================================================================
+var translated_pa[31:0];
+translated_pa = {matched_pa, ea_offset};
+
+var walked_pa[31:0];
+walked_pa = {walked_ppn, ea_offset};
+
+// Use ATC hit, walk result, or passthrough
+ea_pa = (~mmu_enabled | transparent) ? ea :
+        (atc_hit & ~access_exception) ? translated_pa :
+        (walk_success & ~walked_wp) ? walked_pa :
+        ea;
+
+// ============================================================================
+// Update Used and Modified bits on successful write
+// ============================================================================
+atc_u[hit_idx] when (mmu_enabled & atc_hit & ~access_exception & ~m68k_exc_taken) = 1'b1;
+atc_m[hit_idx] when (mmu_enabled & atc_hit & ~access_exception & ~m68k_exc_taken) = 1'b1;
+
+// Update U+M bits in page table descriptor on walk
+var level_c_desc_updated_lo[15:0];
+level_c_desc_updated_lo = level_c_desc_lo | 16'h0018;  // Set U (bit 3) and M (bit 4)
+dmem[level_c_desc_addr + 2] when (do_fill & ~m68k_exc_taken) = level_c_desc_updated_lo;

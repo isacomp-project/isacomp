@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 MSUB.S - Fused Multiply-Subtract Single (with MMU support)
+// MSUB.S fd, fr, fs, ft: fd = (fs * ft) - fr
+// Encoding: COP1X (010011), fr, ft, fs, fd, MSUB.S (101000)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[31:0][4:0];
+isa_state fcsr[31:0];
+mem umem[17:0];
+
+var fr[4:0];
+var fs[4:0];
+var ft[4:0];
+var fd[4:0];
+var f1[31:0];
+var f2[31:0];
+var f3[31:0];
+var neg_f3[31:0];
+var result[31:0];
+var rm[2:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+#ifdef MMU
+aspect ../tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+assume instr[31:26] == 6'b010011;
+assume instr[5:0] == 6'b101000;
+
+pc = pc + 4;
+
+fr = instr[25:21];
+ft = instr[20:16];
+fs = instr[15:11];
+fd = instr[10:6];
+
+f1 = frf[fs];
+f2 = frf[ft];
+f3 = frf[fr];
+
+neg_f3 = {~f3[31], f3[30:0]};
+
+rm = {1'b0, fcsr[1], fcsr[1] ^ fcsr[0]};
+
+result = fp_fma(f1, f2, neg_f3, rm);
+
+frf[fd] = result;

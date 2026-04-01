@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Push Case Continuation Aspect
+//
+// Pushes a case continuation frame onto the continuation stack.
+// Case continuations are used when evaluating a scrutinee in a case expression.
+// When the scrutinee is evaluated, control returns here to continue pattern matching.
+//
+// Continuation frame format (5 words):
+//   Word 0: [31:30]=type(00), [29:0]=saved_pc
+//   Word 1: saved_env_clo
+//   Word 2: saved_env_args
+//   Word 3: [19:0]=saved_lsp
+//   Word 4: [19:0]=saved_lb
+//
+// Gates: pc, env_clo, env_args, lsp, lb, csp, cstack
+
+var case_cont_type[1:0];
+case_cont_type = 2'b00;  // Case continuation = type 0
+
+// Build continuation frame
+var case_cont_word0[31:0];
+case_cont_word0 = {case_cont_type, pc[29:0]};
+
+// Push frame to continuation stack
+cstack[csp] = case_cont_word0;
+cstack[csp + 1] = env_clo;
+cstack[csp + 2] = env_args;
+cstack[csp + 3] = {{12{1'b0}}, lsp};
+cstack[csp + 4] = {{12{1'b0}}, lb};
+
+// Advance stack pointer
+csp = csp + 5;

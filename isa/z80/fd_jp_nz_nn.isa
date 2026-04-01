@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD C2 - FD prefix passthrough JP NZ,nn
+// FD prefix consumed, JP NZ,nn executes unchanged
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state flag_Z;
+mem mainmem[15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var target[15:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'hC2FD;
+pc = pc + 2;
+
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+target = {addr_hi, addr_lo};
+pc = (flag_Z == 0) ? target : pc;

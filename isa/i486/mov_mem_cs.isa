@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV [SI], CS (0x8C /r)
+// Store CS segment register to memory at DS:[SI]
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];            // Data segment register
+isa_state CS[15:0];            // Code segment register
+isa_state xregs[31:0][2:0];    // General purpose registers (xregs[6] is SI)
+
+var modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var offset[15:0];
+var offset_hi[15:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+
+instr = imem[eip];
+assume instr == 0x8C;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Assume indirect mode (mod=00), CS (reg=001), [SI] (rm=100)
+assume mod_bits == 0b00;
+assume reg_bits == 0b001;  // CS
+assume rm_bits == 0b100;   // [SI]
+
+// Get offset from SI
+offset = xregs[6][15:0];
+offset_hi = offset + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses: DS:offset
+physical_addr_lo = (DS << 4) + offset;
+physical_addr_hi = (DS << 4) + offset_hi;
+
+// Write CS to memory (little-endian)
+dmem[physical_addr_lo] = CS[7:0];
+dmem[physical_addr_hi] = CS[15:8];

@@ -1,0 +1,96 @@
+OpenSBI Boot Testbench
+OpenSBI v1.8.1
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv32ima
+Boot HART ISA Extensions    : smaia,smstateen,sscofpmf,sstc,zicntr,zihpm,smcntrpmf,sdtrig,ssstateen
+Boot HART PMP Count         : 64
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 32
+Boot HART MHPM Info         : 29 (0xfffffff8)
+Boot HART Debug Triggers    : 32 triggers
+Boot HART MIDELEG           : 0x00002222
+Boot HART MEDELEG           : 0x0004b109
+[    0.000000] Linux version 6.19.0-rc8-gb7ff7151e653 (root@runsc) (riscv64-linux-gnu-gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #3 Fri Feb  6 07:33:02 UTC 2026
+[    0.000000] OF: fdt: Ignoring memory range 0x80000000 - 0x80400000
+[    0.000000] Machine model: ISAComp RISC-V 32 MMU Platform
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10008
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] SBI FWFT extension detected
+[    0.000000] earlycon: uart8250 at MMIO 0x83f00000 (options '115200n8')
+[    0.000000] printk: legacy bootconsole [uart8250] enabled
+[    0.000000] OF: reserved mem: 0x80000000..0x8003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x80040000..0x8004ffff (64 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] Zone ranges:
+[    0.000000]   Normal   [mem 0x0000000080400000-0x0000000083efffff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080400000-0x0000000083efffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080400000-0x0000000083efffff]
+[    0.000000] On node 0, zone Normal: 1024 pages in unavailable ranges
+[    0.000000] On node 0, zone Normal: 16640 pages in unavailable ranges
+[    0.000000] Falling back to deprecated "riscv,isa"
+[    0.000000] riscv: base ISA extensions aim
+[    0.000000] riscv: ELF capabilities aim
+[    0.000000] Ticket spinlock: enabled
+[    0.000000] Kernel command line: earlycon=uart8250,mmio,0x83f00000,115200n8 console=ttyS0
+[    0.000000] printk: log buffer data + meta data: 131072 + 409600 = 540672 bytes
+[    0.000000] Dentry cache hash table entries: 4096 (order: 2, 16384 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 2048 (order: 1, 8192 bytes, linear)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 15104
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] RCU Tasks Trace: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 32 local interrupts mapped
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000008] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.002197] Console: colour dummy device 80x25
+[    0.002593] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.003008] pid_max: default: 32768 minimum: 301
+[    0.004417] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.004816] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.020230] ASID allocator using 9 bits (512 entries)
+[    0.023121] Memory: 23684K/60416K available (15219K kernel code, 9495K rwdata, 4096K rodata, 4221K init, 271K bss, 35876K reserved, 0K cma-reserved)
+[    0.026453] devtmpfs: initialized
+[    0.038111] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.038601] posixtimers hash table entries: 512 (order: 0, 2048 bytes, linear)
+[    0.038980] futex hash table entries: 256 (4096 bytes on 1 NUMA nodes, total 4 KiB, linear).
+[    0.047193] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.051847] thermal_sys: Registered thermal governor 'step_wise'
+[    0.052049] cpuidle: using governor menu
+[    0.053767] SBI misaligned access exception delegation ok
+[    0.077745] cpu0: Ratio of byte access time to unaligned word access is 3.99, unaligned accesses are fast
+[    0.111735] HugeTLB: registered 4.00 MiB page size, pre-allocated 0 pages
+[    0.112002] HugeTLB: 0 KiB vmemmap can be freed for a 4.00 MiB page
+[    0.184709] raid6: int32x8  gen()    10 MB/s
+[    0.254052] raid6: int32x4  gen()    15 MB/s
+[    0.322355] raid6: int32x2  gen()    15 MB/s
+[    0.391399] raid6: int32x1  gen()    13 MB/s
+[    0.391609] raid6: using algorithm int32x4 gen() 15 MB/s
+[    0.460945] raid6: .... xor() 8 MB/s, rmw enabled
+[    0.461154] raid6: using intx1 recovery algorithm
+[    0.463475] iommu: Default domain type: Translated
+[    0.463690] iommu: DMA domain TLB invalidation policy: strict mode
+[    0.467623] SCSI subsystem initialized
+[    0.837634] usbcore: registered new interface driver usbfs
+[    0.838159] usbcore: registered new interface driver hub
+[    0.838679] usbcore: registered new device driver usb
+[    0.840710] mc: Linux media interface: v0.10
+[    0.841338] videodev: Linux video capture interface: v2.00
+[    0.846193] Advanced Linux Sound Architecture Driver Initialized.
+[    0.847891] vgaarb: loaded
+[    0.849695] clocksource: Switched to clocksource riscv_clocksource
+[    1.106261] PCI: CLS 0 bytes, default 64
+[    1.106726] kvm [1]: hypervisor extension not available
+[    1.130687] workingset: timestamp_bits=14 max_order=13 bucket_order=0
+[    7.782044] xor: measuring software checksum speed
+[    7.858140]    8regs           :    43 MB/sec
+[    7.934250]    32regs          :    43 MB/sec
+[    7.934463] xor: using function: 32regs (43 MB/sec)
+[    7.935048] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 246)

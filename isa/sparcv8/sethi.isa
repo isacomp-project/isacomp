@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 SETHI instruction
+// Format 2: op=00, op2=100
+// SETHI imm22, rd
+// rd[31:10] <- imm22, rd[9:0] <- 0
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];  // 256 physical registers (136 used for 8 windows)
+isa_state cwp[2:0];       // Current Window Pointer (0-7)
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+
+var rd[4:0];
+var imm22[21:0];
+var res[31:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+var phys_rd[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b00;       // op = 00 (Format 2)
+assume instr[24:22] == 0b100;      // op2 = SETHI
+
+rd = instr[29:25];
+imm22 = instr[21:0];
+
+// Compute physical register index for rd (windowed register file)
+cwp_m1 = cwp + 3'b111;  // cwp - 1 mod 8
+phys_rd = (rd[4:3] == 2'b00) ? {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rd[2:0]} :
+          ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rd[2:0]};
+
+// Place imm22 in upper 22 bits, clear lower 10 bits
+res = {imm22, 10'b0};
+
+rf[phys_rd] when (rd != 0) = res;
+pc = pc + 4;

@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD 10 - DD prefix passthrough DJNZ
+// DD prefix consumed, DJNZ executes unchanged
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state B[7:0];
+mem mainmem[15:0];
+
+var dd_djnz_offset[7:0];
+var dd_djnz_offset_ext[15:0];
+var dd_djnz_new_b[7:0];
+var dd_djnz_target[15:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'h10DD;
+pc = pc + 2;
+
+dd_djnz_offset = mainmem[pc];
+pc = pc + 1;
+
+dd_djnz_new_b = B - 1;
+B = dd_djnz_new_b;
+
+dd_djnz_offset_ext = {{8{dd_djnz_offset[7]}}, dd_djnz_offset};
+dd_djnz_target = pc + dd_djnz_offset_ext;
+pc = (dd_djnz_new_b != 0) ? dd_djnz_target : pc;

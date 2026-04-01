@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68K Exception Handling Aspect
+// Handles the mechanics of taking an exception (interrupt):
+// 1. Save current PC and SR to supervisor stack
+// 2. Enter supervisor mode, clear trace bits, update interrupt mask
+// 3. Jump to handler via VBR + vector * 4
+//
+// This aspect is triggered by m68k_interrupt.isa setting m68k_exc_taken=1.
+//
+// The gated states (pc, sr, ssp, aregs, dmem, flags, usp) are the
+// instruction's OUTPUT values. When m68k_exc_taken is true, these outputs
+// are replaced with the exception's values. The instruction's computed
+// values for pc and sr are saved as the return address and saved SR.
+//
+// Stack frame format (68010+ format 0 frame, 8 bytes):
+//   SP -> | SR            | (2 bytes, word)
+//         | PC[31:16]     | (2 bytes, word)
+//         | PC[15:0]      | (2 bytes, word)
+//         | format/vector | (2 bytes, word) = {4'b0000, vector_offset[11:0]}
+
+// System state (all potentially gated)
+isa_state pc[31:0];
+isa_state sr[15:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+isa_state aregs[31:0][2:0];
+isa_state vbr[31:0];
+
+// CCR flags (part of SR, need to be consistent)
+isa_state flag_C[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_X[0:0];
+
+// Data memory for stack operations
+mem dmem[25:0];
+
+// Variables set by m68k_interrupt.isa
+var m68k_exc_taken[0:0];
+var m68k_exc_vector[7:0];
+var m68k_exc_new_ipl[2:0];
+var m68k_exc_is_buserr[0:0];
+
+// Bus error frame data (from m68k_interrupt.isa, declare-only to read)
+var m68k_bus_error_addr[31:0];
+var m68k_bus_error_ssw[15:0];
+
+// Internal variables for exception processing
+var m68k_exc_saved_pc[31:0];
+var m68k_exc_saved_sr[15:0];
+var m68k_exc_sp[31:0];
+var m68k_exc_new_sp[31:0];
+var m68k_exc_vector_addr[31:0];
+var m68k_exc_handler_hi[15:0];
+var m68k_exc_handler_lo[15:0];
+var m68k_exc_handler[31:0];
+var m68k_exc_new_sr[15:0];
+var m68k_exc_was_user[0:0];
+var m68k_exc_format_vector[15:0];
+
+// Save the instruction's output PC and SR (these are what would have
+// been committed if the interrupt wasn't taken)
+m68k_exc_saved_pc = pc;
+m68k_exc_saved_sr = {sr[15:5], flag_X, flag_N, flag_Z, flag_V, flag_C};
+
+// Determine stack pointer: if currently in user mode, switch to SSP
+m68k_exc_was_user = ~sr[13];
+
+// If coming from user mode, save user SP and use supervisor SP
+usp when (m68k_exc_taken & m68k_exc_was_user) = aregs[7];
+m68k_exc_sp = m68k_exc_was_user ? ssp : aregs[7];
+
+// Bus error (vector 2) uses format 0xA frame (32 bytes)
+// Normal exceptions use format 0 frame (8 bytes)
+m68k_exc_new_sp = m68k_exc_is_buserr ? (m68k_exc_sp - 32) : (m68k_exc_sp - 8);
+
+// Format/vector word
+m68k_exc_format_vector = m68k_exc_is_buserr ?
+    {4'b1010, 2'b00, m68k_exc_vector, 2'b00} :  // Format 0xA for bus error
+    {4'b0000, 2'b00, m68k_exc_vector, 2'b00};    // Format 0 for normal
+
+// Push exception frame
+// Format 0 layout (8 bytes at new_sp):
+//   [SP+0] = {SR, PC[31:16]}
+//   [SP+4] = {PC[15:0], format/vector}
+//
+// Format 0xA layout (32 bytes at new_sp):
+//   [SP+0x00] = {SR, PC[31:16]}
+//   [SP+0x04] = {PC[15:0], format/vector}
+//   [SP+0x08] = {internal_reg(0), SSW}
+//   [SP+0x0C] = {pipe_C(0), pipe_B(0)}
+//   [SP+0x10] = fault_addr
+//   [SP+0x14] = 0 (internal)
+//   [SP+0x18] = 0 (data output buffer)
+//   [SP+0x1C] = 0 (internal)
+var m68k_exc_frame_0[31:0];
+var m68k_exc_frame_4[31:0];
+m68k_exc_frame_0 = {m68k_exc_saved_sr, m68k_exc_saved_pc[31:16]};
+m68k_exc_frame_4 = {m68k_exc_saved_pc[15:0], m68k_exc_format_vector};
+dmem[m68k_exc_new_sp] when (m68k_exc_taken) = m68k_exc_frame_0;
+dmem[m68k_exc_new_sp + 4] when (m68k_exc_taken) = m68k_exc_frame_4;
+
+// Bus error additional frame fields (format 0xA)
+dmem[m68k_exc_new_sp + 8] when (m68k_exc_taken & m68k_exc_is_buserr) = {16'b0, m68k_bus_error_ssw};
+dmem[m68k_exc_new_sp + 12] when (m68k_exc_taken & m68k_exc_is_buserr) = 32'b0;
+dmem[m68k_exc_new_sp + 16] when (m68k_exc_taken & m68k_exc_is_buserr) = m68k_bus_error_addr;
+dmem[m68k_exc_new_sp + 20] when (m68k_exc_taken & m68k_exc_is_buserr) = 32'b0;
+dmem[m68k_exc_new_sp + 24] when (m68k_exc_taken & m68k_exc_is_buserr) = 32'b0;
+dmem[m68k_exc_new_sp + 28] when (m68k_exc_taken & m68k_exc_is_buserr) = 32'b0;
+
+// Update supervisor stack pointer
+ssp when (m68k_exc_taken) = m68k_exc_new_sp;
+
+// Update A7 to point to new stack top
+aregs[7] when (m68k_exc_taken) = m68k_exc_new_sp;
+
+// Compute vector table address: VBR + vector_number * 4
+m68k_exc_vector_addr = vbr + {22'b0, m68k_exc_vector, 2'b00};
+
+// Read exception handler address from vector table (big-endian long)
+m68k_exc_handler_hi = dmem[m68k_exc_vector_addr];
+m68k_exc_handler_lo = dmem[m68k_exc_vector_addr + 2];
+m68k_exc_handler = {m68k_exc_handler_hi, m68k_exc_handler_lo};
+
+// Compute new SR:
+// - Set S bit (13) = 1 (enter supervisor mode)
+// - Clear T bits (15:14) = 00 (no trace)
+// - Set interrupt mask (10:8) = new IPL level
+// - Keep M bit (12) unchanged
+// - CCR bits (4:0) unchanged
+m68k_exc_new_sr = {2'b00, 1'b1, sr[12], 1'b0, m68k_exc_new_ipl, sr[7:5],
+                   flag_X, flag_N, flag_Z, flag_V, flag_C};
+
+// Update SR
+sr when (m68k_exc_taken) = m68k_exc_new_sr;
+
+// Update flag aliases to match new SR
+flag_C when (m68k_exc_taken) = m68k_exc_new_sr[0];
+flag_V when (m68k_exc_taken) = m68k_exc_new_sr[1];
+flag_Z when (m68k_exc_taken) = m68k_exc_new_sr[2];
+flag_N when (m68k_exc_taken) = m68k_exc_new_sr[3];
+flag_X when (m68k_exc_taken) = m68k_exc_new_sr[4];
+
+// Jump to exception handler
+pc when (m68k_exc_taken) = m68k_exc_handler;

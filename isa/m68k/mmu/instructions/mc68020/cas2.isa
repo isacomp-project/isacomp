@@ -1,0 +1,171 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 CAS2 - Compare and Swap 2 (Dual)
+// Opcode: 0000 1ss0 1111 1100 (00FC/04FC/08FC/0CFC) followed by two extension words
+//   ss = size (10=word, 11=long)
+// Extension 1: D/A RRR 000 UUU 000 DDD (for operand 1)
+// Extension 2: D/A RRR 000 UUU 000 DDD (for operand 2)
+//   D/A = 0 for Dn, 1 for An (address register for EA)
+//   RRR = Rn (address register)
+//   UUU = Du (update register)
+//   DDD = Dc (compare register)
+// Atomic compare and swap of two locations simultaneously
+// Used for lock-free data structures (e.g., doubly-linked list updates)
+
+isa_state pc[31:0];
+var instr[15:0];
+var ext1[15:0];
+var ext2[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+// Status Register
+isa_state sr[15:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var size[1:0];
+
+// Operand 1
+var is_addr1[0:0];
+var rn1[2:0];
+var du1[2:0];
+var dc1[2:0];
+var addr1[31:0];
+var mem1[31:0];
+var cmp1[31:0];
+var upd1[31:0];
+var eq1[0:0];
+
+// Operand 2
+var is_addr2[0:0];
+var rn2[2:0];
+var du2[2:0];
+var dc2[2:0];
+var addr2[31:0];
+var mem2[31:0];
+var cmp2[31:0];
+var upd2[31:0];
+var eq2[0:0];
+
+var both_equal[0:0];
+var sub_result[31:0];
+var res_msb[0:0];
+var cmp_msb[0:0];
+var mem_msb[0:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 4'b0000;
+assume instr[7:0] == 8'b11111100;
+pc when (~m68k_exc_taken) = pc + 2;
+
+size = instr[10:9];  // 10=word, 11=long
+assume size == 2'b11;  // Long word variant
+
+// Fetch extension words
+ext1 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+ext2 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode extension 1
+is_addr1 = ext1[15];
+rn1 = ext1[14:12];
+du1 = ext1[8:6];
+dc1 = ext1[2:0];
+
+// Decode extension 2
+is_addr2 = ext2[15];
+rn2 = ext2[14:12];
+du2 = ext2[8:6];
+dc2 = ext2[2:0];
+
+// Get addresses
+addr1 = is_addr1 ? aregs[rn1] : dregs[rn1];
+addr2 = is_addr2 ? aregs[rn2] : dregs[rn2];
+
+// Read both memory locations
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = addr1;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+mem1 = {dmem[ea_pa], dmem[addr1 + 2]};
+#else
+mem1 = {dmem[addr1], dmem[addr1 + 2]};
+#endif
+mem2 = {dmem[addr2], dmem[addr2 + 2]};
+
+// Get compare and update values
+cmp1 = dregs[dc1];
+cmp2 = dregs[dc2];
+upd1 = dregs[du1];
+upd2 = dregs[du2];
+
+// Compare both
+eq1 = (mem1 == cmp1);
+eq2 = (mem2 == cmp2);
+both_equal = eq1 & eq2;
+
+// If both equal, swap both locations; else load both to Dc registers
+#ifdef MMU
+dmem[ea_pa] when (both_equal & ~m68k_exc_taken) = upd1[31:16];
+#else
+dmem[addr1] when (both_equal & ~m68k_exc_taken) = upd1[31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa + 2] when (both_equal & ~m68k_exc_taken) = upd1[15:0];
+#else
+dmem[addr1 + 2] when (both_equal & ~m68k_exc_taken) = upd1[15:0];
+#endif
+dmem[addr2] when (both_equal & ~m68k_exc_taken) = upd2[31:16];
+dmem[addr2 + 2] when (both_equal & ~m68k_exc_taken) = upd2[15:0];
+
+dregs[dc1] when (~both_equal & ~m68k_exc_taken) = mem1;
+dregs[dc2] when (~both_equal & ~m68k_exc_taken) = mem2;
+
+// Flags based on first comparison that fails, or both if successful
+// If eq1 fails, compare Dc1 - (Rn1)
+// If eq1 succeeds but eq2 fails, compare Dc2 - (Rn2)
+sub_result = eq1 ? (cmp2 - mem2) : (cmp1 - mem1);
+res_msb = sub_result[31];
+cmp_msb = eq1 ? cmp2[31] : cmp1[31];
+mem_msb = eq1 ? mem2[31] : mem1[31];
+
+// Update CCR
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = res_msb;
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = both_equal;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = (cmp_msb & ~mem_msb & ~res_msb) | (~cmp_msb & mem_msb & res_msb);
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = (~cmp_msb & mem_msb) | (res_msb & ~cmp_msb) | (mem_msb & res_msb);
+// X not affected

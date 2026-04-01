@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LDS BX, [SI] (0xC5 with modrm 0x1C) - WITH PROPER SEGMENTATION
+// Load pointer using DS - loads 4-byte pointer into BX:DS
+// First word (offset) goes to BX, second word (segment) goes to DS
+// Uses DS segment to access the far pointer in memory
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state DS[15:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var si_val[15:0];
+var offset_addr[15:0];                // 16-bit offset from SI
+var physical_addr_base[19:0];         // Base physical address
+var offset_lo[7:0];
+var offset_hi[7:0];
+var offset[15:0];
+var segment_lo[7:0];
+var segment_hi[7:0];
+var segment[15:0];
+
+instr = imem[eip];
+assume instr == 0xC5;
+eip = eip + 1;
+
+modrm = imem[eip];
+assume modrm == 0x1C;  // mod=00, reg=011 (BX), rm=100 (SI)
+eip = eip + 1;
+
+// Read SI (xregs[6]) as the offset
+si_val = xregs[6][15:0];
+offset_addr = si_val;
+
+// Calculate physical address using DS segment
+physical_addr_base = (DS << 4) + offset_addr;
+
+// Read 4-byte far pointer from memory (little-endian)
+// First word is offset (bytes 0-1)
+offset_lo = dmem[physical_addr_base];
+offset_hi = dmem[physical_addr_base + 16'h0001];
+offset = {offset_hi, offset_lo};
+
+// Second word is segment (bytes 2-3)
+// Note: These might wrap at segment boundary
+segment_lo = dmem[physical_addr_base + 16'h0002];
+segment_hi = dmem[physical_addr_base + 16'h0003];
+segment = {segment_hi, segment_lo};
+
+// Load offset into BX
+xregs[3][15:0] = offset;
+
+// Load segment into DS
+DS = segment;

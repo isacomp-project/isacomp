@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68040 PFLUSHAN - Flush All Non-global ATC Entries
+// Opcode: 0xf510 - 2 bytes total
+// Invalidates all ATC entries except those marked as global
+// On 68030, there is no global bit so this flushes all entries
+// Privileged instruction (must be in supervisor mode)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+isa_state sr[15:0];
+
+// ATC valid and global bits (22 entries)
+isa_state atc_v[0:0][4:0];
+isa_state atc_g[0:0][4:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr == 16'hf510;
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Must be in supervisor mode
+assume sr[13] == 1'b1;
+
+// Invalidate all non-global ATC entries (clear valid if global=0)
+atc_v[0] when (~atc_g[0] & ~m68k_exc_taken) = 1'b0;
+atc_v[1] when (~atc_g[1] & ~m68k_exc_taken) = 1'b0;
+atc_v[2] when (~atc_g[2] & ~m68k_exc_taken) = 1'b0;
+atc_v[3] when (~atc_g[3] & ~m68k_exc_taken) = 1'b0;
+atc_v[4] when (~atc_g[4] & ~m68k_exc_taken) = 1'b0;
+atc_v[5] when (~atc_g[5] & ~m68k_exc_taken) = 1'b0;
+atc_v[6] when (~atc_g[6] & ~m68k_exc_taken) = 1'b0;
+atc_v[7] when (~atc_g[7] & ~m68k_exc_taken) = 1'b0;
+atc_v[8] when (~atc_g[8] & ~m68k_exc_taken) = 1'b0;
+atc_v[9] when (~atc_g[9] & ~m68k_exc_taken) = 1'b0;
+atc_v[10] when (~atc_g[10] & ~m68k_exc_taken) = 1'b0;
+atc_v[11] when (~atc_g[11] & ~m68k_exc_taken) = 1'b0;
+atc_v[12] when (~atc_g[12] & ~m68k_exc_taken) = 1'b0;
+atc_v[13] when (~atc_g[13] & ~m68k_exc_taken) = 1'b0;
+atc_v[14] when (~atc_g[14] & ~m68k_exc_taken) = 1'b0;
+atc_v[15] when (~atc_g[15] & ~m68k_exc_taken) = 1'b0;
+atc_v[16] when (~atc_g[16] & ~m68k_exc_taken) = 1'b0;
+atc_v[17] when (~atc_g[17] & ~m68k_exc_taken) = 1'b0;
+atc_v[18] when (~atc_g[18] & ~m68k_exc_taken) = 1'b0;
+atc_v[19] when (~atc_g[19] & ~m68k_exc_taken) = 1'b0;
+atc_v[20] when (~atc_g[20] & ~m68k_exc_taken) = 1'b0;
+atc_v[21] when (~atc_g[21] & ~m68k_exc_taken) = 1'b0;

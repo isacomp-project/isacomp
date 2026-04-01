@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 65C02 BIT Absolute,X (0x3C) - Bit Test Absolute Indexed
+// Tests bits in memory with accumulator (A AND memory)
+// Sets N flag to bit 7 of memory value
+// Sets V flag to bit 6 of memory value
+// Sets Z flag if (A AND memory) == 0
+// Does not affect A register
+// Instruction format: BIT $hhll,X (3 bytes)
+// NOTE: This is a 65C02-only instruction
+
+#ifdef CPU_65C02
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state X[7:0];
+isa_state flag_N[0:0];
+isa_state flag_V[0:0];
+isa_state flag_Z[0:0];
+isa_state mainmem[7:0][15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var base_addr[15:0];
+var abs_x_addr[15:0];
+var data[7:0];
+var result[7:0];
+
+instr = mainmem[pc];
+assume instr == 0x3C;
+pc = pc + 1;
+
+// Read absolute address
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+// Add X to base address
+base_addr = {addr_hi, addr_lo};
+abs_x_addr = base_addr + X;
+
+// Read memory value
+data = mainmem[abs_x_addr];
+result = A & data;
+
+// Update flags
+flag_N = data[7];      // Bit 7 of memory
+flag_V = data[6];      // Bit 6 of memory
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+
+#endif

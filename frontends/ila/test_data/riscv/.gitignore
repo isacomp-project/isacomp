@@ -1,0 +1,4 @@
+# Generated ILA JSON files
+*.json
+!riscv_add_minimal.json
+!super_minimal.json

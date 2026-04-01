@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 IITLBA instruction (64-bit)
+// IITLBA r,(sr,b) - Insert Instruction TLB Address (stage translation)
+// Opcode: 0x01 (bits 31:26), sub=0x01 (bits 12:5)
+//
+// Two-step TLB insert: IITLBA stages VPN+space+PPN, IITLBP completes with
+// protection word and commits to the ITLB.
+// Privileged instruction.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// Space registers (for space ID lookup — ITLB uses 3-bit SR, needs SR0-SR7)
+isa_state sr0[63:0];
+isa_state sr1[63:0];
+isa_state sr2[63:0];
+isa_state sr3[63:0];
+isa_state sr4[63:0];
+isa_state sr5[63:0];
+isa_state sr6[63:0];
+isa_state sr7[63:0];
+
+// ITLB insertion staging registers (64-bit widened)
+isa_state itlb_ins_vpn[51:0];
+isa_state itlb_ins_space[63:0];
+isa_state itlb_ins_ppn[51:0];
+isa_state itlb_ins_pending[0:0];
+
+// Round-robin replacement pointer (shared with IITLBP, declared here so merger
+// creates proper mux — single-instruction-only states lose their _wr assignment)
+isa_state itlb_next[3:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var b[4:0];
+
+instr = umem[pc_pa];
+
+// IITLBA encoding: opcode=0x01, sub=0x01
+assume instr[31:26] == 0b000001;
+assume instr[11:5] == 0b0000010;
+assume instr[12] == 1'b0;
+
+// PA-RISC encoding: b=instr[25:21] (base=virtual address), r=instr[20:16] (source=PTE)
+b = instr[25:21];
+r = instr[20:16];
+
+// Source register values (64-bit)
+var pte_value[63:0];
+var base[63:0];
+pte_value = (r == 0) ? 64'h0 : rf[r];
+base = (b == 0) ? 64'h0 : rf[b];
+
+// Space register selection — ITLB uses 3-bit non-contiguous: {instr[13], instr[15:14]}
+var sr_sel[2:0];
+sr_sel = {instr[13], instr[15:14]};
+var space_id[63:0];
+space_id = (sr_sel == 3'd0) ? sr0 :
+           (sr_sel == 3'd1) ? sr1 :
+           (sr_sel == 3'd2) ? sr2 :
+           (sr_sel == 3'd3) ? sr3 :
+           (sr_sel == 3'd4) ? sr4 :
+           (sr_sel == 3'd5) ? sr5 :
+           (sr_sel == 3'd6) ? sr6 : sr7;
+
+// Stage the translation for the subsequent IITLBP
+var active[0:0];
+active = ~instr_trap_taken & ~in_nullified;
+
+itlb_ins_vpn when (active) = base[63:12];
+itlb_ins_space when (active) = space_id;
+// PA-RISC 2.0 PTE format: PPN at bits[56:5], page_size at bits[4:0] (0 for 4K)
+itlb_ins_ppn when (active) = pte_value[56:5];
+itlb_ins_pending when (active) = 1'b1;
+
+pc = pc + 4;

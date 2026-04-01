@@ -1,0 +1,143 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SHLD r/m32, r32, CL with 66 prefix (0x66 0x0F 0xA5) - Shift Left Double
+// Shift destination left, filling with bits from source, count in CL
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var dest_val[31:0];
+var src_val[31:0];
+var count[4:0];
+var result[31:0];
+var cf_bit[0:0];
+
+// Fetch and verify 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch first opcode byte
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+// Fetch second opcode byte
+instr2 = imem[eip + 2];
+assume instr2 == 0xA5;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 3];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Register-direct mode only
+assume mod_bits == 0b11;
+
+// Advance EIP (prefix + 0F + opcode + modrm)
+eip = eip + 4;
+
+// Read values
+dest_val = xregs[rm_bits];
+src_val = xregs[reg_idx];
+
+// Get count from CL (low 5 bits)
+count = xregs[1][4:0];
+
+// SHLD: result = (dest << count) | (src >> (32-count))
+// Enumerate all 32 cases to avoid dynamic indexing issues
+case (count) {
+  5'd0: result = dest_val;
+  5'd1: result = {dest_val[30:0], src_val[31:31]};
+  5'd2: result = {dest_val[29:0], src_val[31:30]};
+  5'd3: result = {dest_val[28:0], src_val[31:29]};
+  5'd4: result = {dest_val[27:0], src_val[31:28]};
+  5'd5: result = {dest_val[26:0], src_val[31:27]};
+  5'd6: result = {dest_val[25:0], src_val[31:26]};
+  5'd7: result = {dest_val[24:0], src_val[31:25]};
+  5'd8: result = {dest_val[23:0], src_val[31:24]};
+  5'd9: result = {dest_val[22:0], src_val[31:23]};
+  5'd10: result = {dest_val[21:0], src_val[31:22]};
+  5'd11: result = {dest_val[20:0], src_val[31:21]};
+  5'd12: result = {dest_val[19:0], src_val[31:20]};
+  5'd13: result = {dest_val[18:0], src_val[31:19]};
+  5'd14: result = {dest_val[17:0], src_val[31:18]};
+  5'd15: result = {dest_val[16:0], src_val[31:17]};
+  5'd16: result = {dest_val[15:0], src_val[31:16]};
+  5'd17: result = {dest_val[14:0], src_val[31:15]};
+  5'd18: result = {dest_val[13:0], src_val[31:14]};
+  5'd19: result = {dest_val[12:0], src_val[31:13]};
+  5'd20: result = {dest_val[11:0], src_val[31:12]};
+  5'd21: result = {dest_val[10:0], src_val[31:11]};
+  5'd22: result = {dest_val[9:0], src_val[31:10]};
+  5'd23: result = {dest_val[8:0], src_val[31:9]};
+  5'd24: result = {dest_val[7:0], src_val[31:8]};
+  5'd25: result = {dest_val[6:0], src_val[31:7]};
+  5'd26: result = {dest_val[5:0], src_val[31:6]};
+  5'd27: result = {dest_val[4:0], src_val[31:5]};
+  5'd28: result = {dest_val[3:0], src_val[31:4]};
+  5'd29: result = {dest_val[2:0], src_val[31:3]};
+  5'd30: result = {dest_val[1:0], src_val[31:2]};
+  5'd31: result = {dest_val[0:0], src_val[31:1]};
+}
+
+// CF = last bit shifted out = dest_val[32-count] for count > 0
+case (count) {
+  5'd0: cf_bit = flag_CF;
+  5'd1: cf_bit = dest_val[31];
+  5'd2: cf_bit = dest_val[30];
+  5'd3: cf_bit = dest_val[29];
+  5'd4: cf_bit = dest_val[28];
+  5'd5: cf_bit = dest_val[27];
+  5'd6: cf_bit = dest_val[26];
+  5'd7: cf_bit = dest_val[25];
+  5'd8: cf_bit = dest_val[24];
+  5'd9: cf_bit = dest_val[23];
+  5'd10: cf_bit = dest_val[22];
+  5'd11: cf_bit = dest_val[21];
+  5'd12: cf_bit = dest_val[20];
+  5'd13: cf_bit = dest_val[19];
+  5'd14: cf_bit = dest_val[18];
+  5'd15: cf_bit = dest_val[17];
+  5'd16: cf_bit = dest_val[16];
+  5'd17: cf_bit = dest_val[15];
+  5'd18: cf_bit = dest_val[14];
+  5'd19: cf_bit = dest_val[13];
+  5'd20: cf_bit = dest_val[12];
+  5'd21: cf_bit = dest_val[11];
+  5'd22: cf_bit = dest_val[10];
+  5'd23: cf_bit = dest_val[9];
+  5'd24: cf_bit = dest_val[8];
+  5'd25: cf_bit = dest_val[7];
+  5'd26: cf_bit = dest_val[6];
+  5'd27: cf_bit = dest_val[5];
+  5'd28: cf_bit = dest_val[4];
+  5'd29: cf_bit = dest_val[3];
+  5'd30: cf_bit = dest_val[2];
+  5'd31: cf_bit = dest_val[1];
+}
+
+// Write result
+xregs[rm_bits] = result;
+
+// Set flags
+flag_CF = cf_bit;
+flag_SF = result[31];
+flag_ZF = result == 32'h00000000;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);

@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV r/m32, imm32 (0x66 0xC7/0)
+// Move immediate dword to register (with operand size override)
+// This version handles register-direct mode (mod=11)
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+
+var modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var imm_b0[7:0];
+var imm_b1[7:0];
+var imm_b2[7:0];
+var imm_b3[7:0];
+var imm32[31:0];
+
+// Read operand size override prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+instr = imem[eip + 1];
+assume instr == 0xC7;
+
+modrm = imem[eip + 2];
+
+// Extract ModR/M fields
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// This version handles register direct mode
+assume mod_bits == 0b11;
+
+// Extract reg field (must be 0 for MOV)
+assume reg_bits == 3'b000;
+
+// Get immediate value (little-endian)
+imm_b0 = imem[eip + 3];
+imm_b1 = imem[eip + 4];
+imm_b2 = imem[eip + 5];
+imm_b3 = imem[eip + 6];
+imm32 = {imm_b3, imm_b2, imm_b1, imm_b0};
+
+// Write to destination register using indexed access
+xregs[rm_bits] = imm32;
+
+// Update EIP: prefix (1) + opcode (1) + ModR/M (1) + imm32 (4) = 7 bytes
+eip = eip + 7;

@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV r32, imm32 with 66 prefix (0x66 0xB8-0xBF)
+// In real mode, 66 prefix switches from 16-bit to 32-bit operand size
+// Move immediate 32-bit value to register
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var reg_idx[2:0];
+var imm_b0[7:0];
+var imm_b1[7:0];
+var imm_b2[7:0];
+var imm_b3[7:0];
+var imm_val[31:0];
+
+// Read and verify 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+
+// Check this is a MOV r32, imm32 instruction (0xB8-0xBF)
+assume instr[7:3] == 0b10111;  // Upper 5 bits must be 10111
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read immediate value (little-endian: low byte first)
+imm_b0 = imem[eip + 2];
+imm_b1 = imem[eip + 3];
+imm_b2 = imem[eip + 4];
+imm_b3 = imem[eip + 5];
+
+eip = eip + 6;
+
+// Combine bytes into 32-bit immediate
+imm_val = {imm_b3, imm_b2, imm_b1, imm_b0};
+
+// Move immediate to register (full 32 bits)
+xregs[reg_idx] = imm_val;
+
+// MOV does not affect flags

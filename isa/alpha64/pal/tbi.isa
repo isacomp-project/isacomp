@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TBI - Translation Buffer Invalidate (via MTPR to special IPR)
+//
+// This is typically invoked via:
+//   MTPR Ra, DTB_IA (0xA3) - Invalidate all DTB entries
+//   MTPR Ra, ITB_IA (0x83) - Invalidate all ITB entries
+//   MTPR Ra, DTB_IS (0xA2) - Invalidate single DTB entry (VA in Ra)
+//   MTPR Ra, ITB_IS (0x82) - Invalidate single ITB entry (VA in Ra)
+//
+// For simplicity, this file implements a TBIA (invalidate all) as a
+// standalone instruction. The actual TLB invalidation is handled
+// through special IPR writes in hw_mtpr.isa.
+//
+// This file defines the IPR addresses for TLB invalidation:
+
+// IPR Addresses for TLB control:
+// 0x82 = ITB_IS  (Invalidate Single ITB)
+// 0x83 = ITB_IA  (Invalidate All ITB)
+// 0xA2 = DTB_IS  (Invalidate Single DTB)
+// 0xA3 = DTB_IA  (Invalidate All DTB)
+
+// Note: Full TLB invalidation support requires extending hw_mtpr.isa
+// to handle these IPR addresses. The invalidation clears valid bits
+// in the TLB arrays.

@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.lwa - Load Word Atomic
+// Format: l.lwa rD, I(rA)
+// Load word and set reservation for atomic operations
+// Used by Linux for futex, spinlock, and other synchronization primitives
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state atomic_reserve[31:0];    // Reservation address
+isa_state atomic_flag[0:0];        // Reservation valid
+
+var rD[4:0];
+var rA[4:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var base[31:0];
+var data[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x1B;
+pc = pc + 4;
+rD = instr[25:21];
+rA = instr[20:16];
+imm = instr[15:0];
+
+base = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+addr = base + sign_ext_imm;
+
+// Load the word
+data = dmem[addr];
+rf[rD] = data;
+
+// Set atomic reservation
+atomic_reserve = addr;
+atomic_flag = 1;

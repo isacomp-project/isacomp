@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SCASB (0xAE) - Real mode
+// Compare AL with byte at ES:[DI], set flags, adjust DI by 1
+// Uses 16-bit DI (lower 16 bits of EDI) with ES segment in real mode
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state EDI[31:0] of xregs[7];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state ES[15:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var byte_val[7:0];
+var result[8:0];
+var di_val[15:0];
+var new_di[15:0];
+var physical_addr[19:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xAE;
+
+// In real mode, use 16-bit DI with ES segment
+di_val = EDI[15:0];
+physical_addr = (ES << 4) + di_val;
+
+// Load byte from ES:[DI]
+byte_val = dmem[physical_addr];
+
+// Compare: AL - byte_val
+result = AL - byte_val;
+
+// Set flags
+flag_CF = result[8];
+flag_ZF = result[7:0] == 8'h00;
+flag_SF = result[7];
+flag_OF = (AL[7] != byte_val[7]) & (AL[7] != result[7]);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+flag_AF = AL[3:0] < byte_val[3:0];
+
+// Adjust DI based on direction flag (only 16-bit DI in real mode)
+new_di = flag_DF == 1'b0 ? di_val + 16'h0001 : di_val - 16'h0001;
+EDI[15:0] = new_di;
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

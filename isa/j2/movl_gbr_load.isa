@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state gbr[31:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var disp[7:0];
+var disp_ext[31:0];
+var movl_gbr_load_addr[31:0];
+var data32[31:0];
+
+// Address error checking variables
+var load_addr[31:0];
+var load_size[1:0];
+var movl_gbr_load_no_error[0:0];
+var movl_gbr_load_ok[0:0];  // Combined no_error and no exception
+
+// Register banking variables (unique to movl_gbr_load instruction)
+var movl_gbr_load_r0_lo[2:0];
+var movl_gbr_load_rb[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include address error detection for loads
+aspect addr_error_load.isa gates pc, sr, vbr, rf, umem, exc_taken:2, exc_vector:2;
+
+instr = umem[pc];
+assume instr[15:8] == 0xC6;
+disp = instr[7:0];
+
+// Register banking setup for R0
+movl_gbr_load_r0_lo = 3'b000;
+movl_gbr_load_rb = sr[28];
+
+// MOV.L @(disp,GBR),R0: movl_gbr_load_addr = GBR + disp*4
+disp_ext = {24'b0, disp};
+movl_gbr_load_addr = gbr + {disp_ext[29:0], 2'b0};
+
+// Set up address error checking
+load_addr = movl_gbr_load_addr;
+load_size = 2'b11;  // Long access (32-bit)
+
+// Compute the no-error condition (bits 1:0 must be 00)
+movl_gbr_load_no_error = (movl_gbr_load_addr[1:0] == 2'b00);
+
+// Combine no_error with no exception for rf writes
+movl_gbr_load_ok = movl_gbr_load_no_error & (exc_taken == 0);
+
+data32 = umem[movl_gbr_load_addr];
+
+// Only update register if no address error and no exception, combined with banking
+rf[0] when ((movl_gbr_load_rb == 0) & movl_gbr_load_ok) = data32;
+rf_bank[movl_gbr_load_r0_lo] when (movl_gbr_load_rb & movl_gbr_load_ok) = data32;
+
+// Only advance PC if no address error (exception.isa overrides PC when exc_taken)
+pc when (movl_gbr_load_no_error) = pc + 2;

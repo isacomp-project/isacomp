@@ -1,0 +1,145 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha DTB (Data Translation Buffer) Aspect for Store Operations
+//
+// This aspect provides address translation for data stores.
+// It checks the architectural DTB first, and on miss, triggers a
+// trap to PALcode which handles the page table walk.
+//
+// Requires: 'addr' variable must be defined before including this aspect
+//
+// Alpha Virtual Address Format (43-bit VA, 8KB pages):
+//   [42:13] Virtual Page Number (VPN) - 30 bits
+//   [12:0]  Page offset - 13 bits (8KB pages)
+//
+// Alpha PTE Format (64-bit, Linux kernel layout):
+//   [63:32] PFN (Physical Frame Number)
+//   [13]    UWE (User Write Enable)
+//   [12]    URE (User Read Enable)
+//   [10]    KWE (Kernel Write Enable)
+//   [8]     KRE (Kernel Read Enable)
+//   [6:5]   GH (Granularity Hint)
+//   [4]     ASM (Address Space Match)
+//   [3]     FOE (Fault on Execute)
+//   [2]     FOW (Fault on Write)
+//   [1]     FOR (Fault on Read)
+//   [0]     V (Valid)
+//
+// On TLB miss: Trap to PAL_dtb_miss entry
+// On permission fault: Trap to PAL_mm_fault entry
+
+// Output: Physical address for data store
+var store_addr_pa[63:0];
+
+// Exception tracking
+var dtb_store_exception[0:0];
+var dtb_store_miss[0:0];
+var dtb_store_fault[0:0];
+
+// Extract address components
+var store_addr_vpn[29:0];
+var store_addr_offset[12:0];
+store_addr_vpn = addr[42:13];
+store_addr_offset = addr[12:0];
+
+// TLB lookup - check all 32 entries in parallel
+var dtb_store_hit_any[0:0];
+var dtb_store_hit_pte[63:0];
+
+// Check each TLB entry
+var shit0[0:0];
+var shit1[0:0];
+var shit2[0:0];
+var shit3[0:0];
+var shit4[0:0];
+var shit5[0:0];
+var shit6[0:0];
+var shit7[0:0];
+
+shit0 = dtb_valid[0] & (dtb_tag[0][29:0] == store_addr_vpn);
+shit1 = dtb_valid[1] & (dtb_tag[1][29:0] == store_addr_vpn);
+shit2 = dtb_valid[2] & (dtb_tag[2][29:0] == store_addr_vpn);
+shit3 = dtb_valid[3] & (dtb_tag[3][29:0] == store_addr_vpn);
+shit4 = dtb_valid[4] & (dtb_tag[4][29:0] == store_addr_vpn);
+shit5 = dtb_valid[5] & (dtb_tag[5][29:0] == store_addr_vpn);
+shit6 = dtb_valid[6] & (dtb_tag[6][29:0] == store_addr_vpn);
+shit7 = dtb_valid[7] & (dtb_tag[7][29:0] == store_addr_vpn);
+
+dtb_store_hit_any = shit0 | shit1 | shit2 | shit3 | shit4 | shit5 | shit6 | shit7;
+
+// Select matching PTE (priority encoder)
+var ssel_pte[63:0];
+ssel_pte = shit0 ? dtb_pte[0] :
+           shit1 ? dtb_pte[1] :
+           shit2 ? dtb_pte[2] :
+           shit3 ? dtb_pte[3] :
+           shit4 ? dtb_pte[4] :
+           shit5 ? dtb_pte[5] :
+           shit6 ? dtb_pte[6] :
+           shit7 ? dtb_pte[7] : 64'b0;
+
+dtb_store_hit_pte = ssel_pte;
+
+// Extract PTE fields
+var spte_pfn[31:0];
+var spte_valid[0:0];
+var spte_fow[0:0];
+var spte_kwe[0:0];
+var spte_uwe[0:0];
+
+spte_pfn = dtb_store_hit_pte[63:32];
+spte_valid = dtb_store_hit_pte[0];
+spte_fow = dtb_store_hit_pte[2];     // Fault on Write
+spte_kwe = dtb_store_hit_pte[10];    // Kernel Write Enable
+spte_uwe = dtb_store_hit_pte[13];    // User Write Enable
+
+// Check permissions based on current mode
+// ps[3] = CM (current mode): 0=kernel, 1=user
+var store_is_user_mode[0:0];
+var has_write_permission[0:0];
+
+store_is_user_mode = ps[3];
+has_write_permission = store_is_user_mode ? spte_uwe : spte_kwe;
+
+// Determine exception type
+// In PAL mode, translation is bypassed
+var store_vm_enabled[0:0];
+store_vm_enabled = (pal_mode == 0);
+
+dtb_store_miss = store_vm_enabled & (dtb_store_hit_any == 0);
+dtb_store_fault = store_vm_enabled & dtb_store_hit_any & ((spte_valid == 0) | (has_write_permission == 0) | spte_fow);
+dtb_store_exception = dtb_store_miss | dtb_store_fault;
+
+// PAL entry points for exceptions
+// DTB miss single: 0x08 (offset 0x200)
+// DFAULT: 0x0A (offset 0x280)
+var dtb_store_miss_entry[63:0];
+var dtb_store_fault_entry[63:0];
+
+dtb_store_miss_entry = pal_base + 64'h200;    // DTB miss handler
+dtb_store_fault_entry = pal_base + 64'h280;   // Data fault handler
+
+// On exception, save state and jump to PALcode
+// Record faulting VA and memory status
+exc_addr when (dtb_store_exception) = pc;
+va when (dtb_store_exception) = addr;
+mm_stat when (dtb_store_exception) = 64'h1;  // 1 = write access
+pal_mode when (dtb_store_exception) = 1;
+
+// Compute physical address
+// If PAL mode: use physical address directly (identity map)
+// If TLB hit: translate using PTE
+// If TLB miss/fault: will redirect to PAL handler
+var store_addr_translated[63:0];
+store_addr_translated = {spte_pfn, store_addr_offset};
+
+// Final address for store
+// If PAL mode: identity map
+// If TLB hit: use translated address
+// If miss/fault: doesn't matter, will trap
+store_addr_pa = pal_mode ? addr :
+                dtb_store_hit_any ? store_addr_translated :
+                addr;  // Will trap before use
+
+// Update PC on exception (redirect to PAL handler)
+pc when (dtb_store_miss & (pal_mode == 0)) = dtb_store_miss_entry;
+pc when (dtb_store_fault & (pal_mode == 0)) = dtb_store_fault_entry;

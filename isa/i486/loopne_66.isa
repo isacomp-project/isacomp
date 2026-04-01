@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LOOPNE/LOOPNZ rel8 with 66 prefix (0x66 0xE0)
+// Decrement ECX, jump if ECX != 0 AND ZF = 0
+// Uses signed byte displacement relative to EIP
+// Note: With 66 prefix, uses 32-bit ECX register instead of 16-bit CX
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state flag_ZF[0:0];
+
+var offset[7:0];
+var signed_offset[31:0];
+var target_addr[31:0];
+var new_ecx[31:0];
+var ecx[31:0];
+var condition[0:0];
+
+// Fetch 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0xE0;
+
+// Read signed byte displacement
+offset = imem[eip + 2];
+
+// Sign-extend 8-bit offset to 32 bits
+signed_offset = {{24{offset[7]}}, offset};
+
+// Calculate target address (eip after instruction + signed offset)
+target_addr = eip + 3 + signed_offset;
+
+// Read ECX (full 32 bits)
+ecx = xregs[1];
+
+// Decrement ECX
+new_ecx = ecx - 1;
+
+// Write back ECX
+xregs[1] = new_ecx;
+
+// Condition: ECX != 0 AND ZF = 0
+condition = (new_ecx != 32'h00000000) & (flag_ZF == 1'b0);
+
+// Jump if condition is true
+case (condition) {
+  1'b1: eip = target_addr;
+  1'b0: eip = eip + 3;
+}

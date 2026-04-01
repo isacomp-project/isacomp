@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER rldimi. - Rotate Left Doubleword Immediate then Mask Insert (Record Form)
+// rldimi. rA, rS, sh, mb
+// Primary opcode 30, MD-form (XO bits 4:2 = 011), Rc=1
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state cr[31:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var sh[5:0];
+var mb[5:0];
+var rs_val[63:0];
+var ra_val[63:0];
+var rotated[63:0];
+var mask_end[5:0];
+var mask[63:0];
+var masked_rotated[63:0];
+var masked_ra[63:0];
+var result[63:0];
+var lt[0:0];
+var gt[0:0];
+var eq[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 30;
+assume instr[4:2] == 3;
+assume instr[0] == 1;
+
+rs = instr[25:21];
+ra = instr[20:16];
+sh = {instr[1], instr[15:11]};
+mb = {instr[5], instr[10:6]};
+
+rs_val = rf[rs];
+ra_val = rf[ra];
+rotated = sh[5:0] == 0 ? rs_val : ((rs_val << sh) | (rs_val >> (64 - sh)));
+mask_end = 63 - sh;
+
+mask = mask_end >= mb ?
+    ((64'hFFFFFFFFFFFFFFFF >> mb) & ~(64'hFFFFFFFFFFFFFFFF >> (mask_end + 1))) :
+    ((64'hFFFFFFFFFFFFFFFF >> mb) | ~(64'hFFFFFFFFFFFFFFFF >> (mask_end + 1)));
+
+masked_rotated = rotated & mask;
+masked_ra = ra_val & ~mask;
+result = masked_rotated | masked_ra;
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+
+lt = result[63];
+gt = ~result[63] & (result != 0);
+eq = (result == 0);
+cr = {lt, gt, eq, 1'b0, cr[27:0]};
+
+pc = pc + 4;

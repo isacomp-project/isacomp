@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA GATE instruction
+// GATE target,link - Gateway branch and link (privilege promotion via TLB)
+// Opcode: 0x3A (bits 31:26), ext3 = 001 (bits 15:13)
+//
+// GATE is functionally identical to BL (PC-relative branch and link) but
+// additionally checks the gateway bit in the target page's TLB entry for
+// privilege promotion. Phase C handles gateway promotion in interruption.isa
+// via the ITLB _PAGE_GATEWAY bit (bit 28 of protection word).
+//
+// PA-RISC 1.1 encoding:
+//   111010 | link | w1 | 001 | w2 | 0 | n
+//   bits[31:26] = 0x3A (opcode, shared with BL/BLR/BV)
+//   bits[25:21] = link register
+//   bits[20:16] = w1 (displacement part)
+//   bits[15:13] = 001 (ext3 distinguishes GATE from BL=000, BLR=010, etc.)
+//   bits[12:3]  = w2 (displacement part)
+//   bit[2]      = w_bit10
+//   bit[1]      = n (nullify delay slot)
+//   bit[0]      = w_sign
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var link[4:0];
+var w[16:0];
+var target_offset[31:0];
+var target[31:0];
+var return_addr[31:0];
+
+instr = umem[pc_pa];
+
+// GATE encoding: opcode=0x3A, ext3=001
+assume instr[31:26] == 0b111010;
+assume instr[15:13] == 0b001;
+
+// Extract link register (bits 25:21)
+link = instr[25:21];
+
+// Assemble 17-bit PC-relative offset (same as BL)
+// W17 encoding: {instr[0], instr[20:16], instr[2], instr[12:3]}
+w = {instr[0], instr[20:16], instr[2], instr[12:3]};
+
+// Sign-extend and multiply by 4 (word alignment)
+target_offset = {{13{w[16]}}, w, 2'b00};
+
+// Calculate target address (PC + 8 + offset for delay slot architecture)
+target = pc + 8 + target_offset;
+
+// Save return address (PC + 8, after delay slot)
+return_addr = pc + 8;
+
+// Write return address to link register (r0 writes are discarded)
+rf[link] when (link != 0 & ~instr_trap_taken & ~in_nullified) = return_addr;
+
+// GATE,N: set PSW.N=1 so the delay slot instruction is nullified
+psw when (instr[1] & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 32'h00200000;
+
+// Set up delay slot: next instruction executes, then branch takes effect
+delay_slot when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+pc = pc + 4;

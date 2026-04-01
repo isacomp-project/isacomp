@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER addco - Add Carrying with Overflow (XO-Form)
+// addco RT,RA,RB
+// Primary opcode 31, XO=10, OE=1
+// RT <- (RA) + (RB)
+// CA <- carry out
+// Updates XER[OV,SO] on overflow
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state xer[63:0];
+// XER bits:
+// XER[32] = SO (Summary Overflow) - sticky
+// XER[33] = OV (Overflow)
+// XER[34] = CA (Carry)
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var rb[4:0];
+var ra_val[63:0];
+var rb_val[63:0];
+var sum[64:0];
+var result[63:0];
+var carry[0:0];
+var overflow[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 10
+assume instr[9:1] == 10;
+// OE bit = 1 (overflow enable)
+assume instr[10] == 1;
+// Rc bit = 0 (no record)
+assume instr[0] == 0;
+
+// Extract register fields
+rt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+ra_val = rf[ra];
+rb_val = rf[rb];
+
+// 65-bit addition to capture carry
+sum = {1'b0, ra_val} + {1'b0, rb_val};
+result = sum[63:0];
+carry = sum[64];
+
+// Signed overflow: operands same sign, result different sign
+overflow = (ra_val[63] == rb_val[63]) & (result[63] != ra_val[63]);
+
+// Update XER bits
+xer[34] = carry;              // CA bit
+xer[33] = overflow;           // OV
+xer[32] = xer[32] | overflow; // SO (sticky)
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

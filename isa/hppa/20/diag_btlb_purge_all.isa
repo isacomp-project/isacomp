@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 DIAG BTLB Purge All instruction (64-bit)
+// DIAG for BTLB purge all - Diagnostic instruction for Block TLB purge
+// Opcode: 0x05 (bits 31:26), sub-function 0x02 (bits 5:0)
+//
+// Invalidates all BTLB entries.
+// Privileged, implementation-dependent instruction.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// BTLB state (8 entries indexed [2:0])
+isa_state btlb_valid[0:0][2:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+
+instr = umem[pc_pa];
+
+// DIAG BTLB Purge All encoding: opcode=0x05, sub=0x02
+assume instr[31:26] == 0b000101;
+assume instr[5:0] == 6'b000010;
+
+// Invalidate all BTLB entries
+var active[0:0];
+active = ~instr_trap_taken & ~in_nullified;
+
+btlb_valid[0] when (active) = 1'b0;
+btlb_valid[1] when (active) = 1'b0;
+btlb_valid[2] when (active) = 1'b0;
+btlb_valid[3] when (active) = 1'b0;
+btlb_valid[4] when (active) = 1'b0;
+btlb_valid[5] when (active) = 1'b0;
+btlb_valid[6] when (active) = 1'b0;
+btlb_valid[7] when (active) = 1'b0;
+
+pc = pc + 4;

@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER lfsx - Load Floating-Point Single Indexed (X-Form)
+// lfsx FRT,RA,RB
+// Primary opcode 31, XO=535
+// FRT <- MEM(RA + RB, 4) as single precision
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[14:0];
+
+var frt[4:0];
+var ra[4:0];
+var rb[4:0];
+var ra_val[63:0];
+var rb_val[63:0];
+var addr[63:0];
+var data[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 31;     // Primary opcode 31
+assume instr[10:1] == 535;     // XO = 535 (lfsx)
+assume instr[0] == 0;          // Reserved bit
+
+pc = pc + 4;
+
+frt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+// RA=0 means use 0, else use rf[ra]
+ra_val = rf[ra];
+rb_val = rf[rb];
+addr = ra_val + rb_val;
+
+// Load 32-bit value from memory
+#ifdef VM
+aspect mmu_load.isa gates pc, msr, srr0, srr1, dar, dsisr;
+data = umem[ea_pa][31:0];
+#else
+data = umem[ea][31:0];
+#endif
+
+// Store as single-precision (zero-extend to 64 bits)
+frf[frt] when (~load_exception_taken & ~instr_trap_taken) = {32'b0, data};

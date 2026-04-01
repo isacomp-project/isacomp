@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 TEST r8_low, r8_low - Parameterized with wildcard ** syntax
+// Opcode: 0x84 + ModR/M byte
+// Handles low byte to low byte: AL,CL,DL,BL -> AL,CL,DL,BL
+// Logical AND test (sets flags but doesn't store result)
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];
+isa_state hregs[7:0][1:0] of xregs[0b1**][15:8];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var reg_idx[2:0];
+var rm_idx[2:0];
+var mod_bits[1:0];
+var src_val[7:0];
+var dst_val[7:0];
+var result[8:0];
+
+instr = imem[eip];
+assume instr == 0x84;
+eip = eip + 1;
+
+modrm = imem[eip];
+eip = eip + 1;
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_idx = modrm[2:0];
+
+assume mod_bits == 0b11;
+
+// Both source and dest are low bytes (bit[2] == 0)
+assume reg_idx[2] == 0;
+assume rm_idx[2] == 0;
+
+var src_idx[1:0];
+var dst_idx[1:0];
+src_idx = reg_idx[1:0];
+dst_idx = rm_idx[1:0];
+
+src_val = lregs[src_idx];
+dst_val = lregs[dst_idx];
+
+result = dst_val & src_val;
+
+// TEST doesn't modify destination, only flags (clears CF and OF)
+flag_CF = 1'b0;
+flag_OF = 1'b0;
+flag_ZF = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_SF = result[7];
+flag_PF = result[0];

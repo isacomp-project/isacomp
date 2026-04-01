@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 OR EAX, imm32 (0x0D)
+// Direct accumulator addressing - no ModR/M byte
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state EAX[31:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var imm_b0[7:0];
+var imm_b1[7:0];
+var imm_b2[7:0];
+var imm_b3[7:0];
+var imm_val[31:0];
+var result[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x0D;
+eip = eip + 1;
+
+// Fetch immediate value (little-endian)
+imm_b0 = imem[eip];
+eip = eip + 1;
+imm_b1 = imem[eip];
+eip = eip + 1;
+imm_b2 = imem[eip];
+eip = eip + 1;
+imm_b3 = imem[eip];
+eip = eip + 1;
+
+imm_val = {imm_b3, imm_b2, imm_b1, imm_b0};
+
+// Perform OR operation
+result = EAX | imm_val;
+
+// Write result
+EAX = result;
+
+// Set flags (OR clears OF and CF)
+flag_CF = 1'b0;
+flag_OF = 1'b0;
+flag_SF = result[31];
+flag_ZF = result == 32'h00000000;
+flag_AF = 1'b0;  // Undefined for OR, but typically cleared
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);

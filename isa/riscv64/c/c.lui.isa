@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64C C.LUI - Load upper immediate (sign-extended to 64-bit)
+
+isa_state pc[63:0];
+var c_instr[15:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rd[4:0];
+var imm[17:0];
+var sign_ext_imm[63:0];
+var res[63:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.LUI format: CI-type
+// Encoding: 011 imm[17] rd imm[16:12] 01
+assume c_instr[1:0] == 0b01;
+assume c_instr[15:13] == 0b011;
+assume c_instr[11:7] != 0;
+assume c_instr[11:7] != 5'b00010;
+
+pc = pc + 2;
+
+rd = c_instr[11:7];
+
+// Immediate is imm[17:12] = {c_instr[12], c_instr[6:2]}
+imm = {c_instr[12], c_instr[6:2], 12'b0};
+sign_ext_imm = {{46{imm[17]}}, imm};
+
+res = sign_ext_imm;
+
+rf[rd] when (rd != 0) = res;

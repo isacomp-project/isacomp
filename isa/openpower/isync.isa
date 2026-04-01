@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER isync - Instruction Synchronize (XL-Form)
+// isync
+// Primary opcode 19, XO=150
+// Context synchronizing instruction that:
+//   1. Ensures all prior instructions complete execution
+//   2. Discards any prefetched instructions
+//   3. Refetches and re-executes subsequent instructions in current context
+// Used after modifying:
+//   - Special purpose registers that affect instruction execution
+//   - Page table entries
+//   - Memory-mapped instruction areas
+// Critical for self-modifying code and privilege level changes
+// In single-core, in-order implementation: modeled as no-op
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 19
+assume instr[31:26] == 19;
+// XO field = 150 (bits 21:30 in Power = bits 10:1 in Verilog)
+assume instr[10:1] == 150;
+
+// isync execution: instruction synchronization and pipeline flush
+// For single-core, single-cycle implementation, this is effectively a no-op
+// Pipeline is already empty after each instruction completes
+pc = pc + 4;

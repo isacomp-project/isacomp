@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER popcntb - Population Count Bytes (X-Form)
+// popcntb RA,RS
+// Primary opcode 31, XO=122
+// Count 1-bits in each byte separately
+// RA[byte_i] <- popcount(RS[byte_i])
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var rs_val[63:0];
+var byte0[7:0];
+var byte1[7:0];
+var byte2[7:0];
+var byte3[7:0];
+var byte4[7:0];
+var byte5[7:0];
+var byte6[7:0];
+var byte7[7:0];
+var count0[4:0];
+var count1[4:0];
+var count2[4:0];
+var count3[4:0];
+var count4[4:0];
+var count5[4:0];
+var count6[4:0];
+var count7[4:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 122
+assume instr[10:1] == 122;
+// Rc bit = 0
+assume instr[0] == 0;
+
+// Extract register fields
+rs = instr[25:21];
+ra = instr[20:16];
+
+rs_val = rf[rs];
+
+// Extract bytes (big-endian bit numbering: [0:7], [8:15], etc.)
+byte0 = rs_val[63:56];  // bits 0:7
+byte1 = rs_val[55:48];  // bits 8:15
+byte2 = rs_val[47:40];  // bits 16:23
+byte3 = rs_val[39:32];  // bits 24:31
+byte4 = rs_val[31:24];  // bits 32:39
+byte5 = rs_val[23:16];  // bits 40:47
+byte6 = rs_val[15:8];   // bits 48:55
+byte7 = rs_val[7:0];    // bits 56:63
+
+// Count 1-bits in each byte
+count0 = {4'd0, byte0[0]} + {4'd0, byte0[1]} + {4'd0, byte0[2]} + {4'd0, byte0[3]} +
+         {4'd0, byte0[4]} + {4'd0, byte0[5]} + {4'd0, byte0[6]} + {4'd0, byte0[7]};
+
+count1 = {4'd0, byte1[0]} + {4'd0, byte1[1]} + {4'd0, byte1[2]} + {4'd0, byte1[3]} +
+         {4'd0, byte1[4]} + {4'd0, byte1[5]} + {4'd0, byte1[6]} + {4'd0, byte1[7]};
+
+count2 = {4'd0, byte2[0]} + {4'd0, byte2[1]} + {4'd0, byte2[2]} + {4'd0, byte2[3]} +
+         {4'd0, byte2[4]} + {4'd0, byte2[5]} + {4'd0, byte2[6]} + {4'd0, byte2[7]};
+
+count3 = {4'd0, byte3[0]} + {4'd0, byte3[1]} + {4'd0, byte3[2]} + {4'd0, byte3[3]} +
+         {4'd0, byte3[4]} + {4'd0, byte3[5]} + {4'd0, byte3[6]} + {4'd0, byte3[7]};
+
+count4 = {4'd0, byte4[0]} + {4'd0, byte4[1]} + {4'd0, byte4[2]} + {4'd0, byte4[3]} +
+         {4'd0, byte4[4]} + {4'd0, byte4[5]} + {4'd0, byte4[6]} + {4'd0, byte4[7]};
+
+count5 = {4'd0, byte5[0]} + {4'd0, byte5[1]} + {4'd0, byte5[2]} + {4'd0, byte5[3]} +
+         {4'd0, byte5[4]} + {4'd0, byte5[5]} + {4'd0, byte5[6]} + {4'd0, byte5[7]};
+
+count6 = {4'd0, byte6[0]} + {4'd0, byte6[1]} + {4'd0, byte6[2]} + {4'd0, byte6[3]} +
+         {4'd0, byte6[4]} + {4'd0, byte6[5]} + {4'd0, byte6[6]} + {4'd0, byte6[7]};
+
+count7 = {4'd0, byte7[0]} + {4'd0, byte7[1]} + {4'd0, byte7[2]} + {4'd0, byte7[3]} +
+         {4'd0, byte7[4]} + {4'd0, byte7[5]} + {4'd0, byte7[6]} + {4'd0, byte7[7]};
+
+// Pack results into output bytes
+result = {{3'd0, count0}, {3'd0, count1}, {3'd0, count2}, {3'd0, count3},
+          {3'd0, count4}, {3'd0, count5}, {3'd0, count6}, {3'd0, count7}};
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+pc = pc + 4;

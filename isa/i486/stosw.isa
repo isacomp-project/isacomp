@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 STOSW (0xAB) - WITH PROPER SEGMENTATION
+// Store word string - store AX to ES:[DI]
+// Uses ES segment for destination
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state ES[15:0];            // Extra segment register
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state DI[15:0] of xregs[7][15:0];
+isa_state flag_DF[0:0];
+
+var offset_lo[15:0];
+var offset_hi[15:0];
+var physical_addr_lo[31:0];
+var physical_addr_hi[31:0];
+
+instr = imem[eip];
+assume instr == 0xAB;
+
+// Calculate offsets with wraparound
+offset_lo = DI;
+offset_hi = DI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using ES segment
+physical_addr_lo = (ES << 4) + offset_lo;
+physical_addr_hi = (ES << 4) + offset_hi;
+
+// Store AX to ES:[DI] (little-endian)
+dmem[physical_addr_lo] = AX[7:0];
+dmem[physical_addr_hi] = AX[15:8];
+
+// Increment or decrement DI by 2 based on direction flag
+DI = flag_DF == 1'b0 ? (DI + 16'h0002) : (DI - 16'h0002);
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

@@ -1,0 +1,93 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BTR r/m32, r32 with 66 prefix (0x66 0x0F 0xB3) - Bit Test and Reset
+// Test bit in r/m32 (rm), bit index in r32 (reg), then reset bit to 0
+// CF = bit value, OF/SF/ZF/AF/PF undefined
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var base_val[31:0];
+var bit_idx[31:0];
+var bit_pos[4:0];
+var bit_val[0:0];
+var mask[31:0];
+var result[31:0];
+
+// Fetch and verify 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch first opcode byte
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+// Fetch second opcode byte
+instr2 = imem[eip + 2];
+assume instr2 == 0xB3;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 3];
+
+eip = eip + 4;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Register-direct mode only
+assume mod_bits == 0b11;
+
+// Read values (full 32 bits)
+base_val = xregs[rm_bits];
+bit_idx = xregs[reg_idx];
+
+// Compute bit position (modulo 32)
+bit_pos = bit_idx[4:0];
+
+// Extract bit value
+bit_val = base_val[bit_pos];
+
+// Set CF to bit value
+flag_CF = bit_val;
+
+// Create inverted mask for the bit position
+case (bit_pos) {
+  5'd0: mask = 32'hFFFFFFFE; 5'd1: mask = 32'hFFFFFFFD;
+  5'd2: mask = 32'hFFFFFFFB; 5'd3: mask = 32'hFFFFFFF7;
+  5'd4: mask = 32'hFFFFFFEF; 5'd5: mask = 32'hFFFFFFDF;
+  5'd6: mask = 32'hFFFFFFBF; 5'd7: mask = 32'hFFFFFF7F;
+  5'd8: mask = 32'hFFFFFEFF; 5'd9: mask = 32'hFFFFFDFF;
+  5'd10: mask = 32'hFFFFFBFF; 5'd11: mask = 32'hFFFFF7FF;
+  5'd12: mask = 32'hFFFFEFFF; 5'd13: mask = 32'hFFFFDFFF;
+  5'd14: mask = 32'hFFFFBFFF; 5'd15: mask = 32'hFFFF7FFF;
+  5'd16: mask = 32'hFFFEFFFF; 5'd17: mask = 32'hFFFDFFFF;
+  5'd18: mask = 32'hFFFBFFFF; 5'd19: mask = 32'hFFF7FFFF;
+  5'd20: mask = 32'hFFEFFFFF; 5'd21: mask = 32'hFFDFFFFF;
+  5'd22: mask = 32'hFFBFFFFF; 5'd23: mask = 32'hFF7FFFFF;
+  5'd24: mask = 32'hFEFFFFFF; 5'd25: mask = 32'hFDFFFFFF;
+  5'd26: mask = 32'hFBFFFFFF; 5'd27: mask = 32'hF7FFFFFF;
+  5'd28: mask = 32'hEFFFFFFF; 5'd29: mask = 32'hDFFFFFFF;
+  5'd30: mask = 32'hBFFFFFFF; 5'd31: mask = 32'h7FFFFFFF;
+}
+
+// Reset the bit to 0
+result = base_val & mask;
+
+// Write result back
+xregs[rm_bits] = result;
+
+// OF, SF, ZF, AF, PF are undefined (not modified in this implementation)

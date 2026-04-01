@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 C.UN.S - Compare Unordered Single
+// Sets FP condition code if either operand is NaN
+// Encoding: COP1 (010001), fmt=S (10000), ft, fs, cc, 0, FC, cond=UN (0001)
+// C.UN.S fs, ft: FCC[cc] = isNaN(fs) || isNaN(ft)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[31:0][4:0];
+isa_state fcsr[31:0];
+mem umem[12:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+var fs[4:0];
+var ft[4:0];
+var cc[2:0];
+var f1[31:0];
+var f2[31:0];
+var result[0:0];
+var new_fcsr[31:0];
+
+instr = umem[pc];
+assume instr[31:26] == 0b010001;   // COP1 opcode
+assume instr[25:21] == 0b10000;    // fmt = S
+assume instr[5:4] == 0b11;         // FC = 11
+assume instr[3:0] == 0b0001;       // cond = UN (unordered)
+
+pc = pc + 4;
+
+fs = instr[15:11];
+ft = instr[20:16];
+cc = instr[10:8];
+
+f1 = frf[fs];
+f2 = frf[ft];
+
+// Check for unordered (NaN) - check exponent = 0xFF and mantissa != 0
+var exp1[7:0];
+var exp2[7:0];
+var man1[22:0];
+var man2[22:0];
+var nan1[0:0];
+var nan2[0:0];
+
+exp1 = f1[30:23];
+exp2 = f2[30:23];
+man1 = f1[22:0];
+man2 = f2[22:0];
+
+// Use bitwise AND since this is single-bit logic
+var exp1_max[0:0];
+var exp2_max[0:0];
+var man1_nz[0:0];
+var man2_nz[0:0];
+exp1_max = (exp1 == 8'hff);
+exp2_max = (exp2 == 8'hff);
+man1_nz = (man1 != 23'h0);
+man2_nz = (man2 != 23'h0);
+nan1 = exp1_max & man1_nz;
+nan2 = exp2_max & man2_nz;
+
+result = nan1 | nan2;
+
+// Update FCC0 in FCSR (bit 23)
+// Note: Only supporting cc=0 for now
+new_fcsr = (fcsr & ~32'h00800000) | (result ? 32'h00800000 : 32'h0);
+
+fcsr = new_fcsr;

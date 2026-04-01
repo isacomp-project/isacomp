@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX SETH - Set High Wyde
+// SETH $X,YZ: $X = YZ << 48
+// Opcode: 0xE0
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var yz[15:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xE0;
+
+x = instr[23:16];
+yz = instr[15:0];
+
+result = {yz, 48'b0};
+
+rf[x] = result;
+pc = pc + 4;

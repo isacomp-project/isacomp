@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: MOV src, dst (five-parcel, 32-bit immediate to stack)
+// Five-parcel encoding: opcode 0x06, smode=0xF, dmode=0xD, 10 bytes
+// dst = imm32  (load full 32-bit constant into stack location)
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+mem umem[31:0];
+
+var parcel0[15:0];
+var parcel1[15:0];
+var parcel2[15:0];
+var parcel3[15:0];
+var parcel4[15:0];
+var opcode6[5:0];
+var smode[3:0];
+var dmode[3:0];
+var imm32[31:0];
+var dst_field[31:0];
+var dst_addr[31:0];
+
+parcel0 = umem[pc];
+parcel1 = umem[pc + 2];
+parcel2 = umem[pc + 4];
+parcel3 = umem[pc + 6];
+parcel4 = umem[pc + 8];
+
+assume parcel0[15:14] == 0b11;
+opcode6 = parcel0[13:8];
+assume opcode6 == 0x06;
+
+smode = parcel0[7:4];
+dmode = parcel0[3:0];
+
+// Source: 32-bit immediate
+assume smode == 0xF;
+imm32 = {parcel1, parcel2};
+
+// Destination: word stack offset (full 32-bit offset)
+assume dmode == 0xD;
+dst_field = {parcel3, parcel4};
+dst_addr = sp + dst_field;
+
+umem[dst_addr] = imm32;
+
+pc = pc + 10;

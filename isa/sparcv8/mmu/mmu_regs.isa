@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 Reference MMU (SRMMU) Registers and TLB Arrays
+// Implements software-managed TLB with 64 entries using CAM for VPN lookup.
+//
+// SRMMU Features:
+// - 36-bit physical address space (64GB)
+// - Page sizes: 4KB (level 3), 256KB (level 2), 16MB (level 1), 4GB (level 0)
+// - 8-bit context (256 address spaces)
+// - Three-level page tables (software-walked on TLB miss)
+//
+// Address Space Identifiers (ASI):
+// - ASI 0x03: MMU Flush/Probe (instruction)
+// - ASI 0x04: MMU Flush/Probe (data)
+// - ASI 0x08: User instruction
+// - ASI 0x09: Supervisor instruction
+// - ASI 0x0A: User data
+// - ASI 0x0B: Supervisor data
+// - ASI 0x19: MMU Register access
+
+// ============================================================================
+// MMU Control Registers (accessed via ASI 0x19 with specific VA offsets)
+// ============================================================================
+
+// MMU Control Register (VA offset 0x000)
+// [31:28] IMPL  - Implementation (read-only)
+// [27:24] VER   - Version (read-only)
+// [23:8]  Reserved
+// [7:2]   Reserved
+// [1]     NF    - No Fault mode (1=suppress faults for LDA/STA)
+// [0]     E     - Enable (1=MMU enabled, 0=pass-through)
+isa_state mmu_ctrl[31:0];
+
+// Context Table Pointer Register (VA offset 0x100)
+// [31:2]  CTP   - Context Table Pointer (physical address >> 2)
+// [1:0]   Reserved (must be 0)
+isa_state mmu_ctxptr[31:0];
+
+// Context Register (VA offset 0x200)
+// [31:8]  Reserved
+// [7:0]   Context - Current context number (0-255)
+isa_state mmu_ctx[31:0];
+
+// Fault Status Register (VA offset 0x300)
+// [31:18] Reserved
+// [17:10] EBE   - External Bus Error type
+// [9:8]   L     - Level where fault occurred (0-3)
+// [7:5]   AT    - Access Type
+//                 000 = Load from user data space
+//                 001 = Load from supervisor data space
+//                 010 = Load/execute from user instruction space
+//                 011 = Load/execute from supervisor instruction space
+//                 100 = Store to user data space
+//                 101 = Store to supervisor data space
+//                 110 = Store to user instruction space
+//                 111 = Store to supervisor instruction space
+// [4:2]   FT    - Fault Type
+//                 000 = None
+//                 001 = Invalid address error
+//                 010 = Protection error
+//                 011 = Privilege violation
+//                 100 = Translation error
+//                 101 = Access bus error
+//                 110 = Internal error
+//                 111 = Reserved
+// [1]     FAV   - Fault Address Valid
+// [0]     OW    - Overwrite (another fault occurred before this was read)
+isa_state mmu_fsr[31:0];
+
+// Fault Address Register (VA offset 0x400)
+// [31:0]  FAR   - Virtual address that caused the fault
+isa_state mmu_far[31:0];
+
+// ============================================================================
+// TLB Array - 64 entries, fully associative with CAM for VPN lookup
+// ============================================================================
+// TLB Entry Format (combined from PTE):
+//   VPN[31:12]  - Virtual Page Number (20 bits for 4KB pages)
+//   CTX[7:0]    - Context (ASID)
+//   PPN[35:12]  - Physical Page Number (24 bits for 36-bit PA)
+//   C           - Cacheable
+//   M           - Modified (dirty)
+//   R           - Referenced
+//   ACC[2:0]    - Access permissions
+//   V           - Valid
+//   SZ[1:0]     - Page size
+
+// CAM for VPN lookup (64 entries, 20-bit VPN for 4KB pages)
+// For larger pages, lower VPN bits are masked during comparison
+isa_state cam tlb_vpn[19:0]@[5:0][];
+
+// TLB tag arrays (indexed by 6-bit entry number)
+isa_state tlb_ctx[7:0][5:0];      // Context (8 bits, 256 contexts)
+isa_state tlb_v[0:0][5:0];        // Valid bit
+
+// TLB data arrays
+isa_state tlb_ppn[23:0][5:0];     // PPN[35:12] (24 bits for 36-bit PA)
+isa_state tlb_c[0:0][5:0];        // Cacheable
+isa_state tlb_m[0:0][5:0];        // Modified (dirty)
+isa_state tlb_r[0:0][5:0];        // Referenced
+isa_state tlb_acc[2:0][5:0];      // Access permissions (from PTE ACC field)
+isa_state tlb_sz[1:0][5:0];       // Page size (00=4KB, 01=256KB, 10=16MB, 11=4GB)
+
+// Access permission encoding (ACC field):
+// 000 = Read only (user: no access, super: read only)
+// 001 = Read/Write (user: no access, super: read/write)
+// 010 = Read/Execute (user: no access, super: read/execute)
+// 011 = Read/Write/Execute (user: no access, super: all)
+// 100 = Execute only (user: no access, super: execute only)
+// 101 = Read only (user: read only, super: read only)
+// 110 = Read/Execute (user: read/execute, super: all)
+// 111 = Read/Write/Execute (user: all, super: all)
+
+// ============================================================================
+// TLB Replacement State (simple round-robin for now)
+// ============================================================================
+isa_state tlb_next_victim[5:0];   // Next entry to replace on TLB fill
+
+// ============================================================================
+// Page Table Entry (PTE) format for reference (from memory):
+// ============================================================================
+// PTE format (32 bits):
+// [31:8]  PPN   - Physical Page Number [35:12]
+// [7]     C     - Cacheable
+// [6]     M     - Modified
+// [5]     R     - Referenced
+// [4:2]   ACC   - Access permissions
+// [1:0]   ET    - Entry Type (must be 2 for PTE)
+//
+// PTD (Page Table Descriptor) format:
+// [31:2]  PTP   - Page Table Pointer (physical address >> 2)
+// [1:0]   ET    - Entry Type (must be 1 for PTD)
+//
+// ET values:
+// 00 = Invalid
+// 01 = PTD (Page Table Descriptor)
+// 10 = PTE (Page Table Entry)
+// 11 = Reserved

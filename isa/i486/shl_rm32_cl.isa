@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SHL r/m32, CL (0xD3 /4 with mod=11)
+// Shift Left Logical by CL bits
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state ECX[31:0] of xregs[1];
+isa_state CL[7:0] of xregs[1][7:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var count[4:0];
+var result[63:0];
+var temp_result[31:0];
+
+// Fetch instruction and ModR/M using offset-based addressing
+instr = imem[eip];
+assume instr == 0xD3;
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is SHL (reg_bits = 100)
+assume reg_bits == 0b100;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read destination value
+dst_val = xregs[rm_bits];
+
+// Get count from CL, masked to 5 bits for 32-bit operands
+count = CL[4:0];
+
+// Perform shift (extended to 64 bits to capture shifted-out bits)
+result = {dst_val, 32'b0} << count;
+
+// Extract final result
+temp_result = result[63:32];
+
+// Write result
+xregs[rm_bits] = temp_result;
+
+// Update flags if count != 0
+// CF = last bit shifted out (bit 31 of result shifted right by (32-count))
+// For non-zero count: CF = bit at position (32 - count) of original value
+flag_CF = count == 0 ? flag_CF : result[31];
+
+// ZF, SF, PF based on result
+flag_ZF = count == 0 ? flag_ZF : (temp_result == 0 ? 1'b1 : 1'b0);
+flag_SF = count == 0 ? flag_SF : temp_result[31];
+flag_PF = count == 0 ? flag_PF : ~(temp_result[0] ^ temp_result[1] ^ temp_result[2] ^ temp_result[3] ^ temp_result[4] ^ temp_result[5] ^ temp_result[6] ^ temp_result[7]);
+
+// OF is defined only for count=1
+flag_OF = count == 1 ? (flag_CF ^ temp_result[31]) : flag_OF;
+
+// Update EIP after all processing
+eip = eip + 2;

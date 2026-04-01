@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MOVCA.L R0,@Rn - Move with Cache Block Allocation
+// Stores R0 to memory at Rn, allocating cache block without read
+// Without cache: Just a regular 32-bit store
+// Encoding: 0000nnnn11000011 (0x0nC3)
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var Rn[31:0];
+var R0[31:0];
+var movca_rn_lo[2:0];
+var movca_rb[0:0];
+var movca_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x0;
+assume instr[7:0] == 0xC3;
+rn = instr[11:8];
+
+// Handle register banking for Rn
+movca_rn_lo = rn[2:0];
+movca_rb = sr[29];  // RB bit (bit 29 in SR)
+movca_rn_bk = (rn[3] == 1'b0) & movca_rb;
+Rn = movca_rn_bk ? rf_bank[movca_rn_lo] : rf[rn];
+
+// R0 is always from bank if RB=1 (R0 is in low bank)
+R0 = movca_rb ? rf_bank[0] : rf[0];
+
+// Store R0 to memory at address Rn
+umem[Rn] = R0;
+
+pc = pc + 2;

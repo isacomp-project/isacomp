@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LODSD (0xAD)
+// Load [ESI] to EAX, adjust ESI by 4 based on DF
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state EAX[31:0] of xregs[0];
+isa_state ESI[31:0] of xregs[6];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_DF[0:0];
+
+var dword_b0[7:0];
+var dword_b1[7:0];
+var dword_b2[7:0];
+var dword_b3[7:0];
+var dword_val[31:0];
+var new_esi[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xAD;
+
+// Load dword from [ESI] (little-endian)
+dword_b0 = dmem[ESI];
+dword_b1 = dmem[ESI + 1];
+dword_b2 = dmem[ESI + 2];
+dword_b3 = dmem[ESI + 3];
+dword_val = {dword_b3, dword_b2, dword_b1, dword_b0};
+
+EAX = dword_val;
+
+// Adjust ESI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 4 : ESI - 4;
+ESI = new_esi;
+
+// LODSD does not affect flags
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

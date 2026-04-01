@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 FABSs instruction (Floating-point Absolute Value Single)
+// Format 3: op=10, op3=110100, opf=000001001
+// FABSs rs2, rd
+// rd <- |rs2| (absolute value by clearing sign bit)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state frf[31:0][4:0];  // FP register file (32 single-precision)
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect delay_slot.isa gates pc, delay_slot;
+
+var rs2[4:0];
+var rd[4:0];
+var value[31:0];
+var result[31:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;         // op = 10 (Format 3)
+assume instr[24:19] == 0b110100;     // op3 = FPop1
+assume instr[13:5] == 0b000001001;   // opf = FABSs
+
+rs2 = instr[4:0];
+rd = instr[29:25];
+
+// Read FP value
+value = frf[rs2];
+
+// Absolute value by clearing sign bit (bit 31)
+result = {1'b0, value[30:0]};
+
+// Write to destination FP register
+frf[rd] = result;
+pc = pc + 4;

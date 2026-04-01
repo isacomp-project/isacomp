@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 HSUB,SS instruction (MAX SIMD)
+// HSUB,SS r1,r2,t - Halfword Subtract Signed Saturating
+// For each of 4 halfwords: t.hw[i] = saturate_s16(r1.hw[i] - r2.hw[i])
+// Opcode: 0x0E (bits 31:26), Sub: 0x05 (bits 12:6)
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var t[4:0];
+var src1[63:0];
+var src2[63:0];
+var res[63:0];
+
+instr = umem[pc_pa];
+
+// HSUB,SS encoding: opcode=0x0E, sub=0x05 (bits 12:6)
+assume instr[31:26] == 0b001110;
+assume instr[12:6] == 0b0000101;
+
+// Extract register fields
+r2 = instr[25:21];
+r1 = instr[20:16];
+t = instr[4:0];
+
+// Read source registers (r0 always reads as 0)
+src1 = (r1 == 0) ? 64'h0 : rf[r1];
+src2 = (r2 == 0) ? 64'h0 : rf[r2];
+
+// Extract halfwords from src1
+var s1_0[15:0]; s1_0 = src1[15:0];
+var s1_1[15:0]; s1_1 = src1[31:16];
+var s1_2[15:0]; s1_2 = src1[47:32];
+var s1_3[15:0]; s1_3 = src1[63:48];
+
+// Extract halfwords from src2
+var s2_0[15:0]; s2_0 = src2[15:0];
+var s2_1[15:0]; s2_1 = src2[31:16];
+var s2_2[15:0]; s2_2 = src2[47:32];
+var s2_3[15:0]; s2_3 = src2[63:48];
+
+// Signed saturating subtract for each halfword
+// Sign-extend to 17 bits, subtract, then clamp to [-32768, 32767]
+var diff_0[16:0]; diff_0 = {s1_0[15], s1_0} - {s2_0[15], s2_0};
+var diff_1[16:0]; diff_1 = {s1_1[15], s1_1} - {s2_1[15], s2_1};
+var diff_2[16:0]; diff_2 = {s1_2[15], s1_2} - {s2_2[15], s2_2};
+var diff_3[16:0]; diff_3 = {s1_3[15], s1_3} - {s2_3[15], s2_3};
+
+// Saturate: if sign bits differ (overflow), clamp
+// Overflow positive -> 0x7FFF, overflow negative -> 0x8000
+var sat_0[15:0]; sat_0 = (diff_0[16] != diff_0[15]) ? (diff_0[16] ? 16'h8000 : 16'h7FFF) : diff_0[15:0];
+var sat_1[15:0]; sat_1 = (diff_1[16] != diff_1[15]) ? (diff_1[16] ? 16'h8000 : 16'h7FFF) : diff_1[15:0];
+var sat_2[15:0]; sat_2 = (diff_2[16] != diff_2[15]) ? (diff_2[16] ? 16'h8000 : 16'h7FFF) : diff_2[15:0];
+var sat_3[15:0]; sat_3 = (diff_3[16] != diff_3[15]) ? (diff_3[16] ? 16'h8000 : 16'h7FFF) : diff_3[15:0];
+
+// Compose result
+res = {sat_3, sat_2, sat_1, sat_0};
+
+// Write result to target (r0 writes are discarded)
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC by 4
+pc = pc + 4;

@@ -1,0 +1,440 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Sv32 Virtual Memory Translation Aspect with Exception Handling
+// This aspect provides address translation for instruction fetch (PC -> pc_pa)
+// Checks execute permission and raises instruction page fault on violation
+
+// Physical address for PC (output of this aspect)
+var pc_pa[31:0];
+
+// Capture original PC value for identity mapping
+// This avoids issues with pc being used both as source and destination
+var original_pc[31:0];
+original_pc = pc;
+
+// Capture original privilege mode for instruction fetch translation
+// This ensures instruction decode uses the state BEFORE any instruction updates
+var original_priv_mode[1:0];
+original_priv_mode = priv_mode;
+
+// Exception handling
+var exception_taken[0:0];      // Exception occurred during translation
+var exception_cause[31:0];      // Exception cause code
+var exception_vaddr[31:0];      // Faulting virtual address
+
+// Privilege mode, SATP, and exception CSRs are declared in the main ISA files
+// that include this aspect. This aspect uses them via the 'gates' clause.
+
+// Memory declarations (needed for page table accesses)
+mem umem[23:0];
+
+// Page table walk variables for INSTRUCTION FETCH (uses original_pc, original_priv_mode)
+var fetch_vpn1[9:0];         // Virtual page number level 1 [31:22] for instruction fetch
+var fetch_vpn0[9:0];         // Virtual page number level 0 [21:12] for instruction fetch
+var fetch_page_offset[11:0];  // Page offset [11:0] for instruction fetch
+var satp_mode[0:0];
+var satp_ppn[21:0];     // Physical page number of root page table
+
+// Level 1 page table walk
+var pte1_addr[31:0];    // Address of level-1 PTE
+var pte1[31:0];   // Level-1 page table entry (32-bit)
+var pte1_v[0:0];       // Valid bit
+var pte1_r[0:0];       // Read bit
+var pte1_w[0:0];       // Write bit
+var pte1_x[0:0];       // Execute bit
+var pte1_u[0:0];       // User mode accessible bit
+var pte1_ppn[21:0];     // Physical page number from PTE1
+
+// Level 0 page table walk
+var pte0_addr[31:0];    // Address of level-0 PTE
+var pte0[31:0];   // Level-0 page table entry (32-bit)
+var pte0_v[0:0];       // Valid bit
+var pte0_x[0:0];       // Execute bit
+var pte0_u[0:0];       // User mode accessible bit
+var pte0_ppn[21:0];     // Physical page number from PTE0
+
+var is_leaf_pte1[0:0]; // Is PTE1 a leaf entry?
+var vm_enabled[0:0];   // Is virtual memory enabled (current priv mode)?
+
+// Final PTE permission bits (from whichever level is the leaf) - for instruction fetch
+var final_pte_v[0:0];
+var final_pte_x[0:0];
+var final_pte_u[0:0];
+
+// Exception CSR handling - M-mode and S-mode trap vectors
+var mtvec_base[31:0];
+var stvec_base[31:0];
+
+// Exception delegation variables
+var delegate_to_smode[0:0];     // Should this exception be delegated to S-mode?
+var delegate_to_mmode[0:0];     // Should this exception go to M-mode? (inverse of delegate_to_smode)
+var medeleg_bit[0:0];           // The medeleg bit for the exception cause
+var trap_target[31:0];          // Final trap target (either mtvec or stvec)
+
+// Read SATP register directly (not from csr[] array)
+satp_mode = satp[31];           // Sv32 mode bit (1 = enabled, 0 = bare)
+satp_ppn = satp[21:0];          // 22-bit PPN for root page table
+
+// Check if we're in M-mode (for current privilege mode - used for exception detection)
+var is_m_mode[0:0];
+is_m_mode = priv_mode[1] & priv_mode[0];  // M-mode is 11 (3)
+
+// Check if we were in M-mode (for original privilege mode - used for instruction fetch)
+var is_m_mode_orig[0:0];
+is_m_mode_orig = original_priv_mode[1] & original_priv_mode[0];
+
+// Note: Privilege mode only changes via mret/sret instructions, not on SATP write
+// The riscv32/zicsr/*.isa files handle mret/sret properly
+
+// Read trap vector registers directly
+mtvec_base = {mtvec[31:2], 2'b00};  // M-mode trap vector base address (aligned to 4 bytes)
+stvec_base = {stvec[31:2], 2'b00};  // S-mode trap vector base address (aligned to 4 bytes)
+
+// Check if virtual memory is enabled for instruction fetch
+// Uses ORIGINAL privilege mode so instruction decode is stable
+var vm_enabled_for_fetch[0:0];
+vm_enabled_for_fetch = satp_mode & ~is_m_mode_orig;
+
+// Check if virtual memory is enabled (for exception detection)
+// Uses CURRENT privilege mode which may have been changed by sret/mret
+vm_enabled = satp_mode & ~is_m_mode;
+
+// =============================================================================
+// INSTRUCTION FETCH TRANSLATION PATH (uses original_pc, original_priv_mode)
+// This path keeps instruction decode stable even when sret/mret updates pc/priv_mode
+// =============================================================================
+
+// PC translation logic - use ORIGINAL pc for instruction fetch translation
+fetch_vpn1 = original_pc[31:22];
+fetch_vpn0 = original_pc[21:12];
+fetch_page_offset = original_pc[11:0];
+
+// Level 1 page table walk for PC
+pte1_addr = (satp_ppn << 12) | (fetch_vpn1 << 2);
+pte1 = vm_enabled_for_fetch ? umem[pte1_addr] : 0;
+
+// Extract PTE fields
+pte1_v = pte1[0];
+pte1_r = pte1[1];
+pte1_w = pte1[2];
+pte1_x = pte1[3];
+pte1_u = pte1[4];
+pte1_ppn = pte1[31:10];
+
+// Check if this is a leaf PTE
+is_leaf_pte1 = pte1_r | pte1_w | pte1_x;
+
+// Level 0 page table walk
+pte0_addr = is_leaf_pte1 ? 0 : ((pte1_ppn << 12) | (fetch_vpn0 << 2));
+pte0 = (vm_enabled_for_fetch & (is_leaf_pte1 == 0)) ? umem[pte0_addr] : 0;
+pte0_v = pte0[0];
+pte0_x = pte0[3];
+pte0_u = pte0[4];
+pte0_ppn = pte0[31:10];
+
+// Final PTE permission bits for instruction fetch
+final_pte_v = pte1_v & (is_leaf_pte1 | pte0_v);
+final_pte_x = pte1_v & (is_leaf_pte1 ? pte1_x : pte0_x);
+final_pte_u = pte1_v & (is_leaf_pte1 ? pte1_u : pte0_u);
+
+// =============================================================================
+// EXCEPTION DETECTION PATH (uses NEW pc, NEW priv_mode after sret/mret)
+// This path detects page faults when sret/mret (or similar) jumps to a bad
+// virtual address using the updated pc/priv_mode, while the main fetch path
+// uses original_pc/original_priv_mode captured before the instruction.
+// =============================================================================
+
+// Exception detection uses the NEW pc value after privilege-mode changes
+var exc_vpn1[9:0];
+var exc_vpn0[9:0];
+var exc_page_offset[11:0];
+
+exc_vpn1 = pc[31:22];
+exc_vpn0 = pc[21:12];
+exc_page_offset = pc[11:0];
+
+// Level 1 page table walk for exception detection
+var exc_pte1_addr[31:0];
+var exc_pte1[31:0];
+var exc_pte1_v[0:0];
+var exc_pte1_r[0:0];
+var exc_pte1_w[0:0];
+var exc_pte1_x[0:0];
+var exc_pte1_u[0:0];
+var exc_pte1_ppn[21:0];
+
+exc_pte1_addr = (satp_ppn << 12) | (exc_vpn1 << 2);
+exc_pte1 = vm_enabled ? umem[exc_pte1_addr] : 0;
+
+exc_pte1_v = exc_pte1[0];
+exc_pte1_r = exc_pte1[1];
+exc_pte1_w = exc_pte1[2];
+exc_pte1_x = exc_pte1[3];
+exc_pte1_u = exc_pte1[4];
+exc_pte1_ppn = exc_pte1[31:10];
+
+var exc_is_leaf_pte1[0:0];
+exc_is_leaf_pte1 = exc_pte1_r | exc_pte1_w | exc_pte1_x;
+
+// Level 0 page table walk for exception detection
+var exc_pte0_addr[31:0];
+var exc_pte0[31:0];
+var exc_pte0_v[0:0];
+var exc_pte0_x[0:0];
+var exc_pte0_u[0:0];
+
+exc_pte0_addr = exc_is_leaf_pte1 ? 0 : ((exc_pte1_ppn << 12) | (exc_vpn0 << 2));
+exc_pte0 = (vm_enabled & (exc_is_leaf_pte1 == 0)) ? umem[exc_pte0_addr] : 0;
+exc_pte0_v = exc_pte0[0];
+exc_pte0_x = exc_pte0[3];
+exc_pte0_u = exc_pte0[4];
+
+// Final exception PTE validity and permissions
+var exc_final_pte_v[0:0];
+var exc_final_pte_x[0:0];
+var exc_final_pte_u[0:0];
+exc_final_pte_v = exc_pte1_v & (exc_is_leaf_pte1 | exc_pte0_v);
+exc_final_pte_x = exc_pte1_v & (exc_is_leaf_pte1 ? exc_pte1_x : exc_pte0_x);
+exc_final_pte_u = exc_pte1_v & (exc_is_leaf_pte1 ? exc_pte1_u : exc_pte0_u);
+
+// Check privilege mode for U-bit permission
+// U-mode (priv_mode == 0) requires U=1 to access a page
+// S-mode (priv_mode == 1) requires U=0 to access a page for instruction fetch
+// (SUM bit only applies to loads/stores, not instruction fetch)
+// NOTE: Only check U-bit when PTE is valid AND has execute permission.
+// If PTE is invalid or non-executable, report that error instead.
+var is_u_mode[0:0];
+var u_bit_violation[0:0];
+is_u_mode = (priv_mode == 0);
+// U-mode trying to access S-mode page (U=0) OR S-mode trying to access U-mode page (U=1)
+// Only check when PTE is valid and executable
+u_bit_violation = exc_final_pte_v & exc_final_pte_x &
+                  ((is_u_mode & (exc_final_pte_u == 0)) | ((is_u_mode == 0) & exc_final_pte_u));
+
+// Permission checking for instruction fetch
+// Exception conditions:
+// 1. VM is enabled AND (PTE is invalid OR no execute permission OR U-bit violation)
+exception_taken = vm_enabled & ((exc_final_pte_v == 0) | (exc_final_pte_x == 0) | u_bit_violation);
+exception_cause = 12;  // Instruction page fault (RISC-V cause code 12)
+exception_vaddr = pc;  // Faulting virtual address
+
+// Check if exception should be delegated to S-mode
+medeleg_bit = medeleg[12];  // Bit 12 for instruction page fault
+delegate_to_smode = medeleg_bit & ~is_m_mode;
+delegate_to_mmode = (delegate_to_smode == 0);
+
+// Choose trap target based on delegation
+trap_target = delegate_to_smode ? stvec_base : mtvec_base;
+
+// Use intermediate variable to prevent ISA compiler value-merge bug.
+// Without this, the compiler merges sepc/mepc writes from mmu.isa with
+// identical-value writes from mmu_load.isa/mmu_store.isa, losing the
+// standalone exception_taken condition. This causes sepc/mepc to not be
+// set when fetching from an unmapped address (no instruction decoded).
+var exc_saved_pc[31:0];
+exc_saved_pc = pc;
+
+// Write exception information to M-mode CSRs (when NOT delegating)
+mepc when (exception_taken & delegate_to_mmode) = exc_saved_pc;
+mcause when (exception_taken & delegate_to_mmode) = exception_cause;
+mtval when (exception_taken & delegate_to_mmode) = exception_vaddr;
+
+// Save mstatus when trapping to M-mode: MPIE=MIE, MIE=0, MPP=priv_mode
+var exc_new_mstatus[31:0];
+exc_new_mstatus = (mstatus & 32'hFFFFE677) |           // Clear MPP(12:11), MPIE(7), MIE(3)
+                  ({31'b0, mstatus[3]} << 7) |          // MPIE = old MIE
+                  (priv_mode << 11);                    // MPP = old priv_mode
+mstatus when (exception_taken & delegate_to_mmode) = exc_new_mstatus;
+
+// Write exception information to S-mode CSRs (when delegating)
+sepc when (exception_taken & delegate_to_smode) = exc_saved_pc;
+scause when (exception_taken & delegate_to_smode) = exception_cause;
+stval when (exception_taken & delegate_to_smode) = exception_vaddr;
+
+// Save sstatus when trapping to S-mode: SPIE=SIE, SIE=0, SPP=priv_mode[0]
+var exc_new_sstatus[31:0];
+exc_new_sstatus = (sstatus & 32'hFFFFFEDD) |            // Clear SPP(8), SPIE(5), SIE(1)
+                  ({31'b0, sstatus[1]} << 5) |           // SPIE = old SIE
+                  ({31'b0, priv_mode[0]} << 8);          // SPP = old priv_mode[0]
+sstatus when (exception_taken & delegate_to_smode) = exc_new_sstatus;
+
+// Redirect PC to trap handler when exception occurs
+pc when (exception_taken) = trap_target;
+
+// Compute exception target privilege mode
+// delegate_to_smode = 1 -> enter S-mode (1)
+// delegate_to_smode = 0 -> enter M-mode (3)
+var exception_priv[1:0];
+exception_priv = delegate_to_smode ? 2'b01 : 2'b11;
+
+// Set privilege mode on exception (single write to match PC update pattern)
+priv_mode when (exception_taken) = exception_priv;
+
+// =============================================================================
+// A-BIT MANAGEMENT (for instruction fetch path only)
+// =============================================================================
+
+var pte1_with_a[31:0];
+var pte0_with_a[31:0];
+var access_successful[0:0];
+var pte1_needs_a_update[0:0];
+var pte0_needs_a_update[0:0];
+
+pte1_with_a = pte1 | 32'h40;
+pte0_with_a = pte0 | 32'h40;
+
+// Access is successful if VM is enabled for fetch and no exception occurred
+access_successful = vm_enabled_for_fetch & ~exception_taken;
+
+pte1_needs_a_update = access_successful & is_leaf_pte1 & ~pte1[6];
+pte0_needs_a_update = access_successful & ~is_leaf_pte1 & ~pte0[6];
+
+umem[pte1_addr] when (pte1_needs_a_update) = pte1_with_a;
+umem[pte0_addr] when (pte0_needs_a_update) = pte0_with_a;
+
+// =============================================================================
+// PHYSICAL ADDRESS COMPUTATION (for instruction fetch)
+// =============================================================================
+
+var pc_translated[31:0];
+pc_translated = is_leaf_pte1 ?
+    {pte1_ppn[21:10], fetch_vpn0, fetch_page_offset} :
+    {pte0_ppn, fetch_page_offset};
+
+// pc_vm_result for instruction fetch (uses original_pc translation)
+var pc_vm_result[31:0];
+pc_vm_result = vm_enabled_for_fetch ? pc_translated : original_pc;
+
+// =========================================================================
+// Timer Interrupt Handling (M-mode and S-mode)
+// =========================================================================
+// External timer state from CLINT (declared here for consistent arch state splitting)
+ext isa_state mtime_lo[31:0];        // time CSR low bits (0xC01)
+ext isa_state mtime_hi[31:0];        // timeh CSR high bits (0xC81)
+// stimecmp/stimecmph are internal CSR registers (writable), declared in base instruction files
+isa_state stimecmp[31:0];            // Supervisor Time Compare (0x14D) - sstc extension
+isa_state stimecmph[31:0];           // Supervisor Time Compare High (0x15D) - sstc extension
+isa_state sstatus[31:0];             // Supervisor Status (0x100) - SIE bit used for S-mode interrupts
+
+// Compute STIP continuously (sstc extension)
+// STIP is set when mtime >= stimecmp
+var mtime_full[63:0];
+var stimecmp_full[63:0];
+var stip[0:0];
+
+mtime_full = {mtime_hi, mtime_lo};
+stimecmp_full = {stimecmph, stimecmp};
+stip = (mtime_full >= stimecmp_full) ? 1'b1 : 1'b0;
+
+// M-mode timer interrupt handling
+var take_m_timer_int[0:0];
+
+// Check if M-mode timer interrupt is enabled
+// mie[7] = MTIE (Machine Timer Interrupt Enable)
+// mstatus[3] = MIE (Machine global Interrupt Enable)
+// M-mode interrupts can always preempt S-mode/U-mode (if mie[7] is set)
+// M-mode interrupts can only preempt M-mode if mstatus[3] is also set
+var m_timer_can_interrupt[0:0];
+m_timer_can_interrupt = mie[7] & (~is_m_mode | mstatus[3]);
+
+// Take M-mode timer interrupt if: no exception, pending (from CLINT), enabled
+// M-mode timer interrupts use timer_irq_pending from CLINT (mtimecmp comparison)
+// This can preempt S-mode execution to let OpenSBI handle timer and forward to S-mode
+take_m_timer_int = (~exception_taken) & timer_irq_pending & m_timer_can_interrupt;
+
+// M-mode timer interrupt cause: bit 31 = interrupt (not exception), cause = 7
+var m_timer_int_cause[31:0];
+m_timer_int_cause = 32'h80000007;
+
+// Save context when taking M-mode timer interrupt
+mepc when (take_m_timer_int) = original_pc;
+mcause when (take_m_timer_int) = m_timer_int_cause;
+
+// Update mstatus when taking M-mode interrupt:
+// - Save MIE to MPIE (bit 7)
+// - Clear MIE (bit 3)
+// - Save priv_mode to MPP (bits 12:11)
+var new_mstatus_m_int[31:0];
+new_mstatus_m_int = (mstatus & 32'hFFFFE777) |           // Clear MPIE(7), MIE(3), MPP(12:11)
+                  ((mstatus[3]) << 7) |                 // MPIE = old MIE
+                  (priv_mode << 11);                    // MPP = old priv_mode
+mstatus when (take_m_timer_int) = new_mstatus_m_int;
+
+// Set privilege mode to M-mode for M-mode timer interrupt
+priv_mode when (take_m_timer_int) = 2'b11;
+
+// Redirect PC to mtvec for M-mode timer interrupt
+pc when (take_m_timer_int) = mtvec_base;
+
+// =========================================================================
+// S-mode Timer Interrupt Handling (sstc extension)
+// =========================================================================
+// S-mode timer interrupt uses stip (computed above from stimecmp)
+var s_timer_int_enabled[0:0];
+var take_s_timer_int[0:0];
+var is_s_mode[0:0];
+
+// Check if we're in S-mode (priv_mode = 01)
+is_s_mode = (~priv_mode[1]) & priv_mode[0];
+
+// Check if S-mode timer interrupt is enabled
+// mie[5] = STIE (S-mode Timer Interrupt Enable)
+// sstatus[1] = SIE (S-mode global Interrupt Enable) - only checked when in S-mode
+// When in U-mode, S-mode interrupts are always enabled
+// NOTE: We use sstatus[1] (not mstatus[1]) because sstatus is a separate register
+// in our implementation, and S-mode software writes to sstatus.SIE directly.
+var sie_effective[0:0];
+sie_effective = is_s_mode ? sstatus[1] : 1'b1;  // SIE matters only in S-mode
+
+s_timer_int_enabled = mie[5] & sie_effective;
+
+// Take S-mode timer interrupt if:
+// - No exception or M-mode timer interrupt
+// - STIP is set (stip computed above)
+// - S-mode timer interrupt enabled
+// - Not in M-mode (S-mode interrupts don't affect M-mode)
+take_s_timer_int = (~exception_taken) & (~take_m_timer_int) & stip & s_timer_int_enabled & (~is_m_mode);
+
+// S-mode timer interrupt cause: bit 31 = interrupt, cause = 5
+var s_timer_int_cause[31:0];
+s_timer_int_cause = 32'h80000005;
+
+// Save context when taking S-mode timer interrupt
+sepc when (take_s_timer_int) = original_pc;
+scause when (take_s_timer_int) = s_timer_int_cause;
+
+// Update sstatus when taking S-mode interrupt:
+// - Save SIE to SPIE (bit 5)
+// - Clear SIE (bit 1)
+// - Save priv_mode[0] to SPP (bit 8) - 0 for U-mode, 1 for S-mode
+var new_sstatus_s_int[31:0];
+new_sstatus_s_int = (sstatus & 32'hFFFFFEDD) |           // Clear SPIE(5), SIE(1), SPP(8)
+                  ((sstatus[1]) << 5) |                  // SPIE = old SIE
+                  (priv_mode[0] << 8);                   // SPP = old priv_mode[0]
+sstatus when (take_s_timer_int) = new_sstatus_s_int;
+
+// Set privilege mode to S-mode for S-mode timer interrupt
+priv_mode when (take_s_timer_int) = 2'b01;
+
+// Redirect PC to stvec for S-mode timer interrupt
+pc when (take_s_timer_int) = stvec_base;
+
+// =========================================================================
+// Combined trap signal for gating instruction side effects
+// =========================================================================
+// Per RISC-V spec, when an interrupt is taken, the interrupted instruction
+// must NOT complete (sepc = current PC, instruction re-executes on xRET).
+// When an exception is taken, the instruction also must not complete.
+// This signal gates rf writes and memory writes in instruction files.
+var instr_trap_taken[0:0];
+instr_trap_taken = exception_taken | take_m_timer_int | take_s_timer_int;
+
+// =========================================================================
+// Final PC physical address calculation
+// =========================================================================
+// NOTE: Always use pc_vm_result, never trap_target directly!
+// trap_target is a virtual address that needs translation. When an exception
+// or interrupt is taken, the CSR writes (mepc/sepc/etc.) are gated on the
+// exception/interrupt condition, and the pc register is updated to trap_target
+// at the clock edge. On the next cycle, that new pc gets translated through
+// the page tables normally.
+pc_pa = pc_vm_result;

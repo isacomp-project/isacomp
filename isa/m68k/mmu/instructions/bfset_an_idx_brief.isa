@@ -1,0 +1,152 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 BFSET (d8,An,Xn){Dn:width} - Set Bit Field at brief indexed address
+// Opcode: 1110 1110 11 110 AAA followed by bit field ext word + brief ext word
+// Handles register offset (Do=1) with immediate width (Dw=0)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_reg[2:0];
+var bfix_bfext[15:0];
+var bfix_off_reg[2:0];
+var bfix_wf[4:0];
+var bfix_width[5:0];
+var bfix_bitoff[31:0];
+var bfix_byteoff[31:0];
+var bfix_ext[15:0];
+var bfix_idx_is_areg[0:0];
+var idx_reg[2:0];
+var bfix_idx_is_long[0:0];
+var bfix_scale[1:0];
+var bfix_disp8[7:0];
+var bfix_disp_ext[31:0];
+var bfix_idx_raw[31:0];
+var bfix_idx_val[31:0];
+var bfix_scaled_idx[31:0];
+var bfix_base[31:0];
+var bfix_eff[31:0];
+var bfix_waddr[31:0];
+var bfix_biw[3:0];
+var bfix_mem[15:0];
+var bfix_mask[15:0];
+var bfix_result[15:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b1110111011;  // BFSET
+assume instr[5:3] == 0b110;          // EA mode: indexed
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_reg = instr[2:0];
+
+// Fetch bit field extension word
+bfix_bfext = dmem[pc + pc_pa_delta];
+assume bfix_bfext[11] == 0b1;   // Offset is register (Do=1)
+assume bfix_bfext[5] == 0b0;    // Width is immediate (Dw=0)
+pc when (~m68k_exc_taken) = pc + 2;
+
+bfix_off_reg = bfix_bfext[8:6];
+bfix_wf = bfix_bfext[4:0];
+bfix_width = bfix_wf == 0 ? 6'd32 : {{1{1'b0}}, bfix_wf};
+
+// Fetch brief extension word for indexed addressing
+bfix_ext = dmem[pc + pc_pa_delta];
+assume bfix_ext[8] == 0b0;  // Brief format
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode brief extension word
+bfix_idx_is_areg = bfix_ext[15];
+idx_reg = bfix_ext[14:12];
+bfix_idx_is_long = bfix_ext[11];
+bfix_scale = bfix_ext[10:9];
+bfix_disp8 = bfix_ext[7:0];
+
+// Sign-extend displacement
+bfix_disp_ext = {{24{bfix_disp8[7]}}, bfix_disp8};
+
+// Get index value
+bfix_idx_raw = bfix_idx_is_areg ? aregs[idx_reg] : dregs[idx_reg];
+bfix_idx_val = bfix_idx_is_long ? bfix_idx_raw : (bfix_idx_raw[15] ? {16'hFFFF, bfix_idx_raw[15:0]} : {16'h0000, bfix_idx_raw[15:0]});
+
+// Apply scale factor
+bfix_scaled_idx = bfix_scale == 0 ? bfix_idx_val :
+                  bfix_scale == 1 ? (bfix_idx_val << 1) :
+                  bfix_scale == 2 ? (bfix_idx_val << 2) :
+                                    (bfix_idx_val << 3);
+
+// Calculate base effective address using indexed mode
+bfix_base = aregs[ea_reg] + bfix_disp_ext + bfix_scaled_idx;
+
+// Get bit offset from register (full 32-bit signed)
+bfix_bitoff = dregs[bfix_off_reg];
+
+// Calculate byte address: base + bit_offset/8 (arithmetic shift right by 3)
+bfix_byteoff = {bfix_bitoff[31], bfix_bitoff[31], bfix_bitoff[31], bfix_bitoff[31:3]};
+bfix_eff = bfix_base + bfix_byteoff;
+
+// Align to word boundary and find bit within word
+bfix_waddr = {bfix_eff[31:1], 1'b0};
+bfix_biw = {bfix_eff[0], bfix_bitoff[2:0]};
+
+// Read the word
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = bfix_waddr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+bfix_mem = dmem[ea_pa];
+#else
+bfix_mem = dmem[bfix_waddr];
+#endif
+
+// Set single bit (bit_in_word counts from MSB, big-endian bit numbering)
+bfix_mask = 16'h8000 >> bfix_biw;
+bfix_result = bfix_mem | bfix_mask;
+
+// Write back
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = bfix_result;
+#else
+dmem[bfix_waddr] when (~m68k_exc_taken & ~data_exc_taken) = bfix_result;
+#endif
+
+// Update CCR based on original bit value
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = ~((bfix_mem >> (4'hF - bfix_biw)) & 16'h0001);
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

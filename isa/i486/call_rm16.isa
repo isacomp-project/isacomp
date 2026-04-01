@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 CALL r/m16 (0xFF /2) - Real mode (16-bit default)
+// Near call to address in r/m16
+// Pushes return address onto stack
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];
+isa_state DS[15:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var src_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var is_mem_src[0:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+var src_mem_val[15:0];
+var src_reg_val[15:0];
+var target_addr[15:0];
+var return_addr[15:0];
+var new_sp[15:0];
+var stack_addr_lo[19:0];
+var stack_addr_hi[19:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xFF;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Check that reg field is 2 (CALL near)
+assume reg_bits == 0b010;
+
+src_reg_idx = rm_bits;
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+base_offset = xregs[addr_reg_idx][15:0];
+
+disp8 = imem[eip + 2];
+disp16_lo = imem[eip + 2];
+disp16_hi = imem[eip + 3];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+case (mod_bits) {
+  0b00: is_mem_src = 1'b1;
+  0b01: is_mem_src = 1'b1;
+  0b10: is_mem_src = 1'b1;
+  0b11: is_mem_src = 1'b0;
+}
+
+// Calculate return address after instruction (no prefix, so 1 less)
+var instr_length[15:0];
+case (mod_bits) {
+  0b00: instr_length = 16'h0002;
+  0b01: instr_length = 16'h0003;
+  0b10: instr_length = 16'h0004;
+  0b11: instr_length = 16'h0002;
+}
+
+physical_addr_lo = (DS << 4) + offset;
+physical_addr_hi = (DS << 4) + offset + 16'h0001;
+
+var src_mem_val_lo[7:0];
+var src_mem_val_hi[7:0];
+src_mem_val_lo = dmem[physical_addr_lo];
+src_mem_val_hi = dmem[physical_addr_hi];
+src_mem_val = {src_mem_val_hi, src_mem_val_lo};
+src_reg_val = xregs[src_reg_idx][15:0];
+
+case (is_mem_src) {
+  1'b1: target_addr = src_mem_val;
+  1'b0: target_addr = src_reg_val;
+}
+
+// Save return address (16-bit only for real mode)
+return_addr = eip[15:0] + instr_length;
+
+// Decrement SP by 2 (word size in real mode)
+new_sp = xregs[4][15:0] - 16'h0002;
+xregs[4] = {xregs[4][31:16], new_sp};
+
+// Calculate physical stack addresses using SS:SP
+stack_addr_lo = (SS << 4) + {4'h0, new_sp};
+stack_addr_hi = (SS << 4) + {4'h0, new_sp} + 20'h00001;
+
+// Write return address to stack (little-endian, 16-bit)
+dmem[stack_addr_lo] = return_addr[7:0];
+dmem[stack_addr_hi] = return_addr[15:8];
+
+// Jump to target (only update lower 16 bits of EIP)
+eip = {eip[31:16], target_addr};

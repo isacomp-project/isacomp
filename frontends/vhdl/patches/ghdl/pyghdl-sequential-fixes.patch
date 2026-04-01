@@ -1,0 +1,62 @@
+diff --git a/pyGHDL/dom/Sequential.py b/pyGHDL/dom/Sequential.py
+index 2c5ece296..af1290e74 100644
+--- a/pyGHDL/dom/Sequential.py
++++ b/pyGHDL/dom/Sequential.py
+@@ -54,6 +54,7 @@ from pyVHDLModel.Sequential import SequentialProcedureCall as VHDLModel_Sequenti
+ from pyVHDLModel.Sequential import SequentialSimpleSignalAssignment as VHDLModel_SequentialSimpleSignalAssignment
+ from pyVHDLModel.Sequential import SequentialReportStatement as VHDLModel_SequentialReportStatement
+ from pyVHDLModel.Sequential import SequentialAssertStatement as VHDLModel_SequentialAssertStatement
++from pyVHDLModel.Sequential import SequentialVariableAssignment
+ 
+ from pyGHDL.libghdl import Iir, utils
+ from pyGHDL.libghdl.vhdl import nodes
+@@ -62,6 +63,25 @@ from pyGHDL.dom.Range import Range
+ from pyGHDL.dom.Concurrent import WaveformElement, ParameterAssociationItem  # TODO: move out from concurrent?
+ 
+ 
++# ISAComp patch: Add SequentialSimpleVariableAssignment class
++class SequentialSimpleVariableAssignment(SequentialVariableAssignment):
++    def __init__(self, target, expression):
++        super().__init__()
++        self.Target = target
++        self.BaseExpression = expression
++
++    @classmethod
++    def parse(cls, assignmentNode: Iir) -> "SequentialSimpleVariableAssignment":
++        from pyGHDL.dom._Translate import GetName, GetExpressionFromNode
++
++        target = nodes.Get_Target(assignmentNode)
++        targetName = GetName(target)
++
++        expression = GetExpressionFromNode(nodes.Get_Expression(assignmentNode))
++
++        return cls(targetName, expression)
++
++
+ @export
+ class IfBranch(VHDLModel_IfBranch, DOMMixin):
+     def __init__(
+@@ -294,7 +314,9 @@ class CaseStatement(VHDLModel_CaseStatement, DOMMixin):
+                     continue
+             elif choiceKind is nodes.Iir_Kind.Choice_By_Others:
+                 if choices is not None:
+-                    cases.append(Case.parse(alternative, choices, label))
++                    # ISAComp bugfix: Use cNode instead of alternative
++                    # alternative points to the 'others' clause, but we need the previous case's node
++                    cases.append(Case.parse(cNode, choices, label))
+                     choices = None
+                 cases.append(OthersCase.parse(alternative, label))
+                 alternative = nodes.Get_Chain(alternative)
+@@ -387,7 +409,11 @@ class SequentialSimpleSignalAssignment(VHDLModel_SequentialSimpleSignalAssignmen
+ 
+         waveform = []
+         for wave in utils.chain_iter(nodes.Get_Waveform_Chain(assignmentNode)):
+-            waveform.append(WaveformElement.parse(wave))
++            # ISAComp patch: Skip waveform elements that fail to parse
++            # This handles incomplete expression trees gracefully
++            element = WaveformElement.parse(wave)
++            if element is not None:
++                waveform.append(element)
+ 
+         return cls(assignmentNode, targetName, waveform, label)
+ 

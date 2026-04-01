@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 TAY (0xA8) - Transfer Accumulator to Y
+// Copies the value in Accumulator (A) to the Y register
+// Sets N flag if bit 7 of result is set (negative)
+// Sets Z flag if result is zero
+// Instruction format: TAY (1 byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state Y[7:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state mainmem[7:0][15:0];
+
+instr = mainmem[pc];
+assume instr == 0xA8;
+pc = pc + 1;
+
+Y = A;
+flag_N = A[7];
+flag_Z = A == 0 ? 1'b1 : 1'b0;

@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[13:0];
+
+var ra[4:0];
+var rb[4:0];
+var rc[4:0];
+var Ra[63:0];
+var Rb[63:0];
+var Rc[63:0];
+var imm_flag[0:0];
+var imm_value[63:0];
+var Rb_or_imm[63:0];
+
+instr = umem[pc];
+assume instr[31:26] == 16;
+assume instr[11:5] == 15;
+ra = instr[25:21];
+Ra = rf[ra];
+rb = instr[20:16];
+Rb = rf[rb];
+rc = instr[4:0];
+Rc = rf[rc];
+imm_flag = instr[12];
+imm_value = {{56{1'b0}}, instr[20:13]};
+Rb_or_imm = (imm_flag == 1) ? imm_value : Rb;
+
+var cmp0[0:0]; var cmp1[0:0]; var cmp2[0:0]; var cmp3[0:0];
+var cmp4[0:0]; var cmp5[0:0]; var cmp6[0:0]; var cmp7[0:0];
+cmp0 = (Ra[7:0] >= Rb_or_imm[7:0]);
+cmp1 = (Ra[15:8] >= Rb_or_imm[15:8]);
+cmp2 = (Ra[23:16] >= Rb_or_imm[23:16]);
+cmp3 = (Ra[31:24] >= Rb_or_imm[31:24]);
+cmp4 = (Ra[39:32] >= Rb_or_imm[39:32]);
+cmp5 = (Ra[47:40] >= Rb_or_imm[47:40]);
+cmp6 = (Ra[55:48] >= Rb_or_imm[55:48]);
+cmp7 = (Ra[63:56] >= Rb_or_imm[63:56]);
+rf[rc] when (rc != 31) = {56'b0, cmp7, cmp6, cmp5, cmp4, cmp3, cmp2, cmp1, cmp0};
+pc = pc + 4;

@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var c_instr[15:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var r1[31:0];
+var jump_dest[31:0];
+var ret_addr[31:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.JALR format: CR-type
+// Encoding: 1001 rs1 00000 10
+assume c_instr[1:0] == 0b10;
+assume c_instr[15:12] == 0b1001;
+assume c_instr[11:7] != 0;
+assume c_instr[6:2] == 0;
+
+rs1 = c_instr[11:7];
+
+r1 = rf[rs1];
+
+ret_addr = pc + 2;
+jump_dest = r1;
+
+// Link to x1 (ra)
+rf[5'b00001] = ret_addr;
+pc = jump_dest;

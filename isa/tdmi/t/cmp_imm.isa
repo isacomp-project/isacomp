@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Thumb CMP (immediate) - Compare register with 8-bit immediate
+// Encoding: 001|01|Rn|imm8 (Format 3)
+// CMP Rn, #imm8
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+mem umem[13:0];
+
+var rn[2:0];
+var imm8[7:0];
+var Rn_val[31:0];
+var imm_val[31:0];
+var result[31:0];
+
+var new_n[0:0];
+var new_z[0:0];
+var new_c[0:0];
+var new_v[0:0];
+var new_cpsr[31:0];
+
+instr = umem[pc];
+
+assume instr[15:11] == 0b00101;
+
+rn = instr[10:8];
+imm8 = instr[7:0];
+
+Rn_val = rf[{1'b0, rn}];
+imm_val = {24'b0, imm8};
+
+result = Rn_val - imm_val;
+
+new_n = result[31];
+new_z = (result == 0);
+new_c = (Rn_val >= imm_val);
+new_v = ((Rn_val[31] != imm_val[31]) & (result[31] != Rn_val[31]));
+
+new_cpsr = {new_n, new_z, new_c, new_v, cpsr[27:0]};
+
+cpsr = new_cpsr;
+pc = pc + 2;

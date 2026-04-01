@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 BRK - Break (0x00)
+// Software interrupt
+// Pushes PC+2, then status register (with B flag set) to stack
+// Sets I flag
+// Jumps to IRQ handler at address stored in 0xFFFE:0xFFFF
+// Instruction format: BRK (2 bytes: opcode + signature byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state S[7:0];
+isa_state flag_N[0:0];
+isa_state flag_V[0:0];
+isa_state flag_D[0:0];
+isa_state flag_I[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_C[0:0];
+isa_state mainmem[7:0][15:0];
+
+var return_addr[15:0];
+var status[7:0];
+var irq_vec_lo[7:0];
+var irq_vec_hi[7:0];
+var irq_addr[15:0];
+var new_S[7:0];
+var S_minus_1[7:0];
+var S_minus_2[7:0];
+var stack_addr_hi[15:0];
+var stack_addr_mid[15:0];
+var stack_addr_lo[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x00;
+pc = pc + 1;
+// BRK has a signature/padding byte
+pc = pc + 1;
+
+// Calculate return address (current PC which is already PC+2)
+return_addr = pc;
+
+// Push return address to stack (high byte first)
+new_S = S;
+stack_addr_hi = {8'h01, new_S};
+mainmem[stack_addr_hi] = return_addr[15:8];
+
+S_minus_1 = new_S - 1;
+stack_addr_mid = {8'h01, S_minus_1[7:0]};
+mainmem[stack_addr_mid] = return_addr[7:0];
+
+// Build status register with B flag set
+status = {flag_N, flag_V, 1'b1, 1'b1, flag_D, flag_I, flag_Z, flag_C};
+
+// Push status to stack
+S_minus_2 = S_minus_1 - 1;
+stack_addr_lo = {8'h01, S_minus_2[7:0]};
+mainmem[stack_addr_lo] = status;
+
+// Update stack pointer (S-3 because we pushed 3 bytes)
+var S_minus_3[7:0];
+S_minus_3 = S_minus_2 - 1;
+S = S_minus_3[7:0];
+
+// Set I flag (disable interrupts)
+flag_I = 1'b1;
+
+// Read IRQ vector from 0xFFFE:0xFFFF
+irq_vec_lo = mainmem[16'hFFFE];
+irq_vec_hi = mainmem[16'hFFFF];
+irq_addr = {irq_vec_hi, irq_vec_lo};
+
+// Jump to IRQ handler
+pc = irq_addr;

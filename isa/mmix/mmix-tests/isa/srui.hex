@@ -1,0 +1,21 @@
+// MMIX SRUI (Shift Right Unsigned Immediate) instruction test
+// Test: SRU $2,$1,2 where $1=12, expect $2=3 (12>>2)
+
+// Address 0x00: SETL $1, 12      (E3 01 00 0C)
+E301000C
+// Address 0x04: SRUI $2,$1,2     (3F 02 01 02) - $2 = $1 >> 2
+3F020102
+// Address 0x08: SETL $3, 3       (E3 03 00 03) - expected result
+E3030003
+// Address 0x0C: SUB $4,$2,$3     (24 04 02 03)
+24040203
+// Address 0x10: BZ $4, +2        (42 04 00 02)
+42040002
+// Address 0x14: JMP +2           (F0 00 00 02)
+F0000002
+// Address 0x18: JMP +1           (F0 00 00 01)
+F0000001
+// Address 0x1C: pass
+F0000000
+// Address 0x20: fail
+F0000000

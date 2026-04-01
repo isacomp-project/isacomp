@@ -1,0 +1,277 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 TLB Lookup Aspect for Instruction Fetch using CAM
+// This aspect provides address translation for instruction fetch (PC -> pc_pa)
+// Uses a software-managed TLB with 32 entries implemented as Content-Addressable Memory
+// Generates TLB Refill or TLB Invalid exceptions on miss/invalid
+
+// Physical address for PC (output of this aspect)
+var pc_pa[31:0];
+
+// Capture original PC value for identity mapping
+var original_pc[31:0];
+original_pc = pc;
+
+// Exception handling
+var exception_taken[0:0];
+var exception_code[4:0];
+
+// Memory declaration for page table accesses
+mem umem[17:0];
+
+// ============================================================================
+// TLB Structure using CAM
+// ============================================================================
+// 32-entry fully associative TLB
+// VPN2 is the tag for associative lookup
+// ASID, Global, and other fields are parallel arrays
+
+isa_state cam tlb_vpn2[18:0]@[4:0][];    // VPN2 tags, 32 entries fully associative
+isa_state tlb_asid[7:0][4:0];             // ASID per entry
+isa_state tlb_hi[31:0][4:0];              // EntryHi per entry (for CP0 TLBR compatibility)
+isa_state tlb_lo0[31:0][4:0];             // EntryLo0 per entry
+isa_state tlb_lo1[31:0][4:0];             // EntryLo1 per entry
+
+// Separate arrays for TLB lookup (to avoid mux conflicts between aspects)
+isa_state tlb_g[0:0][4:0];                // Global bit per entry (G0 & G1)
+isa_state tlb_pfn0[19:0][4:0];            // PFN for even page
+isa_state tlb_pfn1[19:0][4:0];            // PFN for odd page
+isa_state tlb_v0[0:0][4:0];               // Valid bit for even page
+isa_state tlb_v1[0:0][4:0];               // Valid bit for odd page
+isa_state tlb_d0[0:0][4:0];               // Dirty bit for even page
+isa_state tlb_d1[0:0][4:0];               // Dirty bit for odd page
+
+// CP0 Registers
+isa_state cp0_index[31:0];
+isa_state cp0_random[31:0];
+isa_state cp0_entrylo0[31:0];
+isa_state cp0_entrylo1[31:0];
+isa_state cp0_context[31:0];
+isa_state cp0_wired[31:0];
+isa_state cp0_badvaddr[31:0];
+isa_state cp0_count[31:0];
+isa_state cp0_entryhi[31:0];
+isa_state cp0_compare[31:0];
+isa_state cp0_status[31:0];
+isa_state cp0_cause[31:0];
+isa_state cp0_epc[31:0];
+isa_state cp0_prid[31:0];
+isa_state cp0_config[31:0];
+isa_state cp0_errorepc[31:0];
+
+// HI/LO registers
+isa_state hi[31:0];
+isa_state lo[31:0];
+
+// LL/SC reservation
+isa_state llbit[0:0];
+isa_state lladdr[31:0];
+
+// ============================================================================
+// Address Decomposition
+// ============================================================================
+var pc_vpn2[18:0];
+var pc_odd_page[0:0];
+var pc_offset[11:0];
+
+pc_vpn2 = pc[31:13];
+pc_odd_page = pc[12];
+pc_offset = pc[11:0];
+
+var current_asid[7:0];
+current_asid = cp0_entryhi[7:0];
+
+// ============================================================================
+// CAM Lookup - VPN2 Matching
+// ============================================================================
+// Get bitmask of entries with matching VPN2
+var vpn2_matches[31:0];
+vpn2_matches = tlb_vpn2@[pc_vpn2];
+
+// ============================================================================
+// ASID/Global Filtering - Use precomputed tlb_g array
+// ============================================================================
+// For each entry: match if Global OR (ASID == current_asid)
+var g_0[0:0]; var g_1[0:0]; var g_2[0:0]; var g_3[0:0];
+var g_4[0:0]; var g_5[0:0]; var g_6[0:0]; var g_7[0:0];
+var g_8[0:0]; var g_9[0:0]; var g_10[0:0]; var g_11[0:0];
+var g_12[0:0]; var g_13[0:0]; var g_14[0:0]; var g_15[0:0];
+var g_16[0:0]; var g_17[0:0]; var g_18[0:0]; var g_19[0:0];
+var g_20[0:0]; var g_21[0:0]; var g_22[0:0]; var g_23[0:0];
+var g_24[0:0]; var g_25[0:0]; var g_26[0:0]; var g_27[0:0];
+var g_28[0:0]; var g_29[0:0]; var g_30[0:0]; var g_31[0:0];
+
+g_0 = tlb_g[0]; g_1 = tlb_g[1]; g_2 = tlb_g[2]; g_3 = tlb_g[3];
+g_4 = tlb_g[4]; g_5 = tlb_g[5]; g_6 = tlb_g[6]; g_7 = tlb_g[7];
+g_8 = tlb_g[8]; g_9 = tlb_g[9]; g_10 = tlb_g[10]; g_11 = tlb_g[11];
+g_12 = tlb_g[12]; g_13 = tlb_g[13]; g_14 = tlb_g[14]; g_15 = tlb_g[15];
+g_16 = tlb_g[16]; g_17 = tlb_g[17]; g_18 = tlb_g[18]; g_19 = tlb_g[19];
+g_20 = tlb_g[20]; g_21 = tlb_g[21]; g_22 = tlb_g[22]; g_23 = tlb_g[23];
+g_24 = tlb_g[24]; g_25 = tlb_g[25]; g_26 = tlb_g[26]; g_27 = tlb_g[27];
+g_28 = tlb_g[28]; g_29 = tlb_g[29]; g_30 = tlb_g[30]; g_31 = tlb_g[31];
+
+// ASID match or Global for each entry
+var ag_0[0:0]; var ag_1[0:0]; var ag_2[0:0]; var ag_3[0:0];
+var ag_4[0:0]; var ag_5[0:0]; var ag_6[0:0]; var ag_7[0:0];
+var ag_8[0:0]; var ag_9[0:0]; var ag_10[0:0]; var ag_11[0:0];
+var ag_12[0:0]; var ag_13[0:0]; var ag_14[0:0]; var ag_15[0:0];
+var ag_16[0:0]; var ag_17[0:0]; var ag_18[0:0]; var ag_19[0:0];
+var ag_20[0:0]; var ag_21[0:0]; var ag_22[0:0]; var ag_23[0:0];
+var ag_24[0:0]; var ag_25[0:0]; var ag_26[0:0]; var ag_27[0:0];
+var ag_28[0:0]; var ag_29[0:0]; var ag_30[0:0]; var ag_31[0:0];
+
+ag_0 = g_0 | (tlb_asid[0] == current_asid);
+ag_1 = g_1 | (tlb_asid[1] == current_asid);
+ag_2 = g_2 | (tlb_asid[2] == current_asid);
+ag_3 = g_3 | (tlb_asid[3] == current_asid);
+ag_4 = g_4 | (tlb_asid[4] == current_asid);
+ag_5 = g_5 | (tlb_asid[5] == current_asid);
+ag_6 = g_6 | (tlb_asid[6] == current_asid);
+ag_7 = g_7 | (tlb_asid[7] == current_asid);
+ag_8 = g_8 | (tlb_asid[8] == current_asid);
+ag_9 = g_9 | (tlb_asid[9] == current_asid);
+ag_10 = g_10 | (tlb_asid[10] == current_asid);
+ag_11 = g_11 | (tlb_asid[11] == current_asid);
+ag_12 = g_12 | (tlb_asid[12] == current_asid);
+ag_13 = g_13 | (tlb_asid[13] == current_asid);
+ag_14 = g_14 | (tlb_asid[14] == current_asid);
+ag_15 = g_15 | (tlb_asid[15] == current_asid);
+ag_16 = g_16 | (tlb_asid[16] == current_asid);
+ag_17 = g_17 | (tlb_asid[17] == current_asid);
+ag_18 = g_18 | (tlb_asid[18] == current_asid);
+ag_19 = g_19 | (tlb_asid[19] == current_asid);
+ag_20 = g_20 | (tlb_asid[20] == current_asid);
+ag_21 = g_21 | (tlb_asid[21] == current_asid);
+ag_22 = g_22 | (tlb_asid[22] == current_asid);
+ag_23 = g_23 | (tlb_asid[23] == current_asid);
+ag_24 = g_24 | (tlb_asid[24] == current_asid);
+ag_25 = g_25 | (tlb_asid[25] == current_asid);
+ag_26 = g_26 | (tlb_asid[26] == current_asid);
+ag_27 = g_27 | (tlb_asid[27] == current_asid);
+ag_28 = g_28 | (tlb_asid[28] == current_asid);
+ag_29 = g_29 | (tlb_asid[29] == current_asid);
+ag_30 = g_30 | (tlb_asid[30] == current_asid);
+ag_31 = g_31 | (tlb_asid[31] == current_asid);
+
+var asid_or_global[31:0];
+asid_or_global = {ag_31, ag_30, ag_29, ag_28, ag_27, ag_26, ag_25, ag_24,
+                  ag_23, ag_22, ag_21, ag_20, ag_19, ag_18, ag_17, ag_16,
+                  ag_15, ag_14, ag_13, ag_12, ag_11, ag_10, ag_9, ag_8,
+                  ag_7, ag_6, ag_5, ag_4, ag_3, ag_2, ag_1, ag_0};
+
+// ============================================================================
+// Final Match: VPN2 match AND (Global OR ASID match)
+// ============================================================================
+var final_matches[31:0];
+final_matches = vpn2_matches & asid_or_global;
+
+var tlb_hit[0:0];
+var fetch_tlb_idx[5:0];
+tlb_hit = |final_matches;
+fetch_tlb_idx = ctz(final_matches);
+
+// ============================================================================
+// Read Matched Entry - Use separate arrays to avoid mux conflicts
+// ============================================================================
+// Use fetch_tlb_idx5 (distinct name) to avoid collision with tlbr/tlbwr.isa
+// which redefine tlb_idx for their own purposes
+var fetch_tlb_idx5[4:0];
+fetch_tlb_idx5 = fetch_tlb_idx[4:0];
+
+// Read from separate PFN/V arrays instead of tlb_lo0/tlb_lo1
+var matched_pfn[19:0];
+var matched_v[0:0];
+
+matched_pfn = pc_odd_page ? tlb_pfn1[fetch_tlb_idx5] : tlb_pfn0[fetch_tlb_idx5];
+matched_v = pc_odd_page ? tlb_v1[fetch_tlb_idx5] : tlb_v0[fetch_tlb_idx5];
+
+// ============================================================================
+// Address Space Handling
+// ============================================================================
+var is_kernel_mode[0:0];
+var status_exl[0:0];
+var not_status_exl[0:0];
+var status_erl[0:0];
+var status_ksu[1:0];
+
+status_exl = cp0_status[1];
+not_status_exl = ~status_exl;
+status_erl = cp0_status[2];
+status_ksu = cp0_status[4:3];
+is_kernel_mode = (status_ksu == 0) | status_exl | status_erl;
+
+var is_kseg0[0:0];
+var is_kseg1[0:0];
+var is_kseg2[0:0];
+var is_kuseg[0:0];
+var is_unmapped[0:0];
+
+is_kuseg = (pc[31] == 0);
+is_kseg0 = (pc[31:29] == 3'b100);
+is_kseg1 = (pc[31:29] == 3'b101);
+is_kseg2 = (pc[31:30] == 2'b11);
+is_unmapped = is_kseg0 | is_kseg1;
+
+// Physical address for unmapped segments
+var unmapped_pa[31:0];
+unmapped_pa = {3'b000, pc[28:0]};
+
+// Physical address from TLB
+var tlb_pa[31:0];
+tlb_pa = {matched_pfn, pc_offset};
+
+// ============================================================================
+// Exception Handling
+// ============================================================================
+var needs_tlb[0:0];
+needs_tlb = is_kuseg | (is_kernel_mode & is_kseg2);
+
+var tlb_refill[0:0];
+var tlb_invalid[0:0];
+var address_error[0:0];
+
+address_error = (~is_kernel_mode) & (is_kseg0 | is_kseg1 | is_kseg2);
+tlb_refill = needs_tlb & (~tlb_hit);
+tlb_invalid = needs_tlb & tlb_hit & (~matched_v);
+
+exception_taken = address_error | tlb_refill | tlb_invalid;
+exception_code = address_error ? 0x4 : 0x2;
+
+var status_bev[0:0];
+var exc_vector[31:0];
+var refill_vector[31:0];
+var general_vector[31:0];
+
+status_bev = cp0_status[22];
+refill_vector = status_bev ? 0xBFC00200 : 0x80000000;
+general_vector = status_bev ? 0xBFC00380 : 0x80000180;
+exc_vector = tlb_refill ? refill_vector : general_vector;
+
+// Update CP0 on exception
+cp0_badvaddr when (exception_taken) = pc;
+cp0_cause when (exception_taken) = {cp0_cause[31:7], exception_code, cp0_cause[1:0]};
+cp0_epc when (exception_taken & not_status_exl) = pc;
+
+var new_status[31:0];
+new_status = cp0_status | 0x2;
+cp0_status when (exception_taken) = new_status;
+
+var new_context[31:0];
+new_context = {cp0_context[31:23], pc_vpn2, 4'b0000};
+cp0_context when (exception_taken) = new_context;
+
+var new_entryhi[31:0];
+new_entryhi = {pc_vpn2, 5'b00000, cp0_entryhi[7:0]};
+cp0_entryhi when (exception_taken) = new_entryhi;
+
+pc when (exception_taken) = exc_vector;
+
+// ============================================================================
+// Compute Physical Address
+// ============================================================================
+var translated_pa[31:0];
+translated_pa = is_unmapped ? unmapped_pa : tlb_pa;
+
+// Always use translated_pa for instruction fetch.
+// On exception, the PC update handles redirection, and the fetched instruction
+// will be ignored since exception handling takes precedence.
+pc_pa = translated_pa;

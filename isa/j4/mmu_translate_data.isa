@@ -1,0 +1,213 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SH-4 MMU Data Translation Aspect (Software-Managed TLB)
+// This aspect provides address translation for data loads/stores
+//
+// Requires: addr variable must be defined before including this aspect
+// Outputs:  addr_pa (physical address), tlb_miss (exception flag)
+//
+// TLB Lookup Algorithm:
+// 1. Check address region (P0/U0/P3 = translated, P1/P2/P4 = untranslated)
+// 2. If untranslated or MMU disabled: addr_pa = addr (identity)
+// 3. If translated with MMU enabled:
+//    a. Search UTLB for matching VPN + ASID (or shared entry)
+//    b. If hit: addr_pa = PPN + offset, check protection
+//    c. If miss: raise TLB miss exception, set TEA = addr
+
+// Physical address output
+var addr_pa[31:0];
+
+// Exception signaling
+var tlb_data_miss[0:0];
+var tlb_data_prot_viol[0:0];
+var tlb_data_initial_write[0:0];
+
+// Address region detection
+var addr_region[2:0];       // Top 3 bits of address
+var is_p0_u0[0:0];          // 0x00000000-0x7FFFFFFF (translated)
+var is_p1[0:0];             // 0x80000000-0x9FFFFFFF (untranslated, cached)
+var is_p2[0:0];             // 0xA0000000-0xBFFFFFFF (untranslated, uncached)
+var is_p3[0:0];             // 0xC0000000-0xDFFFFFFF (translated)
+var is_p4[0:0];             // 0xE0000000-0xFFFFFFFF (control, untranslated)
+var needs_translation[0:0];
+
+// MMU control
+var mmu_enabled[0:0];
+var current_asid[7:0];
+
+// TLB lookup variables
+var lookup_vpn[21:0];       // VPN to search for (addr[31:10])
+var lookup_offset[9:0];     // Page offset (addr[9:0] for 1KB minimum)
+
+// UTLB search - check all 64 entries in parallel (fully associative)
+// For simplicity, we check a subset and use priority encoding
+// In hardware this would be CAM-style lookup
+var utlb_hit[0:0];
+var utlb_hit_idx[5:0];
+var utlb_match[63:0];       // One-hot match vector
+
+// TLB entry fields from matched entry
+var matched_ppn[18:0];
+var matched_sz[2:0];
+var matched_pr[1:0];
+var matched_d[0:0];
+var matched_sh[0:0];
+
+// Permission checking
+var is_privileged[0:0];     // SR.MD bit
+var is_write[0:0];          // Set by instruction (store vs load)
+var perm_ok[0:0];
+
+// Extract address region
+addr_region = addr[31:29];
+is_p0_u0 = (addr[31] == 1'b0);                    // 0xxx xxxx = P0/U0
+is_p1 = (addr_region == 3'b100);                  // 100x xxxx = P1
+is_p2 = (addr_region == 3'b101);                  // 101x xxxx = P2
+is_p3 = (addr_region == 3'b110);                  // 110x xxxx = P3
+is_p4 = (addr_region == 3'b111);                  // 111x xxxx = P4
+
+// Translation needed for P0/U0 and P3 regions
+needs_translation = is_p0_u0 | is_p3;
+
+// Read MMU control state
+mmu_enabled = mmucr[0];     // AT bit
+current_asid = pteh[7:0];   // Current ASID
+is_privileged = sr[30];     // MD bit (1=privileged)
+
+// VPN for lookup (top 22 bits)
+lookup_vpn = addr[31:10];
+lookup_offset = addr[9:0];
+
+// ============================================================================
+// UTLB Associative Search (64 entries)
+// ============================================================================
+// Check each entry for: V=1 AND (VPN match) AND (ASID match OR SH=1)
+// Note: Page size affects VPN matching - for simplicity assume 4KB pages here
+// Full implementation would mask VPN based on SZ field
+
+// Entry 0-7 matches
+utlb_match[0] = utlb_v[0] & (utlb_vpn[0] == lookup_vpn) & ((utlb_asid[0] == current_asid) | utlb_sh[0]);
+utlb_match[1] = utlb_v[1] & (utlb_vpn[1] == lookup_vpn) & ((utlb_asid[1] == current_asid) | utlb_sh[1]);
+utlb_match[2] = utlb_v[2] & (utlb_vpn[2] == lookup_vpn) & ((utlb_asid[2] == current_asid) | utlb_sh[2]);
+utlb_match[3] = utlb_v[3] & (utlb_vpn[3] == lookup_vpn) & ((utlb_asid[3] == current_asid) | utlb_sh[3]);
+utlb_match[4] = utlb_v[4] & (utlb_vpn[4] == lookup_vpn) & ((utlb_asid[4] == current_asid) | utlb_sh[4]);
+utlb_match[5] = utlb_v[5] & (utlb_vpn[5] == lookup_vpn) & ((utlb_asid[5] == current_asid) | utlb_sh[5]);
+utlb_match[6] = utlb_v[6] & (utlb_vpn[6] == lookup_vpn) & ((utlb_asid[6] == current_asid) | utlb_sh[6]);
+utlb_match[7] = utlb_v[7] & (utlb_vpn[7] == lookup_vpn) & ((utlb_asid[7] == current_asid) | utlb_sh[7]);
+
+// Entry 8-15 matches
+utlb_match[8] = utlb_v[8] & (utlb_vpn[8] == lookup_vpn) & ((utlb_asid[8] == current_asid) | utlb_sh[8]);
+utlb_match[9] = utlb_v[9] & (utlb_vpn[9] == lookup_vpn) & ((utlb_asid[9] == current_asid) | utlb_sh[9]);
+utlb_match[10] = utlb_v[10] & (utlb_vpn[10] == lookup_vpn) & ((utlb_asid[10] == current_asid) | utlb_sh[10]);
+utlb_match[11] = utlb_v[11] & (utlb_vpn[11] == lookup_vpn) & ((utlb_asid[11] == current_asid) | utlb_sh[11]);
+utlb_match[12] = utlb_v[12] & (utlb_vpn[12] == lookup_vpn) & ((utlb_asid[12] == current_asid) | utlb_sh[12]);
+utlb_match[13] = utlb_v[13] & (utlb_vpn[13] == lookup_vpn) & ((utlb_asid[13] == current_asid) | utlb_sh[13]);
+utlb_match[14] = utlb_v[14] & (utlb_vpn[14] == lookup_vpn) & ((utlb_asid[14] == current_asid) | utlb_sh[14]);
+utlb_match[15] = utlb_v[15] & (utlb_vpn[15] == lookup_vpn) & ((utlb_asid[15] == current_asid) | utlb_sh[15]);
+
+// For now, check first 16 entries (can extend to 64)
+// Priority encoder to find first matching entry
+utlb_hit = utlb_match[0] | utlb_match[1] | utlb_match[2] | utlb_match[3] |
+           utlb_match[4] | utlb_match[5] | utlb_match[6] | utlb_match[7] |
+           utlb_match[8] | utlb_match[9] | utlb_match[10] | utlb_match[11] |
+           utlb_match[12] | utlb_match[13] | utlb_match[14] | utlb_match[15];
+
+// Priority encode to get index (simplified - first match wins)
+utlb_hit_idx = utlb_match[0] ? 6'd0 :
+               utlb_match[1] ? 6'd1 :
+               utlb_match[2] ? 6'd2 :
+               utlb_match[3] ? 6'd3 :
+               utlb_match[4] ? 6'd4 :
+               utlb_match[5] ? 6'd5 :
+               utlb_match[6] ? 6'd6 :
+               utlb_match[7] ? 6'd7 :
+               utlb_match[8] ? 6'd8 :
+               utlb_match[9] ? 6'd9 :
+               utlb_match[10] ? 6'd10 :
+               utlb_match[11] ? 6'd11 :
+               utlb_match[12] ? 6'd12 :
+               utlb_match[13] ? 6'd13 :
+               utlb_match[14] ? 6'd14 :
+               utlb_match[15] ? 6'd15 : 6'd0;
+
+// Read matched entry fields
+matched_ppn = utlb_ppn[utlb_hit_idx];
+matched_sz = utlb_sz[utlb_hit_idx];
+matched_pr = utlb_pr[utlb_hit_idx];
+matched_d = utlb_d[utlb_hit_idx];
+matched_sh = utlb_sh[utlb_hit_idx];
+
+// ============================================================================
+// Permission Checking
+// ============================================================================
+// PR[1:0]: 00=kernel R only, 01=kernel R/W, 10=user R/kernel R/W, 11=user R/W
+// For loads: PR[1]=1 allows user read, kernel can always read
+// For stores: need PR[0]=1 for write permission, plus D bit check
+
+// Read permission (loads)
+var read_perm_ok[0:0];
+read_perm_ok = is_privileged | matched_pr[1];  // Kernel always, user needs PR1
+
+// Write permission (stores) - requires is_write to be set by instruction
+var write_perm_ok[0:0];
+write_perm_ok = matched_pr[0] & (is_privileged | matched_pr[1]);
+
+// Initial page write exception (first write to clean page)
+tlb_data_initial_write = is_write & utlb_hit & ~matched_d & write_perm_ok;
+
+// Protection violation
+tlb_data_prot_viol = utlb_hit & ((is_write & ~write_perm_ok) | (~is_write & ~read_perm_ok));
+
+// TLB miss (no matching entry)
+tlb_data_miss = mmu_enabled & needs_translation & ~utlb_hit;
+
+// ============================================================================
+// Physical Address Computation
+// ============================================================================
+// For 4KB pages: PA = PPN[28:10] | VA[11:0]
+// For 1KB pages: PA = PPN[28:10] | VA[9:0]
+// For 64KB pages: PA = PPN[28:16] | VA[15:0]
+// For 1MB pages: PA = PPN[28:20] | VA[19:0]
+
+var translated_addr[31:0];
+// Simplified: assume 4KB pages (most common)
+translated_addr = {matched_ppn[18:0], addr[11:0], 1'b0};
+
+// For P1: physical = virtual & 0x1FFFFFFF (mask off top 3 bits)
+var p1_addr[31:0];
+p1_addr = {3'b000, addr[28:0]};
+
+// For P2: physical = virtual & 0x1FFFFFFF (mask off top 3 bits)
+var p2_addr[31:0];
+p2_addr = {3'b000, addr[28:0]};
+
+// Select physical address based on region and MMU state
+addr_pa = is_p1 ? p1_addr :
+          is_p2 ? p2_addr :
+          is_p4 ? addr :                              // P4 is identity mapped
+          (mmu_enabled & needs_translation & utlb_hit) ? translated_addr :
+          addr;                                        // Default identity
+
+// ============================================================================
+// Exception Handling
+// ============================================================================
+// On TLB miss: set TEA and raise exception
+tea when (tlb_data_miss) = addr;
+
+// Exception vectors (relative to VBR):
+// TLB miss: VBR + 0x400
+// Protection violation: VBR + 0x100
+// Initial page write: VBR + 0x100
+
+var tlb_exception[0:0];
+var tlb_exc_vector[31:0];
+
+tlb_exception = tlb_data_miss | tlb_data_prot_viol | tlb_data_initial_write;
+tlb_exc_vector = tlb_data_miss ? (vbr + 32'h400) :
+                 (tlb_data_prot_viol | tlb_data_initial_write) ? (vbr + 32'h100) :
+                 vbr;
+
+// Save SSR/SPC and redirect PC on exception
+ssr when (tlb_exception) = {sr[31:1], t};
+spc when (tlb_exception) = pc;
+sr when (tlb_exception) = {sr[31], 3'b111, sr[27:0]};  // Set MD=1, BL=1, RB=1
+pc when (tlb_exception) = tlb_exc_vector;

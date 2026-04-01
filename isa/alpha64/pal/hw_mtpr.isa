@@ -1,0 +1,318 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HW_MTPR - Hardware Move To Processor Register
+//
+// Format: opcode[31:26] = 0x1D, ra[25:21], rb[20:16], index[15:0]
+//
+// IPR[index] = Ra
+//
+// This instruction is only valid in PAL mode. It writes a value from
+// a general-purpose register to an internal processor register (IPR).
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[63:0];
+
+// PAL mode check
+isa_state pal_mode[0:0];
+
+// All IPRs that can be written
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+isa_state sirr[63:0];
+isa_state astrr[63:0];
+isa_state aster[63:0];
+isa_state exc_sum[63:0];
+isa_state exc_mask[63:0];
+isa_state va[63:0];
+isa_state va_form[63:0];
+isa_state mm_stat[63:0];
+isa_state ptbr[63:0];
+isa_state vptptr[63:0];
+isa_state dtb_cm[63:0];
+isa_state dtb_asn[63:0];
+isa_state itb_asn[63:0];
+isa_state whami[63:0];
+isa_state pcbb[63:0];
+isa_state unique[63:0];
+isa_state sysval[63:0];
+ext isa_state pcc[63:0];
+isa_state implver[63:0];
+isa_state amask_val[63:0];
+isa_state mces[63:0];
+isa_state fen[0:0];
+
+// TLB write registers
+isa_state dtb_pte[63:0][2:0];
+isa_state dtb_tag[63:0][2:0];
+isa_state dtb_valid[0:0][2:0];
+isa_state dtb_asn_entry[7:0][2:0];
+isa_state dtb_idx[2:0];
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn_entry[7:0][2:0];
+isa_state itb_idx[2:0];
+
+// Exception state
+isa_state lock_flag[0:0];
+
+// PAL temporaries
+isa_state pt0[63:0];
+isa_state pt1[63:0];
+isa_state pt2[63:0];
+isa_state pt3[63:0];
+isa_state pt4[63:0];
+isa_state pt5[63:0];
+isa_state pt6[63:0];
+isa_state pt7[63:0];
+isa_state pt8[63:0];
+isa_state pt9[63:0];
+isa_state pt10[63:0];
+isa_state pt11[63:0];
+isa_state pt12[63:0];
+isa_state pt13[63:0];
+isa_state pt14[63:0];
+isa_state pt15[63:0];
+isa_state pt16[63:0];
+isa_state pt17[63:0];
+isa_state pt18[63:0];
+isa_state pt19[63:0];
+isa_state pt20[63:0];
+isa_state pt21[63:0];
+isa_state pt22[63:0];
+isa_state pt23[63:0];
+
+// ITB translation for instruction fetch
+aspect ../vm/aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect ../vm/aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+var ra[4:0];
+var Ra[63:0];
+var ipr_idx[15:0];
+
+instr = umem[pc_pa];
+assume instr[31:26] == 29;
+assume pal_mode == 1;
+
+ra = instr[25:21];
+Ra = rf[ra];
+ipr_idx = instr[15:0];
+
+// Helper: normal execution condition (no interrupt, no ITB fault)
+// In PAL mode, take_interrupt=0 and itb_fault=0, so this is always true.
+var no_fault[0:0];
+no_fault = (take_interrupt == 0) & (itb_fault == 0);
+
+// Core IPR writes (0x08 - 0x1F)
+pal_base when (ipr_idx == 16'h0008 && no_fault) = Ra;
+exc_addr when (ipr_idx == 16'h0009 && no_fault) = Ra;
+ps when (ipr_idx == 16'h000A && no_fault) = Ra;
+ipl when (ipr_idx == 16'h000B && no_fault) = Ra[5:0];
+// isr is read-only (external input from interrupt controller)
+hier when (ipr_idx == 16'h000D && no_fault) = Ra;
+sirr when (ipr_idx == 16'h000E && no_fault) = Ra;
+astrr when (ipr_idx == 16'h000F && no_fault) = Ra;
+aster when (ipr_idx == 16'h0010 && no_fault) = Ra;
+exc_sum when (ipr_idx == 16'h0011 && no_fault) = Ra;
+exc_mask when (ipr_idx == 16'h0012 && no_fault) = Ra;
+va when (ipr_idx == 16'h0013 && no_fault) = Ra;
+va_form when (ipr_idx == 16'h0014 && no_fault) = Ra;
+mm_stat when (ipr_idx == 16'h0015 && no_fault) = Ra;
+ptbr when (ipr_idx == 16'h0016 && no_fault) = Ra;
+vptptr when (ipr_idx == 16'h0017 && no_fault) = Ra;
+dtb_cm when (ipr_idx == 16'h0018 && no_fault) = Ra;
+dtb_asn when (ipr_idx == 16'h0019 && no_fault) = Ra;
+itb_asn when (ipr_idx == 16'h001C && no_fault) = Ra;
+
+// TLB writes - PALcode writes TAG first (captures ASN), then PTE (marks valid, advances index)
+// DTB_TAG write (0x1B) - store tag and capture current ASN
+dtb_tag[dtb_idx] when (ipr_idx == 16'h001B && no_fault) = Ra;
+dtb_asn_entry[dtb_idx] when (ipr_idx == 16'h001B && no_fault) = dtb_asn[7:0];
+
+// DTB_PTE write (0x1A) - store PTE, mark valid, advance index
+dtb_pte[dtb_idx] when (ipr_idx == 16'h001A && no_fault) = Ra;
+dtb_valid[dtb_idx] when (ipr_idx == 16'h001A && no_fault) = 1;
+dtb_idx when (ipr_idx == 16'h001A && no_fault) = dtb_idx + 1;
+
+// ITB_TAG write (0x1E) - store tag and capture current ASN
+itb_tag[itb_idx] when (ipr_idx == 16'h001E && no_fault) = Ra;
+itb_asn_entry[itb_idx] when (ipr_idx == 16'h001E && no_fault) = itb_asn[7:0];
+
+// ITB_PTE write (0x1D) - store PTE, mark valid, advance index
+itb_pte[itb_idx] when (ipr_idx == 16'h001D && no_fault) = Ra;
+itb_valid[itb_idx] when (ipr_idx == 16'h001D && no_fault) = 1;
+itb_idx when (ipr_idx == 16'h001D && no_fault) = itb_idx + 1;
+
+// ============================================================================
+// TLB Invalidation IPRs
+// ============================================================================
+
+// ITB_IS (0x82) - Invalidate Single ITB entry
+// For single invalidate, we check each entry's tag against Ra VPN and clear if match
+var itb_is_vpn[29:0];
+itb_is_vpn = Ra[42:13];
+var itb_is_match0[0:0];
+var itb_is_match1[0:0];
+var itb_is_match2[0:0];
+var itb_is_match3[0:0];
+var itb_is_match4[0:0];
+var itb_is_match5[0:0];
+var itb_is_match6[0:0];
+var itb_is_match7[0:0];
+itb_is_match0 = (itb_tag[0][29:0] == itb_is_vpn);
+itb_is_match1 = (itb_tag[1][29:0] == itb_is_vpn);
+itb_is_match2 = (itb_tag[2][29:0] == itb_is_vpn);
+itb_is_match3 = (itb_tag[3][29:0] == itb_is_vpn);
+itb_is_match4 = (itb_tag[4][29:0] == itb_is_vpn);
+itb_is_match5 = (itb_tag[5][29:0] == itb_is_vpn);
+itb_is_match6 = (itb_tag[6][29:0] == itb_is_vpn);
+itb_is_match7 = (itb_tag[7][29:0] == itb_is_vpn);
+var itb_is_clear0[0:0];
+var itb_is_clear1[0:0];
+var itb_is_clear2[0:0];
+var itb_is_clear3[0:0];
+var itb_is_clear4[0:0];
+var itb_is_clear5[0:0];
+var itb_is_clear6[0:0];
+var itb_is_clear7[0:0];
+itb_is_clear0 = (ipr_idx == 16'h0082 && no_fault) ? itb_is_match0 : 1'b0;
+itb_is_clear1 = (ipr_idx == 16'h0082 && no_fault) ? itb_is_match1 : 1'b0;
+itb_is_clear2 = (ipr_idx == 16'h0082 && no_fault) ? itb_is_match2 : 1'b0;
+itb_is_clear3 = (ipr_idx == 16'h0082 && no_fault) ? itb_is_match3 : 1'b0;
+itb_is_clear4 = (ipr_idx == 16'h0082 && no_fault) ? itb_is_match4 : 1'b0;
+itb_is_clear5 = (ipr_idx == 16'h0082 && no_fault) ? itb_is_match5 : 1'b0;
+itb_is_clear6 = (ipr_idx == 16'h0082 && no_fault) ? itb_is_match6 : 1'b0;
+itb_is_clear7 = (ipr_idx == 16'h0082 && no_fault) ? itb_is_match7 : 1'b0;
+itb_valid[0] when (itb_is_clear0) = 0;
+itb_valid[1] when (itb_is_clear1) = 0;
+itb_valid[2] when (itb_is_clear2) = 0;
+itb_valid[3] when (itb_is_clear3) = 0;
+itb_valid[4] when (itb_is_clear4) = 0;
+itb_valid[5] when (itb_is_clear5) = 0;
+itb_valid[6] when (itb_is_clear6) = 0;
+itb_valid[7] when (itb_is_clear7) = 0;
+
+// ITB_IA (0x83) - Invalidate All ITB entries
+itb_valid[0] when (ipr_idx == 16'h0083 && no_fault) = 0;
+itb_valid[1] when (ipr_idx == 16'h0083 && no_fault) = 0;
+itb_valid[2] when (ipr_idx == 16'h0083 && no_fault) = 0;
+itb_valid[3] when (ipr_idx == 16'h0083 && no_fault) = 0;
+itb_valid[4] when (ipr_idx == 16'h0083 && no_fault) = 0;
+itb_valid[5] when (ipr_idx == 16'h0083 && no_fault) = 0;
+itb_valid[6] when (ipr_idx == 16'h0083 && no_fault) = 0;
+itb_valid[7] when (ipr_idx == 16'h0083 && no_fault) = 0;
+itb_idx when (ipr_idx == 16'h0083 && no_fault) = 0;
+
+// DTB_IS (0xA2) - Invalidate Single DTB entry
+var dtb_is_vpn[29:0];
+dtb_is_vpn = Ra[42:13];
+var dtb_is_match0[0:0];
+var dtb_is_match1[0:0];
+var dtb_is_match2[0:0];
+var dtb_is_match3[0:0];
+var dtb_is_match4[0:0];
+var dtb_is_match5[0:0];
+var dtb_is_match6[0:0];
+var dtb_is_match7[0:0];
+dtb_is_match0 = (dtb_tag[0][29:0] == dtb_is_vpn);
+dtb_is_match1 = (dtb_tag[1][29:0] == dtb_is_vpn);
+dtb_is_match2 = (dtb_tag[2][29:0] == dtb_is_vpn);
+dtb_is_match3 = (dtb_tag[3][29:0] == dtb_is_vpn);
+dtb_is_match4 = (dtb_tag[4][29:0] == dtb_is_vpn);
+dtb_is_match5 = (dtb_tag[5][29:0] == dtb_is_vpn);
+dtb_is_match6 = (dtb_tag[6][29:0] == dtb_is_vpn);
+dtb_is_match7 = (dtb_tag[7][29:0] == dtb_is_vpn);
+var dtb_is_clear0[0:0];
+var dtb_is_clear1[0:0];
+var dtb_is_clear2[0:0];
+var dtb_is_clear3[0:0];
+var dtb_is_clear4[0:0];
+var dtb_is_clear5[0:0];
+var dtb_is_clear6[0:0];
+var dtb_is_clear7[0:0];
+dtb_is_clear0 = (ipr_idx == 16'h00A2 && no_fault) ? dtb_is_match0 : 1'b0;
+dtb_is_clear1 = (ipr_idx == 16'h00A2 && no_fault) ? dtb_is_match1 : 1'b0;
+dtb_is_clear2 = (ipr_idx == 16'h00A2 && no_fault) ? dtb_is_match2 : 1'b0;
+dtb_is_clear3 = (ipr_idx == 16'h00A2 && no_fault) ? dtb_is_match3 : 1'b0;
+dtb_is_clear4 = (ipr_idx == 16'h00A2 && no_fault) ? dtb_is_match4 : 1'b0;
+dtb_is_clear5 = (ipr_idx == 16'h00A2 && no_fault) ? dtb_is_match5 : 1'b0;
+dtb_is_clear6 = (ipr_idx == 16'h00A2 && no_fault) ? dtb_is_match6 : 1'b0;
+dtb_is_clear7 = (ipr_idx == 16'h00A2 && no_fault) ? dtb_is_match7 : 1'b0;
+dtb_valid[0] when (dtb_is_clear0) = 0;
+dtb_valid[1] when (dtb_is_clear1) = 0;
+dtb_valid[2] when (dtb_is_clear2) = 0;
+dtb_valid[3] when (dtb_is_clear3) = 0;
+dtb_valid[4] when (dtb_is_clear4) = 0;
+dtb_valid[5] when (dtb_is_clear5) = 0;
+dtb_valid[6] when (dtb_is_clear6) = 0;
+dtb_valid[7] when (dtb_is_clear7) = 0;
+
+// DTB_IA (0xA3) - Invalidate All DTB entries
+dtb_valid[0] when (ipr_idx == 16'h00A3 && no_fault) = 0;
+dtb_valid[1] when (ipr_idx == 16'h00A3 && no_fault) = 0;
+dtb_valid[2] when (ipr_idx == 16'h00A3 && no_fault) = 0;
+dtb_valid[3] when (ipr_idx == 16'h00A3 && no_fault) = 0;
+dtb_valid[4] when (ipr_idx == 16'h00A3 && no_fault) = 0;
+dtb_valid[5] when (ipr_idx == 16'h00A3 && no_fault) = 0;
+dtb_valid[6] when (ipr_idx == 16'h00A3 && no_fault) = 0;
+dtb_valid[7] when (ipr_idx == 16'h00A3 && no_fault) = 0;
+dtb_idx when (ipr_idx == 16'h00A3 && no_fault) = 0;
+
+// System registers (0x20 - 0x24)
+whami when (ipr_idx == 16'h0020 && no_fault) = Ra;
+pcbb when (ipr_idx == 16'h0021 && no_fault) = Ra;
+unique when (ipr_idx == 16'h0022 && no_fault) = Ra;
+sysval when (ipr_idx == 16'h0023 && no_fault) = Ra;
+// pcc is read-only (external input from clock)
+implver when (ipr_idx == 16'h0025 && no_fault) = Ra;
+amask_val when (ipr_idx == 16'h0026 && no_fault) = Ra;
+mces when (ipr_idx == 16'h0027 && no_fault) = Ra;
+fen when (ipr_idx == 16'h0028 && no_fault) = Ra[0];
+
+// PAL temporaries (0x40 - 0x57)
+pt0 when (ipr_idx == 16'h0040 && no_fault) = Ra;
+pt1 when (ipr_idx == 16'h0041 && no_fault) = Ra;
+pt2 when (ipr_idx == 16'h0042 && no_fault) = Ra;
+pt3 when (ipr_idx == 16'h0043 && no_fault) = Ra;
+pt4 when (ipr_idx == 16'h0044 && no_fault) = Ra;
+pt5 when (ipr_idx == 16'h0045 && no_fault) = Ra;
+pt6 when (ipr_idx == 16'h0046 && no_fault) = Ra;
+pt7 when (ipr_idx == 16'h0047 && no_fault) = Ra;
+pt8 when (ipr_idx == 16'h0048 && no_fault) = Ra;
+pt9 when (ipr_idx == 16'h0049 && no_fault) = Ra;
+pt10 when (ipr_idx == 16'h004A && no_fault) = Ra;
+pt11 when (ipr_idx == 16'h004B && no_fault) = Ra;
+pt12 when (ipr_idx == 16'h004C && no_fault) = Ra;
+pt13 when (ipr_idx == 16'h004D && no_fault) = Ra;
+pt14 when (ipr_idx == 16'h004E && no_fault) = Ra;
+pt15 when (ipr_idx == 16'h004F && no_fault) = Ra;
+pt16 when (ipr_idx == 16'h0050 && no_fault) = Ra;
+pt17 when (ipr_idx == 16'h0051 && no_fault) = Ra;
+pt18 when (ipr_idx == 16'h0052 && no_fault) = Ra;
+pt19 when (ipr_idx == 16'h0053 && no_fault) = Ra;
+pt20 when (ipr_idx == 16'h0054 && no_fault) = Ra;
+pt21 when (ipr_idx == 16'h0055 && no_fault) = Ra;
+pt22 when (ipr_idx == 16'h0056 && no_fault) = Ra;
+pt23 when (ipr_idx == 16'h0057 && no_fault) = Ra;
+
+// Interrupt handling (higher priority than ITB fault)
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+
+// ITB fault handling (when no interrupt)
+va when (take_interrupt == 0 && itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+
+// Normal execution
+pc when (no_fault) = pc + 4;

@@ -1,0 +1,83 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 SHRPD,V instruction (64-bit variable shift right pair)
+// SHRPD,V r1,r2,t - Variable Shift Right Pair Doubleword: concatenates r1 and r2
+// into a 128-bit value, shifts right by SAR[5:0], takes low 64 bits.
+// NEW in PA-RISC 2.0: full 128-bit concatenation with SAR-based shift.
+// Opcode: 0x34 (bits 31:26), bit[12]=0, bit[11]=0, bit[10]=1 (64-bit shift pair, SAR)
+// r2=instr[25:21], r1=instr[20:16], t=instr[4:0]
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state sar[5:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var t[4:0];
+var sa[5:0];
+var src1[63:0];
+var src2[63:0];
+var concat_hi[63:0];
+var concat_lo[63:0];
+var res[63:0];
+var cond_eq[0:0];
+var cond_lt[0:0];
+var cond_od[0:0];
+var cond_base[0:0];
+var cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// SHRPD,V encoding: opcode=0x34, bit[12]=0, bit[11]=0, bit[10]=0, bit[9]=1
+// bit[10]=0 distinguishes from SHRPD fixed (bit[10]=1)
+// bit[9]=1 distinguishes from VSHD 32-bit SAR (bit[9]=0)
+assume instr[31:26] == 0b110100;
+assume instr[12] == 0b0;
+assume instr[11] == 0b0;
+assume instr[10] == 0b0;
+assume instr[9] == 0b1;
+
+// Extract fields
+r2 = instr[25:21];
+r1 = instr[20:16];
+t = instr[4:0];
+
+// Shift amount from SAR (full 6 bits for 64-bit operation)
+sa = sar[5:0];
+
+// Read source registers
+src1 = (r1 == 0) ? 64'h0 : rf[r1];
+src2 = (r2 == 0) ? 64'h0 : rf[r2];
+
+// Full 128-bit concatenation {src1, src2} shifted right by SAR
+// Implemented as: result = (src1 << (64 - sa)) | (src2 >> sa)
+// When sa=0: result = src2; when sa=63: result = {src1[0], src2[63:1]}
+concat_hi = (sa == 0) ? 64'h0 : (src1 << (6'b111111 - sa + 1));
+concat_lo = src2 >> sa;
+res = concat_hi | concat_lo;
+
+// 3-bit conditional nullification (c=instr[15:13])
+cond_eq = (res == 0);
+cond_lt = res[63];
+cond_od = res[0];
+cond_base = (instr[13] & ~instr[14] & cond_eq) | (~instr[13] & instr[14] & cond_lt) | (instr[13] & instr[14] & cond_od);
+cond_met = cond_base ^ instr[15];
+psw when (cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC
+pc = pc + 4;

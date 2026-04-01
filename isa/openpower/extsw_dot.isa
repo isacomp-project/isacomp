@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER extsw. - Extend Sign Word and Record (X-Form)
+// extsw. RA,RS
+// Primary opcode 31, XO=986, Rc=1
+// RA <- EXTS(RS[32:63]), update CR0
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state cr[31:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var rs_val[63:0];
+var word_val[31:0];
+var result[63:0];
+var lt[0:0];
+var gt[0:0];
+var eq[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 986
+assume instr[10:1] == 986;
+// Rc bit = 1 (record form)
+assume instr[0] == 1;
+
+// Extract register fields
+rs = instr[25:21];
+ra = instr[20:16];
+
+rs_val = rf[rs];
+word_val = rs_val[31:0];
+
+// Sign-extend word to 64 bits
+result = {{32{word_val[31]}}, word_val};
+
+// Update CR0 based on result
+lt = result[63];
+gt = ~result[63] & (result != 0);
+eq = (result == 0);
+cr = {lt, gt, eq, 1'b0, cr[27:0]};  // SO=0 simplified
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+pc = pc + 4;

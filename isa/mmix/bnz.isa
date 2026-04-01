@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX BNZ - Branch if Non-Zero (forward)
+// BNZ $X,YZ: if $X != 0, PC = PC + 4*YZ
+// Opcode: 0x4A
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var yz[15:0];
+var x_val[63:0];
+var offset[63:0];
+var target[63:0];
+var cond[0:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x4A;
+
+x = instr[23:16];
+yz = instr[15:0];
+
+x_val = rf[x];
+offset = {46'b0, yz, 2'b0};
+target = pc + offset;
+
+cond = x_val != 0;
+
+pc = cond ? target : pc + 4;

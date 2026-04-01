@@ -1,0 +1,24 @@
+// MMIX ADD instruction test
+// Test: ADD $3,$1,$2 where $1=5, $2=3, expect $3=8
+// Then check result and jump to pass or fail
+
+// Address 0x00: SETL $1, 5       (E3 01 00 05)
+E3010005
+// Address 0x04: SETL $2, 3       (E3 02 00 03)
+E3020003
+// Address 0x08: ADD $3,$1,$2     (20 03 01 02)
+20030102
+// Address 0x0C: SETL $4, 8       (E3 04 00 08) - expected result
+E3040008
+// Address 0x10: SUB $5,$3,$4     (24 05 03 04) - $5 = $3 - 8
+24050304
+// Address 0x14: BZ $5, +2        (42 05 00 02) - branch to pass if equal
+42050002
+// Address 0x18: JMP fail         (F0 00 00 04) - jump to fail
+F0000004
+// Address 0x1C: JMP pass         (F0 00 00 01) - pass: jump to self (offset +1 = addr+4)
+F0000001
+// Address 0x20: pass label - JMP to self
+F0000000
+// Address 0x24: fail label - JMP to self
+F0000000

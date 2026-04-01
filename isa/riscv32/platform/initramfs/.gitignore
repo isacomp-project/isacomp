@@ -1,0 +1,4 @@
+init
+_root/
+initramfs.cpio
+initramfs.cpio.gz

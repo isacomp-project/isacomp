@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 MULScc instruction (multiply step, set condition codes)
+// Format 3: op=10, op3=100100
+// MULScc rs1, reg_or_imm, rd
+// Performs one step of the multiplication algorithm:
+// 1. operand1 = ((N xor V) << 31) | (rs1 >> 1)
+// 2. if Y[0] == 1: result = operand1 + operand2; else result = operand1
+// 3. Y = (rs1[0] << 31) | (Y >> 1)
+// 4. rd = result, set icc
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];  // 256 physical registers (136 used for 8 windows)
+isa_state cwp[2:0];       // Current Window Pointer (0-7)
+isa_state y[31:0];        // Y register
+isa_state psr[31:0];      // Processor State Register (icc in bits 23:20)
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+
+var rd[4:0];
+var rs1[4:0];
+var imm[0:0];
+var rs2[4:0];
+var simm13[12:0];
+
+var r1[31:0];
+var r2[31:0];
+var operand2[31:0];
+var operand1[31:0];
+var add_operand[31:0];
+var res[31:0];
+var res33[32:0];
+
+// PSR flag extraction
+var icc_n_old[0:0];
+var icc_v_old[0:0];
+var n_xor_v[0:0];
+
+// Condition code temps
+var icc_n[0:0];
+var icc_z[0:0];
+var icc_v[0:0];
+var icc_c[0:0];
+var new_psr[31:0];
+var new_y[31:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+var phys_rd[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;       // op = 10 (Format 3)
+assume instr[24:19] == 0b100100;   // op3 = MULScc
+
+rd = instr[29:25];
+rs1 = instr[18:14];
+imm = instr[13];
+rs2 = instr[4:0];
+simm13 = instr[12:0];
+
+// Compute physical register indices for windowed register file
+cwp_m1 = cwp + 3'b111;  // cwp - 1 mod 8
+phys_rs1 = (rs1[4:3] == 2'b00) ? {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs1[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs1[2:0]};
+phys_rs2 = (rs2[4:3] == 2'b00) ? {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs2[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs2[2:0]};
+phys_rd = (rd[4:3] == 2'b00) ? {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rd[2:0]} :
+          ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rd[2:0]};
+
+r1 = (rs1 == 0) ? 32'b0 : rf[phys_rs1];
+r2 = (rs2 == 0) ? 32'b0 : rf[phys_rs2];
+operand2 = imm ? {{19{simm13[12]}}, simm13} : r2;
+
+// Extract N and V flags from PSR (bits 23 and 21)
+icc_n_old = psr[23];
+icc_v_old = psr[21];
+n_xor_v = icc_n_old ^ icc_v_old;
+
+// Step 1: Create operand1 by shifting rs1 right and inserting N^V in MSB
+operand1 = {n_xor_v, r1[31:1]};
+
+// Step 2: Add operand2 if Y[0] is 1, otherwise add 0
+add_operand = y[0] ? operand2 : 32'b0;
+
+// Perform addition with carry out detection
+res33 = {1'b0, operand1} + {1'b0, add_operand};
+res = res33[31:0];
+
+// Step 3: Update Y register - shift right, insert rs1[0] in MSB
+new_y = {r1[0], y[31:1]};
+
+// Compute condition codes based on the addition
+icc_n = res[31];                                                // Negative
+icc_z = (res == 32'b0);                                         // Zero
+icc_c = res33[32];                                              // Carry
+icc_v = (operand1[31] == add_operand[31]) & (operand1[31] != res[31]);  // Overflow
+
+// Update PSR with new icc (bits 23:20 = n,z,v,c)
+new_psr = {psr[31:24], icc_n, icc_z, icc_v, icc_c, psr[19:0]};
+
+// Write results
+rf[phys_rd] when (rd != 0) = res;
+y = new_y;
+psr = new_psr;
+pc = pc + 4;

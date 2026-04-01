@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// PDP-11 TRAP instruction
+
+isa_state pc[15:0];
+var instr[15:0];
+isa_state rf[15:0][2:0];  // 8 registers, R7 is PC
+isa_state umem[7:0][15:0];      // Byte-addressable memory
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var sp[15:0];
+var psw[15:0];
+var new_pc[15:0];
+var trap_num[7:0];
+var vec_lo[7:0];
+var vec_hi[7:0];
+
+
+// Fetch instruction (little-endian)
+var instr_lo[7:0];
+var instr_hi[7:0];
+instr_lo = umem[pc];
+instr_hi = umem[pc + 1];
+instr = {instr_hi, instr_lo};
+
+
+assume instr[15:8] == 0b10001001;
+
+trap_num = instr[7:0];
+pc = pc + 2;
+
+psw = {12'b0, flag_N, flag_Z, flag_V, flag_C};
+
+sp = rf[6] - 2;
+rf[6] = sp;
+umem[sp] = psw[7:0];
+umem[sp + 1] = psw[15:8];
+
+sp = rf[6] - 2;
+rf[6] = sp;
+umem[sp] = pc[7:0];
+umem[sp + 1] = pc[15:8];
+
+vec_lo = umem[16'd28];
+vec_hi = umem[16'd28 + 1];
+new_pc = {vec_hi, vec_lo};
+pc = new_pc;

@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REP STOSW (0xF3 0xAB) - WITH PROPER SEGMENTATION
+// Repeat while CX != 0: Store AX to ES:[DI]
+// IP stays constant until CX reaches 0
+// Uses ES segment for destination
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state ES[15:0];            // Extra segment register
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state DI[15:0] of xregs[7][15:0];
+isa_state CX[15:0] of xregs[1][15:0];
+isa_state flag_DF[0:0];
+
+var di_offset_lo[7:0];
+var di_offset_hi[7:0];
+var physical_addr_lo[31:0];
+var physical_addr_hi[31:0];
+var cx_is_zero[0:0];
+var cx_not_zero[0:0];
+var new_di_inc[15:0];
+var new_di_dec[15:0];
+var new_ip[31:0];
+
+// Fetch REP prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+
+// Fetch STOSW instruction (at IP+1)
+instr = imem[eip + 1];
+assume instr == 0xAB;
+
+// Check counter
+cx_is_zero = CX == 16'h0000;
+cx_not_zero = CX != 16'h0000;
+
+// Calculate destination offsets with wraparound
+di_offset_lo = DI;
+di_offset_hi = DI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using ES segment
+physical_addr_lo = (ES << 4) + di_offset_lo;  // ES:DI
+physical_addr_hi = (ES << 4) + di_offset_hi;  // ES:(DI+1)
+
+// Calculate new DI (increment or decrement by 2)
+new_di_inc = DI + 16'h0002;
+new_di_dec = DI - 16'h0002;
+
+// Calculate new IP (advance past instruction)
+new_ip = eip + 32'h0002;
+
+// When CX != 0: Execute one iteration
+dmem[physical_addr_lo] when(cx_not_zero) = AX[7:0];
+dmem[physical_addr_hi] when(cx_not_zero) = AX[15:8];
+DI when(cx_not_zero) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero) = CX - 16'h0001;
+eip when(cx_not_zero) = eip;  // Stay at same IP (loop continues)
+
+// When CX == 0: Advance IP and exit
+eip when(cx_is_zero) = new_ip;

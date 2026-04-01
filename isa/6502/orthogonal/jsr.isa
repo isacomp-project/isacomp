@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 JSR - Jump to Subroutine (0x20)
+// Push return address (PC-1) to stack, then jump to target
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state S[7:0];  // Stack pointer
+isa_state mainmem[7:0][15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var target_addr[15:0];
+var return_addr[15:0];
+var stack_addr[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x20;
+pc = pc + 1;
+
+// Read target address (little-endian)
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+target_addr = {addr_hi, addr_lo};
+
+// Return address is current PC - 1
+// (PC now points to the byte after JSR instruction)
+return_addr = pc - 1;
+
+// Push return address to stack (high byte first)
+// Use temporary variables to avoid confusing resource graph merger
+var S_minus_1[7:0];
+var stack_addr_hi[15:0];
+var stack_addr_lo[15:0];
+
+S_minus_1 = S - 1;
+
+stack_addr_hi = {8'h01, S};  // Stack is at 0x0100-0x01FF
+mainmem[stack_addr_hi] = return_addr[15:8];  // Push high byte
+
+stack_addr_lo = {8'h01, S_minus_1[7:0]};
+mainmem[stack_addr_lo] = return_addr[7:0];  // Push low byte
+
+S = S_minus_1 - 1;
+
+// Jump to target
+pc = target_addr;

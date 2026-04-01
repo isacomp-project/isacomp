@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX FINT - Floating-Point Integer (round to integer, keep as float)
+// FINT $X,$Z: $X = round($Z) (result is still floating-point)
+// Opcode: 0x10
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rA[63:0];
+mem umem[14:0];
+
+var x[7:0];
+var z[7:0];
+var z_val[63:0];
+var rm[1:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x10;
+
+x = instr[23:16];
+z = instr[7:0];
+
+z_val = rf[z];
+rm = rA[17:16];
+
+result = fp_round_d(z_val, {1'b0, rm});
+
+rf[x] = result;
+pc = pc + 4;

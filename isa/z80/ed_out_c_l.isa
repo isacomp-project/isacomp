@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED 69 - OUT (C),L
+// Write L to port BC
+// Does not affect flags
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+isa_state B[7:0];
+isa_state C[7:0];
+isa_state L[7:0];
+isa_state io[7:0][7:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 16'h69ED;
+pc = pc_plus_1 + 1;
+
+// Write to port (using C as lower 8 bits of port address)
+io[C] = L;

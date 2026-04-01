@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 65C02 2-byte NOP (opcode 0x82)
+// Undefined on NMOS 6502, 2-byte NOP on 65C02/W65C02
+
+#ifdef CPU_65C02
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state mainmem[7:0][15:0];
+
+instr = mainmem[pc];
+assume instr == 0x82;
+
+pc = pc + 2;
+
+#endif

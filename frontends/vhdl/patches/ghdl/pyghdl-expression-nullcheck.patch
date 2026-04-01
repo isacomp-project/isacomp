@@ -1,0 +1,28 @@
+diff --git a/pyGHDL/dom/Expression.py b/pyGHDL/dom/Expression.py
+index 89f7a9f4b..a7ad2e1cf 100644
+--- a/pyGHDL/dom/Expression.py
++++ b/pyGHDL/dom/Expression.py
+@@ -118,8 +118,21 @@ class _ParseBinaryExpressionMixin(metaclass=ExtendedType, mixin=True):
+     def parse(cls, node: Iir) -> VHDLModel_BinaryExpression:
+         from pyGHDL.dom._Translate import GetExpressionFromNode
+ 
+-        left = GetExpressionFromNode(nodes.Get_Left(node))
+-        right = GetExpressionFromNode(nodes.Get_Right(node))
++        # ISAComp patch: Check for null operands before parsing to avoid NoneType._parent errors
++        # This handles cases where VHDL has incomplete expression trees
++        left_node = nodes.Get_Left(node)
++        right_node = nodes.Get_Right(node)
++
++        # If either operand is Null_Iir, GetExpressionFromNode may return None
++        # which causes AttributeError when pyVHDLModel tries to set _parent
++        left = GetExpressionFromNode(left_node) if left_node != nodes.Null_Iir else None
++        right = GetExpressionFromNode(right_node) if right_node != nodes.Null_Iir else None
++
++        # If either operand failed to parse, return None to skip this expression
++        # The caller should handle None gracefully
++        if left is None or right is None:
++            return None
++
+         return cls(node, left, right)
+ 
+ 

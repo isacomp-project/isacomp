@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MOV.W @(disp,PC),Rn - PC-relative word load with sign extension
+// PC-relative loads access code addresses in P1/P2 regions which are untranslated.
+// We do inline address translation (strip top 3 bits) instead of using the full MMU aspect.
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var movw_pcrel_disp[7:0];
+var movw_pcrel_pc_val[31:0];
+var movw_pcrel_addr[31:0];
+var movw_pcrel_pa[31:0];
+var movw_pcrel_data16[15:0];
+var movw_pcrel_sign_ext[31:0];
+
+// Register banking variables (unique to movw_pcrel)
+var movw_pcrel_rn_lo[2:0];
+var movw_pcrel_rb[0:0];
+var movw_pcrel_rn_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x9;
+rn = instr[11:8];
+movw_pcrel_disp = instr[7:0];
+
+// Register banking setup
+movw_pcrel_rn_lo = rn[2:0];
+movw_pcrel_rb = sr[29];  // RB bit (bit 29 in SR)
+movw_pcrel_rn_bk = (rn[3] == 1'b0) & movw_pcrel_rb;
+
+// MOV.W @(disp,PC),Rn
+// addr = (PC + 4) + disp*2 (no alignment mask for word access)
+movw_pcrel_pc_val = pc + 4;
+movw_pcrel_addr = movw_pcrel_pc_val + {23'b0, movw_pcrel_disp, 1'b0};
+
+// Inline P1/P2 address translation - strip top 3 bits for physical address
+// P1 (0x80000000-0x9FFFFFFF) and P2 (0xA0000000-0xBFFFFFFF) map to physical 0x00000000-0x1FFFFFFF
+// P4 (0xE0000000-0xFFFFFFFF) maps to 0x03FF0000 region for control registers
+#ifdef MMU
+var movw_pcrel_is_p4[0:0];
+movw_pcrel_is_p4 = (movw_pcrel_addr[31:29] == 3'b111);
+movw_pcrel_pa = movw_pcrel_is_p4 ? {16'h03FF, movw_pcrel_addr[23:16], movw_pcrel_addr[7:0]} : {3'b000, movw_pcrel_addr[28:0]};
+#else
+movw_pcrel_pa = movw_pcrel_addr;
+#endif
+
+// Load from physical address
+movw_pcrel_data16 = umem[movw_pcrel_pa];
+movw_pcrel_sign_ext = {{16{movw_pcrel_data16[15]}}, movw_pcrel_data16};
+
+// Update register with banking
+rf[rn] when (~int_should_take & ~itlb_exc_actually_taken & (movw_pcrel_rn_bk == 0)) = movw_pcrel_sign_ext;
+rf_bank[movw_pcrel_rn_lo] when (~int_should_take & ~itlb_exc_actually_taken & (movw_pcrel_rn_bk)) = movw_pcrel_sign_ext;
+
+pc = pc + 2;

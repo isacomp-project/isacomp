@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BSF r32, r/m32 with 6766 prefix (0x67 0x66 0x0F 0xBC) - Bit Scan Forward
+// 32-bit addressing mode
+
+isa_state eip[31:0];
+var prefix67[7:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_ZF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var src_val[31:0];
+var result[31:0];
+var is_zero[0:0];
+
+var byte0_zero[0:0];
+var byte1_zero[0:0];
+var byte2_zero[0:0];
+
+var found0[0:0]; var found1[0:0]; var found2[0:0]; var found3[0:0];
+var found4[0:0]; var found5[0:0]; var found6[0:0]; var found7[0:0];
+var found8[0:0]; var found9[0:0]; var found10[0:0]; var found11[0:0];
+var found12[0:0]; var found13[0:0]; var found14[0:0]; var found15[0:0];
+var found16[0:0]; var found17[0:0]; var found18[0:0]; var found19[0:0];
+var found20[0:0]; var found21[0:0]; var found22[0:0]; var found23[0:0];
+var found24[0:0]; var found25[0:0]; var found26[0:0]; var found27[0:0];
+var found28[0:0]; var found29[0:0]; var found30[0:0]; var found31[0:0];
+
+prefix67 = imem[eip];
+assume prefix67 == 0x67;
+
+prefix = imem[eip + 1];
+assume prefix == 0x66;
+
+instr = imem[eip + 2];
+assume instr == 0x0F;
+
+instr2 = imem[eip + 3];
+assume instr2 == 0xBC;
+
+modrm = imem[eip + 4];
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume mod_bits == 0b11;
+
+src_val = xregs[rm_bits];
+
+is_zero = (src_val == 32'h00000000) ? 1'b1 : 1'b0;
+
+case (is_zero) {
+    1'b1: flag_ZF = 1'b1;
+    1'b0: flag_ZF = 1'b0;
+}
+
+byte0_zero = (src_val[7:0] == 8'h00) ? 1'b1 : 1'b0;
+byte1_zero = (src_val[15:0] == 16'h0000) ? 1'b1 : 1'b0;
+byte2_zero = (src_val[23:0] == 24'h000000) ? 1'b1 : 1'b0;
+
+found0 = src_val[0];
+found1 = src_val[1] & ~src_val[0];
+found2 = src_val[2] & ~src_val[1] & ~src_val[0];
+found3 = src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+found4 = src_val[4] & ~src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+found5 = src_val[5] & ~src_val[4] & ~src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+found6 = src_val[6] & ~src_val[5] & ~src_val[4] & ~src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+found7 = src_val[7] & ~src_val[6] & ~src_val[5] & ~src_val[4] & ~src_val[3] & ~src_val[2] & ~src_val[1] & ~src_val[0];
+
+case (found0) { 1'b1: result = 32'd0; }
+case (found1) { 1'b1: result = 32'd1; }
+case (found2) { 1'b1: result = 32'd2; }
+case (found3) { 1'b1: result = 32'd3; }
+case (found4) { 1'b1: result = 32'd4; }
+case (found5) { 1'b1: result = 32'd5; }
+case (found6) { 1'b1: result = 32'd6; }
+case (found7) { 1'b1: result = 32'd7; }
+
+found8 = byte0_zero & src_val[8];
+found9 = byte0_zero & src_val[9] & ~src_val[8];
+found10 = byte0_zero & src_val[10] & ~src_val[9] & ~src_val[8];
+found11 = byte0_zero & src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+found12 = byte0_zero & src_val[12] & ~src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+found13 = byte0_zero & src_val[13] & ~src_val[12] & ~src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+found14 = byte0_zero & src_val[14] & ~src_val[13] & ~src_val[12] & ~src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+found15 = byte0_zero & src_val[15] & ~src_val[14] & ~src_val[13] & ~src_val[12] & ~src_val[11] & ~src_val[10] & ~src_val[9] & ~src_val[8];
+
+case (found8) { 1'b1: result = 32'd8; }
+case (found9) { 1'b1: result = 32'd9; }
+case (found10) { 1'b1: result = 32'd10; }
+case (found11) { 1'b1: result = 32'd11; }
+case (found12) { 1'b1: result = 32'd12; }
+case (found13) { 1'b1: result = 32'd13; }
+case (found14) { 1'b1: result = 32'd14; }
+case (found15) { 1'b1: result = 32'd15; }
+
+found16 = byte1_zero & src_val[16];
+found17 = byte1_zero & src_val[17] & ~src_val[16];
+found18 = byte1_zero & src_val[18] & ~src_val[17] & ~src_val[16];
+found19 = byte1_zero & src_val[19] & ~src_val[18] & ~src_val[17] & ~src_val[16];
+found20 = byte1_zero & src_val[20] & ~src_val[19] & ~src_val[18] & ~src_val[17] & ~src_val[16];
+found21 = byte1_zero & src_val[21] & ~src_val[20] & ~src_val[19] & ~src_val[18] & ~src_val[17] & ~src_val[16];
+found22 = byte1_zero & src_val[22] & ~src_val[21] & ~src_val[20] & ~src_val[19] & ~src_val[18] & ~src_val[17] & ~src_val[16];
+found23 = byte1_zero & src_val[23] & ~src_val[22] & ~src_val[21] & ~src_val[20] & ~src_val[19] & ~src_val[18] & ~src_val[17] & ~src_val[16];
+
+case (found16) { 1'b1: result = 32'd16; }
+case (found17) { 1'b1: result = 32'd17; }
+case (found18) { 1'b1: result = 32'd18; }
+case (found19) { 1'b1: result = 32'd19; }
+case (found20) { 1'b1: result = 32'd20; }
+case (found21) { 1'b1: result = 32'd21; }
+case (found22) { 1'b1: result = 32'd22; }
+case (found23) { 1'b1: result = 32'd23; }
+
+found24 = byte2_zero & src_val[24];
+found25 = byte2_zero & src_val[25] & ~src_val[24];
+found26 = byte2_zero & src_val[26] & ~src_val[25] & ~src_val[24];
+found27 = byte2_zero & src_val[27] & ~src_val[26] & ~src_val[25] & ~src_val[24];
+found28 = byte2_zero & src_val[28] & ~src_val[27] & ~src_val[26] & ~src_val[25] & ~src_val[24];
+found29 = byte2_zero & src_val[29] & ~src_val[28] & ~src_val[27] & ~src_val[26] & ~src_val[25] & ~src_val[24];
+found30 = byte2_zero & src_val[30] & ~src_val[29] & ~src_val[28] & ~src_val[27] & ~src_val[26] & ~src_val[25] & ~src_val[24];
+found31 = byte2_zero & src_val[31] & ~src_val[30] & ~src_val[29] & ~src_val[28] & ~src_val[27] & ~src_val[26] & ~src_val[25] & ~src_val[24];
+
+case (found24) { 1'b1: result = 32'd24; }
+case (found25) { 1'b1: result = 32'd25; }
+case (found26) { 1'b1: result = 32'd26; }
+case (found27) { 1'b1: result = 32'd27; }
+case (found28) { 1'b1: result = 32'd28; }
+case (found29) { 1'b1: result = 32'd29; }
+case (found30) { 1'b1: result = 32'd30; }
+case (found31) { 1'b1: result = 32'd31; }
+
+case (is_zero) {
+    1'b0: xregs[reg_idx] = result;
+}
+
+eip = eip + 5;

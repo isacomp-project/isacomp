@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV32D - FSUB.D (Double-precision floating-point subtract)
+// Encoding: funct7=0000101, rs2, rs1, rm, rd, opcode=1010011
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit for D extension)
+isa_state fcsr[31:0];          // FP control/status register
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var rm[2:0];
+var eff_rm[2:0];  // Effective rounding mode (canonical IEEE 754)
+var f1[63:0];
+var f2[63:0];
+var sub_result[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;   // FP opcode
+assume instr[31:27] == 0b00001;   // FSUB funct5
+assume instr[26:25] == 0b01;      // fmt = D (double precision)
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+rm = instr[14:12];
+
+// Compute effective rounding mode (rm=111 means use fcsr[7:5])
+eff_rm = (rm == 3'b111) ? fcsr[7:5] : rm;
+
+f1 = frf[rs1];
+f2 = frf[rs2];
+
+sub_result = fp_sub_d(f1, f2, eff_rm);
+
+frf[rd] = sub_result;

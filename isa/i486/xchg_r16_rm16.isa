@@ -1,0 +1,149 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 XCHG r16, r/m16 (0x87) - Exchange register word with r/m word
+// Exchanges 16-bit register with 16-bit r/m operand
+// Supports all addressing modes via ModR/M byte:
+//   mod=00: [SI], [DI], [BX] - indirect
+//   mod=01: [SI+disp8], [DI+disp8], [BX+disp8] - indirect + 8-bit displacement
+//   mod=10: [SI+disp16], [DI+disp16], [BX+disp16] - indirect + 16-bit displacement
+//   mod=11: AX, CX, DX, BX, SP, BP, SI, DI - register direct
+
+isa_state xregs[31:0][2:0];    // 16-bit registers array
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+var eip_disp_offset[31:0];
+
+// Register field operand (always register)
+var reg_val[15:0];
+
+// R/M field operand (register or memory)
+var rm_mem_val_lo[7:0];
+var rm_mem_val_hi[7:0];
+var rm_mem_val[15:0];
+var rm_reg_val[15:0];
+var rm_val[15:0];
+
+var is_mem_rm[0:0];
+var write_to_mem[0:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x87;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Pre-calculate address register index for memory modes
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+// Read base offset from address register
+base_offset = xregs[addr_reg_idx];
+
+// Read potential displacement bytes (after opcode and ModR/M)
+disp8 = imem[eip + 2];
+disp16_lo = imem[eip + 2];
+disp16_hi = imem[eip + 3];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+// Calculate offset based on addressing mode
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+// Set r/m operand type flag
+case (mod_bits) {
+  0b00: is_mem_rm = 1'b1;
+  0b01: is_mem_rm = 1'b1;
+  0b10: is_mem_rm = 1'b1;
+  0b11: is_mem_rm = 1'b0;
+}
+
+// Calculate EIP displacement offset based on addressing mode
+case (mod_bits) {
+  0b00: eip_disp_offset = 0;
+  0b01: eip_disp_offset = 1;
+  0b10: eip_disp_offset = 2;
+  0b11: eip_disp_offset = 0;
+}
+
+// Advance EIP: opcode (1) + modrm (1) + displacement (0/1/2)
+eip = eip + 2 + eip_disp_offset;
+
+// Calculate physical addresses for 16-bit memory access (little-endian)
+physical_addr_lo = (DS << 4) + offset;
+physical_addr_hi = (DS << 4) + offset + 16'h0001;
+
+// Read register field operand (always a 16-bit register)
+reg_val = xregs[reg_idx][15:0];
+
+// Read r/m field operand values
+rm_mem_val_lo = dmem[physical_addr_lo];
+rm_mem_val_hi = dmem[physical_addr_hi];
+rm_mem_val = {rm_mem_val_hi, rm_mem_val_lo};
+rm_reg_val = xregs[rm_bits][15:0];
+
+// Select actual r/m value (memory or register)
+case (is_mem_rm) {
+  1'b1: rm_val = rm_mem_val;
+  1'b0: rm_val = rm_reg_val;
+}
+
+// XCHG operation: Exchange reg_val with rm_val
+// Write rm_val to register field, write reg_val to r/m field
+
+// Write rm_val to register field (preserve upper 16 bits)
+xregs[reg_idx][15:0] = rm_val;
+
+// Write reg_val to r/m field
+// Determine if writing to memory or register
+case (is_mem_rm) {
+  1'b1: write_to_mem = 1'b1;
+  1'b0: write_to_mem = 1'b0;
+}
+
+// Write to memory (little-endian)
+case (write_to_mem) {
+  1'b1: dmem[physical_addr_lo] = reg_val[7:0];
+  1'b0: dmem[physical_addr_lo] = dmem[physical_addr_lo];
+}
+
+case (write_to_mem) {
+  1'b1: dmem[physical_addr_hi] = reg_val[15:8];
+  1'b0: dmem[physical_addr_hi] = dmem[physical_addr_hi];
+}
+
+// Write to r/m register (preserve upper 16 bits)
+case (write_to_mem) {
+  1'b1: xregs[rm_bits][15:0] = xregs[rm_bits][15:0];
+  1'b0: xregs[rm_bits][15:0] = reg_val;
+}

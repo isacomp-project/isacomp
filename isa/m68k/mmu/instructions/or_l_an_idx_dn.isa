@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 OR.L (d8,An,Xn),Dn - Logical OR long from indexed memory to data register
+// Opcode: 1000 DDD 010 110 AAA followed by brief extension word
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var base_reg[2:0];
+var olid_ext[15:0];
+var idx_reg[2:0];
+var olid_idx_is_addr[0:0];
+var olid_idx_is_long[0:0];
+var olid_idx_scale[1:0];
+var olid_disp8[7:0];
+var olid_disp_ext[31:0];
+var olid_raw_idx[31:0];
+var olid_idx_val[31:0];
+var olid_scaled_idx[31:0];
+var olid_eff_addr[31:0];
+var olid_src_hi[15:0];
+var olid_src_lo[15:0];
+var olid_src_val[31:0];
+var olid_dst_val[31:0];
+var olid_result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b1000;  // OR opcode
+assume instr[8:6] == 0b010;     // Opmode: long, EA to Dn
+assume instr[5:3] == 0b110;     // EA mode: indexed (d8,An,Xn)
+pc when (~m68k_exc_taken) = pc + 2;
+
+dst_reg = instr[11:9];
+base_reg = instr[2:0];
+
+// Fetch brief extension word
+olid_ext = dmem[pc + pc_pa_delta];
+assume olid_ext[8] == 0b0;  // Brief format
+pc when (~m68k_exc_taken) = pc + 2;
+
+idx_reg = olid_ext[14:12];
+olid_idx_is_addr = olid_ext[15];
+olid_idx_is_long = olid_ext[11];
+olid_idx_scale = olid_ext[10:9];
+olid_disp8 = olid_ext[7:0];
+olid_disp_ext = {{24{olid_disp8[7]}}, olid_disp8};
+
+olid_raw_idx = olid_idx_is_addr ? aregs[idx_reg] : dregs[idx_reg];
+olid_idx_val = olid_idx_is_long ? olid_raw_idx : {{16{olid_raw_idx[15]}}, olid_raw_idx[15:0]};
+
+olid_scaled_idx = olid_idx_scale == 2'b00 ? olid_idx_val :
+                  olid_idx_scale == 2'b01 ? (olid_idx_val << 1) :
+                  olid_idx_scale == 2'b10 ? (olid_idx_val << 2) :
+                                            (olid_idx_val << 3);
+
+// Calculate effective address
+olid_eff_addr = aregs[base_reg] + olid_disp_ext + olid_scaled_idx;
+
+// MMU translate (read-only)
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = olid_eff_addr;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+// Read source from memory (two 16-bit reads, big-endian)
+#ifdef MMU
+olid_src_hi = dmem[ea_pa];
+#else
+olid_src_hi = dmem[olid_eff_addr];
+#endif
+#ifdef MMU
+olid_src_lo = dmem[ea_pa + 2];
+#else
+olid_src_lo = dmem[olid_eff_addr + 2];
+#endif
+olid_src_val = {olid_src_hi, olid_src_lo};
+
+// Execute OR
+olid_dst_val = dregs[dst_reg];
+olid_result = olid_dst_val | olid_src_val;
+
+// Write result to data register
+dregs[dst_reg] when (~m68k_exc_taken & ~data_exc_taken) = olid_result;
+
+// Update CCR (X not affected)
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = olid_result[31];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = olid_result == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

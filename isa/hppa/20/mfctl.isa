@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 MFCTL instruction (64-bit)
+// MFCTL cr,t - Move From Control Register
+// Opcode: 0x00 (bits 31:26), function=0x45 (bits 12:5)
+//
+// Correct PA-RISC 2.0 CR numbering:
+//   CR0=RCTR, CR8=PID1, CR9=PID2, CR10=CCR, CR11=SAR,
+//   CR14=IVA, CR15=EIEM, CR16=ITMR, CR17=IIASQ, CR18=IIAOQ,
+//   CR19=IIR, CR20=ISR, CR21=IOR, CR22=IPSW, CR23=EIRR,
+//   CR24-31=TR0-TR7
+
+// === ISA State ===
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state sar[5:0];
+isa_state priv_level[1:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// Control registers (crNN naming, matching interruption.isa)
+isa_state cr0[63:0];        // Recovery Counter (RCTR)
+isa_state cr8[63:0];        // Protection ID 1
+isa_state cr9[63:0];        // Protection ID 2
+isa_state cr10[63:0];       // CCR
+isa_state cr14[63:0];       // IVA
+isa_state cr15[63:0];       // EIEM
+ext isa_state cr16[63:0];   // ITMR (free-running, driven by testbench)
+isa_state cr17[63:0];       // IIASQ front
+isa_state cr17_back[63:0];  // IIASQ back
+isa_state cr18[63:0];       // IIAOQ front
+isa_state cr18_back[63:0];  // IIAOQ back
+isa_state cr19[63:0];       // IIR
+isa_state cr20[63:0];       // ISR
+isa_state cr21[63:0];       // IOR
+isa_state cr22[63:0];       // IPSW
+ext isa_state cr23[63:0];   // EIRR
+isa_state cr24[63:0];       // TR0
+isa_state cr25[63:0];       // TR1
+isa_state cr26[63:0];       // TR2
+isa_state cr27[63:0];       // TR3
+isa_state cr28[63:0];       // TR4
+isa_state cr29[63:0];       // TR5
+isa_state cr30[63:0];       // TR6
+isa_state cr31[63:0];       // TR7
+
+// External state for interruption aspect
+ext isa_state timer_irq_pending[0:0];
+ext isa_state ext_irq_lines[63:0];
+
+mem umem[25:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+// === Instruction decode ===
+var instr[31:0];
+var cr[4:0];
+var t[4:0];
+var value[63:0];
+
+instr = umem[pc_pa];
+
+// MFCTL encoding: bits[12:5]=0x45
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b01000101;
+
+cr = instr[25:21];
+t = instr[4:0];
+
+// Read control register based on PA-RISC 2.0 CR number
+value = (cr == 0)  ? cr0 :
+        (cr == 8)  ? cr8 :
+        (cr == 9)  ? cr9 :
+        (cr == 10) ? cr10 :
+        (cr == 11) ? {58'h0, sar} :
+        (cr == 14) ? cr14 :
+        (cr == 15) ? cr15 :
+        (cr == 16) ? cr16 :
+        (cr == 17) ? cr17 :
+        (cr == 18) ? cr18 :
+        (cr == 19) ? cr19 :
+        (cr == 20) ? cr20 :
+        (cr == 21) ? cr21 :
+        (cr == 22) ? cr22 :
+        (cr == 23) ? cr23 :
+        (cr == 24) ? cr24 :
+        (cr == 25) ? cr25 :
+        (cr == 26) ? cr26 :
+        (cr == 27) ? cr27 :
+        (cr == 28) ? cr28 :
+        (cr == 29) ? cr29 :
+        (cr == 30) ? cr30 :
+        (cr == 31) ? cr31 :
+        64'h0;
+
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = value;
+pc = pc + 4;

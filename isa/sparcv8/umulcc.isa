@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 UMULcc instruction (unsigned multiply, set condition codes)
+// Format 3: op=10, op3=011010
+// UMULcc rs1, reg_or_imm, rd
+// Y:rd <- rs1 * reg_or_imm (unsigned), set icc based on lower 32 bits
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];  // 256 physical registers (136 used for 8 windows)
+isa_state cwp[2:0];       // Current Window Pointer (0-7)
+isa_state y[31:0];        // Y register holds upper 32 bits of multiply result
+isa_state psr[31:0];      // Processor State Register (icc in bits 23:20)
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+
+var rd[4:0];
+var rs1[4:0];
+var imm[0:0];
+var rs2[4:0];
+var simm13[12:0];
+
+var r1[31:0];
+var r2[31:0];
+var operand2[31:0];
+var r1_ext[63:0];
+var op2_ext[63:0];
+var res64[63:0];
+var res[31:0];
+
+// Condition code temps
+var icc_n[0:0];
+var icc_z[0:0];
+var icc_v[0:0];
+var icc_c[0:0];
+var new_psr[31:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+var phys_rd[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;       // op = 10 (Format 3)
+assume instr[24:19] == 0b011010;   // op3 = UMULcc
+
+rd = instr[29:25];
+rs1 = instr[18:14];
+imm = instr[13];
+rs2 = instr[4:0];
+simm13 = instr[12:0];
+
+// Compute physical register indices for windowed register file
+cwp_m1 = cwp + 3'b111;  // cwp - 1 mod 8
+phys_rs1 = (rs1[4:3] == 2'b00) ? {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs1[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs1[2:0]};
+phys_rs2 = (rs2[4:3] == 2'b00) ? {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs2[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs2[2:0]};
+phys_rd = (rd[4:3] == 2'b00) ? {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rd[2:0]} :
+          ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rd[2:0]};
+
+r1 = (rs1 == 0) ? 32'b0 : rf[phys_rs1];
+r2 = (rs2 == 0) ? 32'b0 : rf[phys_rs2];
+operand2 = imm ? {{19{simm13[12]}}, simm13} : r2;
+
+// Zero extend to 64 bits for unsigned multiply
+r1_ext = {32'b0, r1};
+op2_ext = {32'b0, operand2};
+
+// Unsigned multiply
+res64 = r1_ext * op2_ext;
+res = res64[31:0];
+
+// Compute condition codes based on lower 32 bits
+icc_n = res[31];           // Negative
+icc_z = (res == 32'b0);    // Zero
+icc_v = 1'b0;              // Overflow always 0 for multiply
+icc_c = 1'b0;              // Carry always 0 for multiply
+
+// Update PSR with new icc (bits 23:20 = n,z,v,c)
+new_psr = {psr[31:24], icc_n, icc_z, icc_v, icc_c, psr[19:0]};
+
+// Y gets upper 32 bits, rd gets lower 32 bits
+y = res64[63:32];
+rf[phys_rd] when (rd != 0) = res;
+psr = new_psr;
+pc = pc + 4;

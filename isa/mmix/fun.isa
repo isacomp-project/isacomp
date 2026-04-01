@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX FUN - Floating-Point Unordered (NaN check)
+// FUN $X,$Y,$Z: $X = 1 if $Y or $Z is NaN, else 0
+// Opcode: 0x03
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var y_exp[10:0];
+var z_exp[10:0];
+var y_mant[51:0];
+var z_mant[51:0];
+var y_is_nan[0:0];
+var z_is_nan[0:0];
+var unord[0:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x03;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+
+// Extract exponent and mantissa for NaN check
+y_exp = y_val[62:52];
+z_exp = z_val[62:52];
+y_mant = y_val[51:0];
+z_mant = z_val[51:0];
+
+// NaN: exponent is all 1s (0x7FF) and mantissa is non-zero
+y_is_nan = (y_exp == 11'h7FF) && (y_mant != 52'h0);
+z_is_nan = (z_exp == 11'h7FF) && (z_mant != 52'h0);
+
+// Unordered if either is NaN
+unord = y_is_nan || z_is_nan;
+
+result = unord ? 64'h1 : 64'h0;
+
+rf[x] = result;
+pc = pc + 4;

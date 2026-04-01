@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BOUND r32, m32&32 (0x62)
+// Check array index against bounds
+// Checks if r32 is within bounds [m32] to [m32+4]
+// Generates #BR exception if out of bounds (simplified: assume in bounds)
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var index[31:0];
+var lower_bound[31:0];
+var upper_bound[31:0];
+var mem_addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x62;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];   // Index register to check
+rm_bits = modrm[2:0];
+
+// Memory mode (not register-direct)
+assume mod_bits != 0b11;
+
+// Direct addressing mode (mod=00, rm=110)
+assume mod_bits == 0b00;
+assume rm_bits == 0b110;
+
+// Read displacement (direct address) - offset-based
+mem_addr[7:0] = imem[eip + 2];
+mem_addr[15:8] = imem[eip + 3];
+mem_addr[23:16] = imem[eip + 4];
+mem_addr[31:24] = imem[eip + 5];
+
+// Update EIP to point after instruction
+eip = eip + 6;
+
+// Read index value from register
+index = xregs[reg_idx];
+
+// Read bounds from memory (8 bytes: lower then upper)
+lower_bound[7:0] = dmem[mem_addr];
+lower_bound[15:8] = dmem[mem_addr + 1];
+lower_bound[23:16] = dmem[mem_addr + 2];
+lower_bound[31:24] = dmem[mem_addr + 3];
+upper_bound[7:0] = dmem[mem_addr + 4];
+upper_bound[15:8] = dmem[mem_addr + 5];
+upper_bound[23:16] = dmem[mem_addr + 6];
+upper_bound[31:24] = dmem[mem_addr + 7];
+
+// Check bounds (simplified: assume in bounds)
+// Real implementation would generate #BR exception if out of bounds
+assume index >= lower_bound;
+assume index <= upper_bound;

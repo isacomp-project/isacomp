@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER tlbie - TLB Invalidate Entry (X-Form)
+// tlbie RB,RS,RIC,PRS,R
+// Primary opcode 31, XO=306
+// Invalidates TLB entry with optional broadcast to other processors
+//
+// For single-core implementation without TLB cache, this is a no-op.
+// Page table entries are read directly from memory on each access.
+//
+// Encoding (Power ISA v3.0B):
+//   Bits 6-10: RS (contains LPID for R=1)
+//   Bits 11-15: Reserved
+//   Bits 16-20: RB (contains virtual address/selector info)
+//   Bits 21-22: RIC (Radix Invalidation Control)
+//               00 = TLB, 01 = PWC, 10 = all TLB of process, 11 = all TLB+PWC
+//   Bit 23: PRS (Process Scoped)
+//   Bit 24: R (Radix/HPT selector, 1=Radix)
+//   Bits 25-30: XO[5:10] = 306
+//   Bit 31: Reserved
+//
+// Note on broadcast: Power ISA v3.0+ implementations in the Linux Compliancy
+// Subset are NOT required to implement broadcast TLBIE. Microwatt uses
+// software IPI shootdown instead (kernel sends IPIs to trigger local
+// TLBIEs on other CPUs). For single-core, this behaves identically to tlbiel.
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var rb[4:0];
+var ric[1:0];
+var prs[0:0];
+var r_bit[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 306 (bits 21:30 in Power = bits 10:1 in our encoding)
+assume instr[10:1] == 306;
+
+// Extract fields (for documentation/debugging, not functionally used)
+rs = instr[25:21];      // RS field (LPID for hypervisor mode)
+rb = instr[20:16];      // RB field (VA/selector)
+ric = instr[13:12];     // RIC - Radix Invalidation Control
+prs = instr[11];        // PRS - Process Scoped
+r_bit = instr[10];      // R - Radix mode (should be 1 for Radix MMU)
+
+// No-op for single-core implementation without TLB cache
+// For SMP: would need to broadcast invalidation to other cores
+// Microwatt approach: use CONFIG_PPC_NO_BROADCAST_TLBIEL and
+// software IPI shootdown instead
+
+pc = pc + 4;

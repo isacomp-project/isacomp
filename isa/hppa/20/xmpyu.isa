@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 XMPYU instruction
+// XMPYU fr1,fr2,ft - Cross-multiply unsigned
+// ft = fr1[31:0] * fr2[31:0] (unsigned 32x32->64 multiply)
+// Uses FP register file but performs integer multiplication
+// Opcode: 0x0E (bits 31:26), sub-bits identify XMPYU
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var fr1[4:0];
+var fr2[4:0];
+var ft[4:0];
+
+instr = umem[pc_pa];
+
+// XMPYU encoding: opcode=0x0E, sub-bits[12:8]=00010
+assume instr[31:26] == 0b001110;
+assume instr[15:14] == 0b01;
+assume instr[10:9] == 0b11;    // lower 2 bits of sub-opcode (bit12 = sub[3] is variable)
+assume instr[5:4] == 0b01;     // xb field
+
+// Extract register fields
+fr1 = instr[25:21];
+fr2 = instr[20:16];
+ft = instr[4:0];
+
+// Read source FP registers (lower 32 bits as unsigned integers)
+var src1[31:0]; src1 = frf[fr1][31:0];
+var src2[31:0]; src2 = frf[fr2][31:0];
+
+// Unsigned 32x32 -> 64-bit multiply
+// Extend to 64-bit unsigned, then multiply
+var op1[63:0]; op1 = {32'h0, src1};
+var op2[63:0]; op2 = {32'h0, src2};
+var res[63:0]; res = op1 * op2;
+
+// Write 64-bit result to target FP register
+frf[ft] when (~instr_trap_taken & ~in_nullified) = res;
+
+// Advance PC by 4
+pc = pc + 4;

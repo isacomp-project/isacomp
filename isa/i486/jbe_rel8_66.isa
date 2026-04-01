@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 JBE rel8 with 66 prefix (0x66 0x76) - Jump if Below or Equal (CF=1 or ZF=1)
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+
+var rel8[7:0];
+var offset[31:0];
+var next_pc[31:0];
+var jump_target[31:0];
+var take_jump[0:0];
+
+// Fetch 0x66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch opcode
+instr = imem[eip + 1];
+assume instr == 0x76;
+
+// Fetch rel8 displacement
+rel8 = imem[eip + 2];
+
+// Next PC is after the 3-byte instruction (prefix + opcode + rel8)
+next_pc = eip + 3;
+
+// Sign-extend rel8 to 32 bits
+offset = {{24{rel8[7]}}, rel8};
+jump_target = next_pc + offset;
+
+take_jump = flag_CF | flag_ZF;
+
+case (take_jump) {
+  1'b1: eip = jump_target;
+  1'b0: eip = next_pc;
+}

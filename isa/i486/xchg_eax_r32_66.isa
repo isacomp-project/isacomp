@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 XCHG EAX, r32 with 66 prefix (0x66 0x91-0x97)
+// In real mode, 66 prefix switches from 16-bit to 32-bit operand size
+// Exchange EAX with specified register
+// Note: 0x66 0x90 would be XCHG EAX,EAX but mapped separately
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var reg_idx[2:0];
+var eax_val[31:0];
+var reg_val[31:0];
+
+// Read and verify 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+
+// Check this is an XCHG EAX, r32 instruction (0x91-0x97, not 0x90)
+assume instr[7:3] == 0b10010;  // Upper 5 bits must be 10010
+assume instr[2:0] != 3'b000;   // Not register 0 (that would be NOP)
+
+eip = eip + 2;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read both register values
+eax_val = xregs[0];       // EAX is register 0
+reg_val = xregs[reg_idx];
+
+// Exchange: EAX gets reg_val, reg gets eax_val
+xregs[0] = reg_val;
+xregs[reg_idx] = eax_val;
+
+// XCHG does not affect flags

@@ -1,0 +1,183 @@
+diff --git a/pyGHDL/dom/Concurrent.py b/pyGHDL/dom/Concurrent.py
+index ef1018940..96fd545f1 100644
+--- a/pyGHDL/dom/Concurrent.py
++++ b/pyGHDL/dom/Concurrent.py
+@@ -626,6 +626,11 @@ class WaveformElement(VHDLModel_WaveformElement, DOMMixin):
+ 
+         value = GetExpressionFromNode(nodes.Get_We_Value(waveNode))
+ 
++        # ISAComp patch: Handle case where expression parsing returns None
++        # This can happen with incomplete expression trees in complex VHDL
++        if value is None:
++            return None
++
+         timeNode = nodes.Get_Time(waveNode)
+         if timeNode is nodes.Null_Iir:
+             time = None
+@@ -656,7 +661,11 @@ class ConcurrentSimpleSignalAssignment(VHDLModel_ConcurrentSimpleSignalAssignmen
+ 
+         waveform = []
+         for wave in utils.chain_iter(nodes.Get_Waveform_Chain(assignmentNode)):
+-            waveform.append(WaveformElement.parse(wave))
++            # ISAComp patch: Skip waveform elements that fail to parse
++            # This handles incomplete expression trees gracefully
++            element = WaveformElement.parse(wave)
++            if element is not None:
++                waveform.append(element)
+ 
+         return cls(assignmentNode, label, targetName, waveform)
+ 
+diff --git a/pyGHDL/dom/Expression.py b/pyGHDL/dom/Expression.py
+index 89f7a9f4b..a7ad2e1cf 100644
+--- a/pyGHDL/dom/Expression.py
++++ b/pyGHDL/dom/Expression.py
+@@ -118,8 +118,21 @@ class _ParseBinaryExpressionMixin(metaclass=ExtendedType, mixin=True):
+     def parse(cls, node: Iir) -> VHDLModel_BinaryExpression:
+         from pyGHDL.dom._Translate import GetExpressionFromNode
+ 
+-        left = GetExpressionFromNode(nodes.Get_Left(node))
+-        right = GetExpressionFromNode(nodes.Get_Right(node))
++        # ISAComp patch: Check for null operands before parsing to avoid NoneType._parent errors
++        # This handles cases where VHDL has incomplete expression trees
++        left_node = nodes.Get_Left(node)
++        right_node = nodes.Get_Right(node)
++
++        # If either operand is Null_Iir, GetExpressionFromNode may return None
++        # which causes AttributeError when pyVHDLModel tries to set _parent
++        left = GetExpressionFromNode(left_node) if left_node != nodes.Null_Iir else None
++        right = GetExpressionFromNode(right_node) if right_node != nodes.Null_Iir else None
++
++        # If either operand failed to parse, return None to skip this expression
++        # The caller should handle None gracefully
++        if left is None or right is None:
++            return None
++
+         return cls(node, left, right)
+ 
+ 
+diff --git a/pyGHDL/dom/Literal.py b/pyGHDL/dom/Literal.py
+index 2e0ab910b..e3621d623 100644
+--- a/pyGHDL/dom/Literal.py
++++ b/pyGHDL/dom/Literal.py
+@@ -151,4 +151,35 @@ class StringLiteral(VHDLModel_StringLiteral, DOMMixin):
+             value = str_table.Get_String8_Ptr(nodes.Get_String8_Id(literalNode), nodes.Get_String_Length(literalNode))
+             return cls(literalNode, value)
+         else:
+-            WarningCollector.Raise(NotImplementedError("Bit String Literal not supported yet"))
++            # ISAComp patch: Handle Bit String Literal (x"...", b"...", etc.)
++            base = nodes.Get_Bit_String_Base(literalNode)
++            value = str_table.Get_String8_Ptr(nodes.Get_String8_Id(literalNode), nodes.Get_String_Length(literalNode))
++            # Note: Get_String8_Ptr returns binary representation for all bases
++            # For hex literals, convert binary back to hex
++            if base == nodes.NumberBaseType.Base_16:
++                # Convert binary string to hex
++                try:
++                    int_val = int(value, 2)
++                    # Calculate hex digits needed (round up to nearest nibble)
++                    hex_digits = (len(value) + 3) // 4
++                    hex_value = f'{int_val:0{hex_digits}X}'
++                    value = f'x"{hex_value}"'
++                except (ValueError, TypeError):
++                    # Fallback if conversion fails
++                    value = f'x"{value}"'
++            elif base == nodes.NumberBaseType.Base_2:
++                value = f'b"{value}"'
++            elif base == nodes.NumberBaseType.Base_8:
++                # Convert binary string to octal
++                try:
++                    int_val = int(value, 2)
++                    # Calculate octal digits needed (round up to nearest 3 bits)
++                    oct_digits = (len(value) + 2) // 3
++                    oct_value = f'{int_val:0{oct_digits}o}'
++                    value = f'o"{oct_value}"'
++                except (ValueError, TypeError):
++                    # Fallback if conversion fails
++                    value = f'o"{value}"'
++            else:
++                value = f'"{value}"'
++            return cls(literalNode, value)
+diff --git a/pyGHDL/dom/Sequential.py b/pyGHDL/dom/Sequential.py
+index 2c5ece296..af1290e74 100644
+--- a/pyGHDL/dom/Sequential.py
++++ b/pyGHDL/dom/Sequential.py
+@@ -54,6 +54,7 @@ from pyVHDLModel.Sequential import SequentialProcedureCall as VHDLModel_Sequenti
+ from pyVHDLModel.Sequential import SequentialSimpleSignalAssignment as VHDLModel_SequentialSimpleSignalAssignment
+ from pyVHDLModel.Sequential import SequentialReportStatement as VHDLModel_SequentialReportStatement
+ from pyVHDLModel.Sequential import SequentialAssertStatement as VHDLModel_SequentialAssertStatement
++from pyVHDLModel.Sequential import SequentialVariableAssignment
+ 
+ from pyGHDL.libghdl import Iir, utils
+ from pyGHDL.libghdl.vhdl import nodes
+@@ -62,6 +63,25 @@ from pyGHDL.dom.Range import Range
+ from pyGHDL.dom.Concurrent import WaveformElement, ParameterAssociationItem  # TODO: move out from concurrent?
+ 
+ 
++# ISAComp patch: Add SequentialSimpleVariableAssignment class
++class SequentialSimpleVariableAssignment(SequentialVariableAssignment):
++    def __init__(self, target, expression):
++        super().__init__()
++        self.Target = target
++        self.BaseExpression = expression
++
++    @classmethod
++    def parse(cls, assignmentNode: Iir) -> "SequentialSimpleVariableAssignment":
++        from pyGHDL.dom._Translate import GetName, GetExpressionFromNode
++
++        target = nodes.Get_Target(assignmentNode)
++        targetName = GetName(target)
++
++        expression = GetExpressionFromNode(nodes.Get_Expression(assignmentNode))
++
++        return cls(targetName, expression)
++
++
+ @export
+ class IfBranch(VHDLModel_IfBranch, DOMMixin):
+     def __init__(
+@@ -294,7 +314,9 @@ class CaseStatement(VHDLModel_CaseStatement, DOMMixin):
+                     continue
+             elif choiceKind is nodes.Iir_Kind.Choice_By_Others:
+                 if choices is not None:
+-                    cases.append(Case.parse(alternative, choices, label))
++                    # ISAComp bugfix: Use cNode instead of alternative
++                    # alternative points to the 'others' clause, but we need the previous case's node
++                    cases.append(Case.parse(cNode, choices, label))
+                     choices = None
+                 cases.append(OthersCase.parse(alternative, label))
+                 alternative = nodes.Get_Chain(alternative)
+@@ -387,7 +409,11 @@ class SequentialSimpleSignalAssignment(VHDLModel_SequentialSimpleSignalAssignmen
+ 
+         waveform = []
+         for wave in utils.chain_iter(nodes.Get_Waveform_Chain(assignmentNode)):
+-            waveform.append(WaveformElement.parse(wave))
++            # ISAComp patch: Skip waveform elements that fail to parse
++            # This handles incomplete expression trees gracefully
++            element = WaveformElement.parse(wave)
++            if element is not None:
++                waveform.append(element)
+ 
+         return cls(assignmentNode, targetName, waveform, label)
+ 
+diff --git a/pyGHDL/dom/_Translate.py b/pyGHDL/dom/_Translate.py
+index 2cfae42a0..0649e0649 100644
+--- a/pyGHDL/dom/_Translate.py
++++ b/pyGHDL/dom/_Translate.py
+@@ -977,12 +977,13 @@ def GetSequentialStatementsFromChainedNodes(
+             yield CaseStatement.parse(statement, label)
+         elif kind == nodes.Iir_Kind.Simple_Signal_Assignment_Statement:
+             yield SequentialSimpleSignalAssignment.parse(statement, label)
+-        elif kind in (
+-            nodes.Iir_Kind.Variable_Assignment_Statement,
+-            nodes.Iir_Kind.Conditional_Variable_Assignment_Statement,
+-        ):
++        elif kind == nodes.Iir_Kind.Variable_Assignment_Statement:
++            # ISAComp patch: Handle variable assignments
++            from pyGHDL.dom.Sequential import SequentialSimpleVariableAssignment
++            yield SequentialSimpleVariableAssignment.parse(statement)
++        elif kind == nodes.Iir_Kind.Conditional_Variable_Assignment_Statement:
+             WarningCollector.Raise(
+-                NotImplementedError(f"Variable assignment (label: '{label}') at line {position.Line}")
++                NotImplementedError(f"Conditional variable assignment (label: '{label}') at line {position.Line}")
+             )
+         elif kind == nodes.Iir_Kind.Wait_Statement:
+             yield WaitStatement.parse(statement, label)

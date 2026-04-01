@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV64D - FMV.D.X (Move integer register to double)
+// Encoding: funct7=1111001, rs2=00000, rs1, rm=000, rd, opcode=1010011
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var r1[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;
+assume instr[31:27] == 0b11110;   // FMV.D.X funct5
+assume instr[26:25] == 0b01;      // fmt = D
+assume instr[24:20] == 0b00000;   // rs2 = 0
+assume instr[14:12] == 0b000;     // funct3 = 0
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+
+r1 = rf[rs1];
+
+// Move bit pattern directly (no conversion)
+frf[rd] = r1;

@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 POP AF (0xF1) - Pop AF register pair from stack
+// F = (SP), A = (SP+1), SP = SP + 2
+// Flags are loaded from memory!
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state sp[15:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_S[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_H[0:0];
+isa_state flag_PV[0:0];
+isa_state flag_N[0:0];
+isa_state flag_C[0:0];
+
+var F[7:0];
+var sp_plus_1[15:0];
+var sp_plus_2[15:0];
+
+instr = mainmem[pc];
+assume instr == 0xF1;
+pc = pc + 1;
+
+F = mainmem[sp];
+sp_plus_1 = sp + 1;
+A = mainmem[sp_plus_1];
+sp_plus_2 = sp_plus_1 + 1;
+
+// Extract flags from F register
+// F: S(7) Z(6) 0(5) H(4) 0(3) P/V(2) N(1) C(0)
+flag_S = F[7];
+flag_Z = F[6];
+flag_H = F[4];
+flag_PV = F[2];
+flag_N = F[1];
+flag_C = F[0];
+
+sp = sp_plus_2;

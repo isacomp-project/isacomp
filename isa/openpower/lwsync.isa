@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER lwsync - Lightweight Synchronize (X-Form)
+// lwsync
+// This is an alias for "sync 1" (sync with L=1)
+// Primary opcode 31, XO=598, L=1
+// Lightweight memory barrier that orders:
+//   - Load operations with respect to subsequent Load operations
+//   - Load operations with respect to subsequent Store operations
+//   - Store operations with respect to subsequent Store operations
+// Does NOT order Store operations with respect to subsequent Load operations
+// Commonly used for lock release and acquire semantics
+// In single-core, in-order implementation: modeled as no-op
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+var l_field[1:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 598
+assume instr[10:1] == 598;
+
+// Extract L field and ensure it's 1 for lwsync
+l_field = instr[10:9];
+assume l_field == 1;
+
+// Lwsync execution: lightweight memory barrier
+// For single-core implementation, this is a no-op
+pc = pc + 4;

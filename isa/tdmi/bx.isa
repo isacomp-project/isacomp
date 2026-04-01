@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TDMI BX (branch exchange) - Branch and optionally switch to Thumb
+// Encoding: cond|0001|0010|1111|1111|1111|0001|Rm
+// BX{cond} Rm
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+
+// Banked registers for FIQ mode (R8-R14)
+isa_state rf_fiq[31:0][2:0];       // R8_fiq(0) - R14_fiq(6)
+
+// Banked SP/LR for other privileged modes
+isa_state rf_irq_sp[31:0];
+isa_state rf_irq_lr[31:0];
+isa_state rf_svc_sp[31:0];
+isa_state rf_svc_lr[31:0];
+isa_state rf_abt_sp[31:0];
+isa_state rf_abt_lr[31:0];
+isa_state rf_und_sp[31:0];
+isa_state rf_und_lr[31:0];
+
+// Saved Program Status Registers
+isa_state spsr_fiq[31:0];
+isa_state spsr_irq[31:0];
+isa_state spsr_svc[31:0];
+isa_state spsr_abt[31:0];
+isa_state spsr_und[31:0];
+mem umem[21:0];
+
+var cond[3:0];
+var rm[3:0];
+var Rm_val[31:0];
+var target[31:0];
+var thumb_bit[0:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+var new_cpsr[31:0];
+
+// Mode detection
+var mode[4:0];
+var is_fiq[0:0];
+var is_irq[0:0];
+var is_svc[0:0];
+var is_abt[0:0];
+var is_und[0:0];
+var rm_fiq_idx[2:0];
+
+instr = umem[pc];
+
+// Decode - BX instruction
+assume instr[27:20] == 0b00010010;
+assume instr[19:8] == 0xFFF;
+assume instr[7:4] == 0b0001;
+
+cond = instr[31:28];
+rm = instr[3:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |
+            ((cond == 0b0000) & z_flag) |
+            ((cond == 0b0001) & ~z_flag) |
+            ((cond == 0b0010) & c_flag) |
+            ((cond == 0b0011) & ~c_flag) |
+            ((cond == 0b0100) & n_flag) |
+            ((cond == 0b0101) & ~n_flag) |
+            ((cond == 0b0110) & v_flag) |
+            ((cond == 0b0111) & ~v_flag) |
+            ((cond == 0b1000) & c_flag & ~z_flag) |
+            ((cond == 0b1001) & (~c_flag | z_flag)) |
+            ((cond == 0b1010) & (n_flag == v_flag)) |
+            ((cond == 0b1011) & (n_flag != v_flag)) |
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) |
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag)));
+
+// Detect current processor mode
+mode = cpsr[4:0];
+is_fiq = (mode == 5'b10001);
+is_irq = (mode == 5'b10010);
+is_svc = (mode == 5'b10011);
+is_abt = (mode == 5'b10111);
+is_und = (mode == 5'b11011);
+rm_fiq_idx = rm[2:0];
+
+// Get target address from Rm
+// Read Rm with mode-aware banking
+Rm_val = (rm == 0b1111) ? (pc + 8) :
+         (rm == 4'b1101) ? (is_fiq ? rf_fiq[5] :
+                           is_irq ? rf_irq_sp :
+                           is_svc ? rf_svc_sp :
+                           is_abt ? rf_abt_sp :
+                           is_und ? rf_und_sp :
+                           rf[13]) :
+         (rm == 4'b1110) ? (is_fiq ? rf_fiq[6] :
+                           is_irq ? rf_irq_lr :
+                           is_svc ? rf_svc_lr :
+                           is_abt ? rf_abt_lr :
+                           is_und ? rf_und_lr :
+                           rf[14]) :
+         ((rm[3] == 1'b1) & (rm != 4'b1111) & is_fiq) ? rf_fiq[rm_fiq_idx] :
+         rf[rm];
+
+// Bit 0 determines A/T state
+thumb_bit = Rm_val[0];
+
+// Target address with bit 0 cleared
+target = {Rm_val[31:1], 1'b0};
+
+// Update T bit in CPSR (bit 5)
+new_cpsr = {cpsr[31:6], thumb_bit, cpsr[4:0]};
+
+// Update CPSR if condition passes
+cpsr when (cond_pass) = new_cpsr;
+
+// Update PC
+pc = cond_pass ? target : (pc + 4);

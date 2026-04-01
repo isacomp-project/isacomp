@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MUL r/m32 (0xF7 /4)
+// Unsigned multiply: EDX:EAX = EAX * r/m32
+// Sets CF/OF if upper half (EDX) is non-zero
+// SF, ZF, AF, PF are undefined
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+isa_state EDX[31:0] of xregs[2];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var src_val[31:0];
+var result[63:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xF7;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is MUL (reg_bits = 100)
+assume reg_bits == 0b100;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read source value
+src_val = xregs[rm_bits];
+
+// Update EIP
+eip = eip + 2;
+
+// Perform unsigned multiply: EDX:EAX = EAX * src_val
+result = EAX * src_val;
+
+// Store result
+EAX = result[31:0];   // Low 32 bits
+EDX = result[63:32];  // High 32 bits
+
+// Set flags: CF and OF set if upper half is non-zero
+flag_CF = (result[63:32] != 32'h00000000);
+flag_OF = (result[63:32] != 32'h00000000);

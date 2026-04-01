@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX GET - Get Special Register
+// GET $X,rZ: $X = special register Z
+// Opcode: 0xFE
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rA[63:0];  // rA: arithmetic status
+isa_state rB[63:0];  // rB: bootstrap register
+isa_state rC[63:0];  // rC: cycle counter
+isa_state rD[63:0];  // rD: dividend register
+isa_state rE[63:0];  // rE: epsilon register
+isa_state rF[63:0];  // rF: failure location
+isa_state rG[63:0];  // rG: global threshold
+isa_state rH[63:0];  // rH: himult register
+isa_state rI[63:0];  // rI: interval counter
+isa_state rJ[63:0];  // rJ: return-jump register
+isa_state rK[63:0];  // rK: interrupt mask
+isa_state rL[63:0];  // rL: local threshold
+isa_state rM[63:0];  // rM: multiplex mask
+isa_state rN[63:0];  // rN: serial number
+isa_state rO[63:0];  // rO: register stack offset
+isa_state rP[63:0];  // rP: prediction register
+isa_state rQ[63:0];  // rQ: interrupt request
+isa_state rR[63:0];  // rR: remainder register
+isa_state rS[63:0];  // rS: register stack pointer
+isa_state rT[63:0];  // rT: trap address
+isa_state rU[63:0];  // rU: usage counter
+isa_state rV[63:0];  // rV: virtual translation
+isa_state rW[63:0];  // rW: where-interrupted (trip)
+isa_state rX[63:0];  // rX: execution (trip)
+isa_state rY[63:0];  // rY: Y operand (trip)
+isa_state rZ[63:0];  // rZ: Z operand (trip)
+mem umem[14:0];
+
+var x[7:0];
+var z[7:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xFE;
+
+x = instr[23:16];
+z = instr[7:0];
+
+// Select special register based on Z field
+result = (z == 8'd0) ? rB :
+         (z == 8'd1) ? rD :
+         (z == 8'd2) ? rE :
+         (z == 8'd3) ? rH :
+         (z == 8'd4) ? rJ :
+         (z == 8'd5) ? rM :
+         (z == 8'd6) ? rR :
+         (z == 8'd7) ? rA :
+         (z == 8'd8) ? rC :
+         (z == 8'd9) ? rG :
+         (z == 8'd10) ? rL :
+         (z == 8'd11) ? rO :
+         (z == 8'd12) ? rS :
+         (z == 8'd13) ? rI :
+         (z == 8'd14) ? rT :
+         (z == 8'd15) ? rK :
+         (z == 8'd16) ? rQ :
+         (z == 8'd17) ? rU :
+         (z == 8'd18) ? rV :
+         64'h0;
+
+rf[x] = result;
+pc = pc + 4;

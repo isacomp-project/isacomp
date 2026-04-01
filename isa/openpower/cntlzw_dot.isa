@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER cntlzw. - Count Leading Zeros Word and Record (X-Form)
+// cntlzw. RA,RS
+// Primary opcode 31, XO=26, Rc=1
+// RA <- count of leading zeros in (RS)[32:63]
+// Updates CR0
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state cr[31:0];
+
+var rs[4:0];
+var ra[4:0];
+var rs_val[63:0];
+var word_val[31:0];
+var count[6:0];
+var result[63:0];
+var new_cr[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 26
+assume instr[10:1] == 26;
+// Rc bit = 1
+assume instr[0] == 1;
+
+// Extract register fields
+rs = instr[25:21];
+ra = instr[20:16];
+
+rs_val = rf[rs];
+word_val = rs_val[31:0];
+
+// Count leading zeros using cascaded conditionals
+count = word_val[31] ? 7'd0 :
+        word_val[30] ? 7'd1 :
+        word_val[29] ? 7'd2 :
+        word_val[28] ? 7'd3 :
+        word_val[27] ? 7'd4 :
+        word_val[26] ? 7'd5 :
+        word_val[25] ? 7'd6 :
+        word_val[24] ? 7'd7 :
+        word_val[23] ? 7'd8 :
+        word_val[22] ? 7'd9 :
+        word_val[21] ? 7'd10 :
+        word_val[20] ? 7'd11 :
+        word_val[19] ? 7'd12 :
+        word_val[18] ? 7'd13 :
+        word_val[17] ? 7'd14 :
+        word_val[16] ? 7'd15 :
+        word_val[15] ? 7'd16 :
+        word_val[14] ? 7'd17 :
+        word_val[13] ? 7'd18 :
+        word_val[12] ? 7'd19 :
+        word_val[11] ? 7'd20 :
+        word_val[10] ? 7'd21 :
+        word_val[9] ? 7'd22 :
+        word_val[8] ? 7'd23 :
+        word_val[7] ? 7'd24 :
+        word_val[6] ? 7'd25 :
+        word_val[5] ? 7'd26 :
+        word_val[4] ? 7'd27 :
+        word_val[3] ? 7'd28 :
+        word_val[2] ? 7'd29 :
+        word_val[1] ? 7'd30 :
+        word_val[0] ? 7'd31 : 7'd32;
+
+// Zero-extend to 64 bits
+result = {57'h0, count};
+
+// Update CR0: LT=0 (result is always positive), GT=(count<32), EQ=(count==32), SO=0
+var cr0[3:0];
+cr0[3] = 1'b0;  // LT
+cr0[2] = (count == 32) ? 1'b0 : 1'b1;  // GT
+cr0[1] = (count == 32) ? 1'b1 : 1'b0;  // EQ
+cr0[0] = cr[0];  // SO (copy from XER, simplified to keep existing CR[SO])
+
+new_cr = {cr0, cr[27:0]};
+cr = new_cr;
+
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+pc = pc + 4;

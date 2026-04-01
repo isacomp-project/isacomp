@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// FNEG FRn - Floating-Point Negate
+// FRn = -FRn (flip sign bit)
+isa_state pc[31:0];
+var instr[15:0];
+mem umem[23:0];
+
+isa_state fr[31:0][3:0];
+isa_state fpscr[31:0];
+isa_state fpul[31:0];
+
+var frn[3:0];
+var FRn[31:0];
+var res[31:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:8] == 0xF0;
+assume instr[7:0] == 0x4D;
+frn = instr[7:4];
+
+FRn = fr[frn];
+
+// Negate by flipping sign bit (bit 31)
+res = {~FRn[31], FRn[30:0]};
+
+fr[frn] = res;
+pc = pc + 2;

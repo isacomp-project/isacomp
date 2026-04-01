@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD 26 nn - LD IXH,n (undocumented)
+// IXH = n
+// Does not affect flags
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+isa_state IXH[7:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'h26DD;
+
+IXH = mainmem[pc_plus_2];
+pc = pc_plus_2 + 1;

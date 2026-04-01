@@ -1,0 +1,285 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030 PTESTR - Test a Logical Address for Read
+// Opcode: 1111 000 000 010 RRR followed by extension word
+// Extension word (MC68030):
+//   bit 15-13: 100 (PTEST identifier)
+//   bit 12-10: LLL (level)
+//   bit 9:     R/W (1=read=PTESTR)
+//   bit 8:     A (store result PA in A-register)
+//   bit 7-5:   DDD (result A-register if A=1)
+//   bit 4-0:   FC specifier (10xxx=immediate)
+//
+// Walks the page tables in memory (same walk as ATC translation aspects)
+// and reports the result in MMUSR. Does NOT modify ATC.
+// Privileged instruction.
+
+isa_state pc[31:0];
+var instr[15:0];
+var ptr_extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+
+isa_state sr[15:0];
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state mmusr[15:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ptr_ea_reg[2:0];
+var ptr_level[2:0];
+var ptr_has_areg[0:0];
+var ptr_areg[2:0];
+var ptr_fc[2:0];
+var ptr_addr[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch first word
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b1111000000;
+assume instr[5:3] == 3'b010;            // EA mode: (An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+ptr_ea_reg = instr[2:0];
+
+// Fetch extension word
+ptr_extw = dmem[pc + pc_pa_delta];
+assume ptr_extw[15:13] == 3'b100;       // PTEST identifier
+assume ptr_extw[9] == 1'b1;             // R/W=1 (read = PTESTR)
+assume ptr_extw[4:3] == 2'b10;          // FC specifier: immediate mode
+pc when (~m68k_exc_taken) = pc + 2;
+
+ptr_level = ptr_extw[12:10];
+ptr_has_areg = ptr_extw[8];
+ptr_areg = ptr_extw[7:5];
+ptr_fc = ptr_extw[2:0];
+
+assume sr[13] == 1'b1;  // Supervisor mode required
+
+// Address to test
+ptr_addr = aregs[ptr_ea_reg];
+
+// ============================================================================
+// Transparent Translation Check (same logic as ATC aspects)
+// ============================================================================
+var ptr_is_supervisor[0:0];
+ptr_is_supervisor = sr[13];
+
+var ptr_mmu_enabled[0:0];
+ptr_mmu_enabled = tc[31];
+
+var ptr_tt0_base[7:0];
+var ptr_tt0_mask[7:0];
+var ptr_tt0_enable[0:0];
+var ptr_tt1_base[7:0];
+var ptr_tt1_mask[7:0];
+var ptr_tt1_enable[0:0];
+
+ptr_tt0_base = tt0[31:24];
+ptr_tt0_mask = tt0[23:16];
+ptr_tt0_enable = tt0[15];
+ptr_tt1_base = tt1[31:24];
+ptr_tt1_mask = tt1[23:16];
+ptr_tt1_enable = tt1[15];
+
+var ptr_tt0_sfield[1:0];
+var ptr_tt1_sfield[1:0];
+var ptr_tt0_s_ok[0:0];
+var ptr_tt1_s_ok[0:0];
+ptr_tt0_sfield = tt0[14:13];
+ptr_tt1_sfield = tt1[14:13];
+ptr_tt0_s_ok = (ptr_tt0_sfield == 2'b00) | ((ptr_tt0_sfield == 2'b01) & ~ptr_is_supervisor) | ((ptr_tt0_sfield == 2'b10) & ptr_is_supervisor);
+ptr_tt1_s_ok = (ptr_tt1_sfield == 2'b00) | ((ptr_tt1_sfield == 2'b01) & ~ptr_is_supervisor) | ((ptr_tt1_sfield == 2'b10) & ptr_is_supervisor);
+
+var ptr_tt0_match[0:0];
+var ptr_tt1_match[0:0];
+ptr_tt0_match = ptr_tt0_enable & ptr_tt0_s_ok & ((ptr_addr[31:24] & ~ptr_tt0_mask) == (ptr_tt0_base & ~ptr_tt0_mask));
+ptr_tt1_match = ptr_tt1_enable & ptr_tt1_s_ok & ((ptr_addr[31:24] & ~ptr_tt1_mask) == (ptr_tt1_base & ~ptr_tt1_mask));
+
+var ptr_transparent[0:0];
+ptr_transparent = ptr_tt0_match | ptr_tt1_match;
+
+// ============================================================================
+// Page Table Walk (same 3-level walk as ATC translation aspects)
+// ============================================================================
+var ptr_use_srp[0:0];
+ptr_use_srp = tc[25] & ptr_is_supervisor;
+
+var ptr_root_desc[31:0];
+ptr_root_desc = ptr_use_srp ? srp[31:0] : crp[31:0];
+
+var ptr_root_dt[1:0];
+ptr_root_dt = ptr_use_srp ? srp[33:32] : crp[33:32];
+var ptr_root_valid[0:0];
+ptr_root_valid = (ptr_root_dt == 2'b10) | (ptr_root_dt == 2'b11);
+
+// Level A: index from VA[31:25] (TIA=7 bits)
+var ptr_level_a_idx[6:0];
+ptr_level_a_idx = ptr_addr[31:25];
+
+var ptr_root_table_base[31:0];
+ptr_root_table_base = {ptr_root_desc[31:2], 2'b00};
+
+var ptr_level_a_desc_addr[31:0];
+ptr_level_a_desc_addr = ptr_root_table_base + {23'b0, ptr_level_a_idx, 2'b00};
+
+var ptr_level_a_desc_hi[15:0];
+var ptr_level_a_desc_lo[15:0];
+ptr_level_a_desc_hi = dmem[ptr_level_a_desc_addr];
+ptr_level_a_desc_lo = dmem[ptr_level_a_desc_addr + 2];
+
+var ptr_level_a_desc[31:0];
+ptr_level_a_desc = {ptr_level_a_desc_hi, ptr_level_a_desc_lo};
+
+var ptr_level_a_dt[1:0];
+ptr_level_a_dt = ptr_level_a_desc[1:0];
+var ptr_level_a_valid[0:0];
+ptr_level_a_valid = (ptr_level_a_dt == 2'b10) | (ptr_level_a_dt == 2'b11);
+var ptr_level_a_is_page[0:0];
+ptr_level_a_is_page = (ptr_level_a_dt == 2'b01);
+
+// Level B: index from VA[24:18] (TIB=7 bits)
+var ptr_level_b_idx[6:0];
+ptr_level_b_idx = ptr_addr[24:18];
+
+var ptr_level_b_table_base[31:0];
+ptr_level_b_table_base = {ptr_level_a_desc[31:4], 4'b0000};
+
+var ptr_level_b_desc_addr[31:0];
+ptr_level_b_desc_addr = ptr_level_b_table_base + {23'b0, ptr_level_b_idx, 2'b00};
+
+var ptr_level_b_desc_hi[15:0];
+var ptr_level_b_desc_lo[15:0];
+ptr_level_b_desc_hi = dmem[ptr_level_b_desc_addr];
+ptr_level_b_desc_lo = dmem[ptr_level_b_desc_addr + 2];
+
+var ptr_level_b_desc[31:0];
+ptr_level_b_desc = {ptr_level_b_desc_hi, ptr_level_b_desc_lo};
+
+var ptr_level_b_dt[1:0];
+ptr_level_b_dt = ptr_level_b_desc[1:0];
+var ptr_level_b_valid[0:0];
+ptr_level_b_valid = (ptr_level_b_dt == 2'b10) | (ptr_level_b_dt == 2'b11);
+var ptr_level_b_is_page[0:0];
+ptr_level_b_is_page = (ptr_level_b_dt == 2'b01);
+
+// Level C: index from VA[17:12] (TIC=6 bits)
+var ptr_level_c_idx[5:0];
+ptr_level_c_idx = ptr_addr[17:12];
+
+var ptr_level_c_table_base[31:0];
+ptr_level_c_table_base = {ptr_level_b_desc[31:4], 4'b0000};
+
+var ptr_level_c_desc_addr[31:0];
+ptr_level_c_desc_addr = ptr_level_c_table_base + {24'b0, ptr_level_c_idx, 2'b00};
+
+var ptr_level_c_desc_hi[15:0];
+var ptr_level_c_desc_lo[15:0];
+ptr_level_c_desc_hi = dmem[ptr_level_c_desc_addr];
+ptr_level_c_desc_lo = dmem[ptr_level_c_desc_addr + 2];
+
+var ptr_level_c_desc[31:0];
+ptr_level_c_desc = {ptr_level_c_desc_hi, ptr_level_c_desc_lo};
+
+var ptr_level_c_dt[1:0];
+ptr_level_c_dt = ptr_level_c_desc[1:0];
+var ptr_level_c_is_page[0:0];
+ptr_level_c_is_page = (ptr_level_c_dt == 2'b01);
+
+// ============================================================================
+// Walk result
+// ============================================================================
+var ptr_need_walk[0:0];
+ptr_need_walk = ptr_mmu_enabled & ~ptr_transparent;
+
+var ptr_walk_ok[0:0];
+ptr_walk_ok = ptr_root_valid & (ptr_level_a_is_page | (ptr_level_a_valid & (ptr_level_b_is_page | (ptr_level_b_valid & ptr_level_c_is_page))));
+
+var ptr_walk_success[0:0];
+ptr_walk_success = ptr_need_walk & ptr_walk_ok;
+
+// Get the final page descriptor (from whichever level terminated)
+var ptr_final_desc[31:0];
+ptr_final_desc = ptr_level_a_is_page ? ptr_level_a_desc :
+                 (ptr_level_a_valid & ptr_level_b_is_page) ? ptr_level_b_desc :
+                 ptr_level_c_desc;
+
+// Extract page descriptor fields: [2]=WP (write protect), [3]=U (used), [4]=M (modified), [7]=S (supervisor)
+var ptr_wp[0:0];
+ptr_wp = ptr_final_desc[2];
+var ptr_modified[0:0];
+ptr_modified = ptr_final_desc[4];
+var ptr_supervisor_only[0:0];
+ptr_supervisor_only = 1'b0;  // S bit not in short-format page descriptors
+
+// Physical page number for result register
+var ptr_walked_ppn[19:0];
+ptr_walked_ppn = ptr_level_a_is_page ? {ptr_level_a_desc[31:25], ptr_addr[24:12]} :
+                 (ptr_level_a_valid & ptr_level_b_is_page) ? {ptr_level_b_desc[31:18], ptr_addr[17:12]} :
+                 ptr_level_c_desc[31:12];
+
+// ============================================================================
+// Build MMUSR
+// ============================================================================
+//   [15] B = Bus Error during walk (walk needed but failed)
+//   [14] L = Limit violation (0, not used in 68030)
+//   [13] S = Supervisor only
+//   [12] A = 0 (reserved in 68030 MMUSR)
+//   [10] = page found
+//   [9]  W = Write Protected
+//   [8]  I = Invalid (walk needed but no valid translation)
+//   [7]  M = Modified
+//   [5:3] N = Number of levels searched
+//   [2]  T = Transparent translation hit
+//   [1]  R = Resident (valid page found)
+//   [0]  0
+var ptr_resident[0:0];
+ptr_resident = ptr_transparent | ptr_walk_success;
+
+var ptr_invalid[0:0];
+ptr_invalid = ptr_need_walk & ~ptr_walk_ok;
+
+var ptr_bus_error[0:0];
+ptr_bus_error = ptr_need_walk & ~ptr_walk_ok;
+
+var ptr_new_mmusr[15:0];
+ptr_new_mmusr = {
+    ptr_bus_error,         // [15] B
+    1'b0,                  // [14] L
+    ptr_supervisor_only,   // [13] S
+    1'b0,                  // [12]
+    1'b0,                  // [11]
+    ptr_walk_success,      // [10]
+    ptr_wp & ptr_walk_success,  // [9] W (only meaningful if walk succeeded)
+    ptr_invalid,           // [8] I
+    ptr_modified & ptr_walk_success, // [7] M
+    1'b0,                  // [6]
+    ptr_level,             // [5:3] N
+    ptr_transparent,       // [2] T
+    ptr_resident,          // [1] R
+    1'b0                   // [0]
+};
+
+mmusr when (~m68k_exc_taken) = ptr_new_mmusr;
+
+// If A bit set and walk succeeded, store physical address in result register
+aregs[ptr_areg] when (ptr_has_areg & ptr_walk_success & ~m68k_exc_taken) = {ptr_walked_ppn, ptr_addr[11:0]};

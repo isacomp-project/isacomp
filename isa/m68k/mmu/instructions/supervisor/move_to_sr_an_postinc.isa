@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 MOVE (An)+,SR - Move word from memory with postincrement to Status Register
+// Opcode: 0100 0110 11 011 rrr (46D8-46DF) where rrr=address register
+// Privileged instruction - loads entire SR from memory source
+// Common usage: move.w (sp)+,sr to restore SR from stack
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+// Full Status Register and supervisor state
+isa_state sr[15:0];
+isa_state usp[31:0];
+isa_state ssp[31:0];
+
+// CCR flags
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var mtspi_addr[31:0];
+var mtspi_data[15:0];
+var mtspi_new_sr[15:0];
+var mtspi_old_s[0:0];
+var mtspi_new_s[0:0];
+var mtspi_ssp_save[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b0100011011;  // MOVE to SR opcode
+assume instr[5:3] == 3'b011;            // EA mode: Address Register Indirect with Postincrement
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Must be in supervisor mode (privileged on 68010+)
+assume sr[13] == 1'b1;
+
+// Decode source register
+src_reg = instr[2:0];
+
+// Read word from memory
+mtspi_addr = aregs[src_reg];
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = mtspi_addr;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+mtspi_data = dmem[ea_pa];
+#else
+mtspi_data = dmem[mtspi_addr];
+#endif
+mtspi_new_sr = mtspi_data;
+
+// Post-increment address register by 2 (word size)
+aregs[src_reg] when (~m68k_exc_taken & ~data_exc_taken) = mtspi_addr + 2;
+
+// Check for mode change (S bit)
+mtspi_old_s = sr[13];
+mtspi_new_s = mtspi_new_sr[13];
+
+// If transitioning from supervisor to user mode:
+// Save SSP (postincremented if src is A7) and restore USP
+mtspi_ssp_save = (src_reg == 3'b111) ? (mtspi_addr + 32'd2) : aregs[7];
+ssp when (mtspi_old_s & ~mtspi_new_s & ~m68k_exc_taken) = mtspi_ssp_save;
+aregs[7] when (mtspi_old_s & ~mtspi_new_s & ~m68k_exc_taken) = usp;
+
+// Update Status Register
+sr when (~m68k_exc_taken & ~data_exc_taken) = mtspi_new_sr;
+
+// Update CCR flag aliases
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = mtspi_new_sr[0];
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = mtspi_new_sr[1];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = mtspi_new_sr[2];
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = mtspi_new_sr[3];
+flag_X when (~m68k_exc_taken & ~data_exc_taken) = mtspi_new_sr[4];

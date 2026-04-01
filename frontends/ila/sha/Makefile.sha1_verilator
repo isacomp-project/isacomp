@@ -1,0 +1,41 @@
+# Makefile for SHA-1 Compression Function Testbench using Verilator with Verilog TB
+# Verilator 5+ supports Verilog testbenches
+
+# Verilator settings
+VERILATOR = verilator
+VERILATOR_FLAGS = --binary --trace
+VERILATOR_FLAGS += -Wno-UNUSEDSIGNAL -Wno-UNDRIVEN -Wno-WIDTH
+VERILATOR_FLAGS += -Wno-DECLFILENAME -Wno-UNUSEDPARAM
+
+# Source files
+RTL_SRC = sha1_function.v
+TB_SRC = sha1_function_tb.v
+
+# Output executable
+EXE = obj_dir/Vsha1_function_tb
+
+# Default target
+all: $(EXE)
+	@echo "========================================"
+	@echo "Running SHA-1 Compression Function Test"
+	@echo "========================================"
+	./$(EXE)
+
+# Build the testbench with Verilator
+$(EXE): $(RTL_SRC) $(TB_SRC)
+	$(VERILATOR) $(VERILATOR_FLAGS) --top-module sha1_function_tb $(TB_SRC) $(RTL_SRC)
+
+# Run the test
+run: $(EXE)
+	./$(EXE)
+
+# Clean build artifacts
+clean:
+	rm -rf obj_dir
+	rm -f sha1_function_tb.vcd
+
+# View waveforms (requires GTKWave)
+wave: sha1_function_tb.vcd
+	gtkwave sha1_function_tb.vcd &
+
+.PHONY: all run clean wave

@@ -1,0 +1,79 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// LDS.L @Rn+, MACL - Load System Register from Memory with Post-increment
+// Loads MACL from @Rn, then increments Rn by 4
+// Opcode: 0100nnnn00010110 (0x4n16)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state macl[31:0];
+
+var rn[3:0];
+var Rn[31:0];
+var ldsl_macl_addr[31:0];
+var data32[31:0];
+
+// Address error checking variables
+var load_addr[31:0];
+var load_size[1:0];
+var ldsl_macl_no_error[0:0];
+
+// Register banking variables (unique to ldsl_macl)
+var ldsl_macl_rn_lo[2:0];
+var ldsl_macl_rb[0:0];
+var ldsl_macl_rn_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include address error detection for loads
+aspect addr_error_load.isa gates pc, sr, vbr, rf, umem, exc_taken:2, exc_vector:2;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x16;
+rn = instr[11:8];
+
+// Register banking setup
+ldsl_macl_rn_lo = rn[2:0];
+ldsl_macl_rb = sr[28];
+ldsl_macl_rn_bk = (rn[3] == 1'b0) & ldsl_macl_rb;
+
+Rn = ldsl_macl_rn_bk ? rf_bank[ldsl_macl_rn_lo] : rf[rn];
+ldsl_macl_addr = Rn;
+
+// Set up address error checking
+load_addr = ldsl_macl_addr;
+load_size = 2'b11;  // Long access (32-bit)
+
+// Compute the no-error condition (bits 1:0 must be 00)
+ldsl_macl_no_error = (ldsl_macl_addr[1:0] == 2'b00);
+
+data32 = umem[ldsl_macl_addr];
+
+// LDS.L @Rn+,MACL: load MACL from @Rn, then increment Rn by 4
+// Only update registers if no address error (combined with banking)
+macl when (ldsl_macl_no_error & (exc_taken == 0)) = data32;
+
+rf[rn] when (ldsl_macl_no_error & (ldsl_macl_rn_bk == 0)) = Rn + 4;
+rf_bank[ldsl_macl_rn_lo] when (ldsl_macl_no_error & ldsl_macl_rn_bk) = Rn + 4;
+
+// Only advance PC if no address error
+pc when (ldsl_macl_no_error) = pc + 2;

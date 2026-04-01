@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 AAM (0xD4 0x0A)
+// ASCII Adjust AX After Multiply
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state AH[7:0] of xregs[0][15:8];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var imm[7:0];
+var quotient[7:0];
+var remainder[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xD4;
+eip = eip + 1;
+
+// Read immediate byte (typically 0x0A for base 10)
+imm = imem[eip];
+eip = eip + 1;
+
+// Divide AL by immediate (typically 10)
+quotient = AL / imm;
+remainder = AL - (quotient * imm);
+
+// AH = quotient, AL = remainder
+AH = quotient[7:0];
+AL = remainder[7:0];
+
+// Set flags based on AL
+flag_SF = AL[7];
+flag_ZF = AL == 8'h00 ? 1'b1 : 1'b0;
+flag_PF = ~(AL[0] ^ AL[1] ^ AL[2] ^ AL[3] ^ AL[4] ^ AL[5] ^ AL[6] ^ AL[7]);

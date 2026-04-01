@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX RESUME - Resume from Interrupt/Trap
+// RESUME Z: return from trap handler
+// Opcode: 0xF9
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rW[63:0];  // Where-interrupted (trip)
+isa_state rWW[63:0]; // Where-interrupted (trap)
+mem umem[14:0];
+
+var z[7:0];
+var resume_addr[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xF9;
+
+z = instr[7:0];
+
+// Resume from trap (z=0) or trip (z=1)
+resume_addr = (z == 8'h0) ? rWW : rW;
+
+pc = resume_addr;

@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.sb with MMU - Store Byte
+// Format: l.sb I(rA), rB
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[23:0];
+isa_state spr[31:0][15:0];
+isa_state cam itlb_tag[19:0]@[6:0][];
+isa_state itlb_tr_cam[31:0][6:0];
+isa_state cam dtlb_tag[19:0]@[6:0][];
+isa_state dtlb_tr_cam[31:0][6:0];
+isa_state sr[31:0];
+isa_state epcr0[31:0];
+isa_state esr0[31:0];
+isa_state eear0[31:0];
+isa_state flag[0:0];
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+isa_state ttmr[31:0];
+isa_state ttcr[31:0];
+
+
+var rA[4:0];
+var rB[4:0];
+var imm_high[4:0];
+var imm_low[10:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var store_addr[31:0];
+var base[31:0];
+var data[31:0];
+var mem_data[31:0];
+
+aspect delay_slot.isa gates delay_slot;
+aspect mmu.isa gates pc:1, sr:1, epcr0:1, esr0:1, eear0:1;
+
+instr = umem[pc_pa];
+assume instr[31:26] == 0x36;
+imm_high = instr[25:21];
+rA = instr[20:16];
+rB = instr[15:11];
+imm_low = instr[10:0];
+
+imm = {imm_high, imm_low};
+base = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+store_addr = base + sign_ext_imm;
+
+aspect mmu_store.isa gates pc:2, sr:2, epcr0:2, esr0:2, eear0:2;
+
+data = rf[rB];
+mem_data = umem[store_addr_pa];
+
+// Big-endian byte position from addr[1:0]:
+//   00 -> bits[31:24], 01 -> bits[23:16], 10 -> bits[15:8], 11 -> bits[7:0]
+var byte_offset[1:0];
+byte_offset = store_addr[1:0];
+
+var write_data[31:0];
+write_data = (byte_offset == 2'b00) ? {data[7:0], mem_data[23:0]} :
+             ((byte_offset == 2'b01) ? {mem_data[31:24], data[7:0], mem_data[15:0]} :
+              ((byte_offset == 2'b10) ? {mem_data[31:16], data[7:0], mem_data[7:0]} :
+                                        {mem_data[31:8], data[7:0]}));
+
+umem[store_addr_pa] when (~exception_taken & ~store_exception_taken) = write_data;
+
+pc = (in_delay_slot & ~exception_taken & ~store_exception_taken) ? branch_target : pc + 4;
+
+// Tick timer: counter increment and IP flag management
+var tt_mode[1:0];
+tt_mode = ttmr[31:30];
+var tt_en[0:0];
+tt_en = (tt_mode != 2'b00);
+var tt_match[0:0];
+tt_match = tt_en & (ttcr[27:0] == ttmr[27:0]);
+var tt_new_count[27:0];
+tt_new_count = tt_match ?
+    ((tt_mode == 2'b01) ? 28'b0 :
+     (tt_mode == 2'b10) ? ttcr[27:0] :
+     ttcr[27:0] + 1) :
+    ttcr[27:0] + 1;
+ttcr = tt_en ? {ttcr[31:28], tt_new_count} : ttcr;
+ttmr = tt_match ? (ttmr | 32'h10000000) : ttmr;

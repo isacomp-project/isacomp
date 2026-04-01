@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030/68851 PMOVE to CRP - Move to CPU Root Pointer from (d16,An)
+// Opcode: 1111 000 000 101 rrr followed by extension word 0x4C00
+// Extension: 010 011 0 0 0000 0000 (4C00) - PMOVE <ea>,CRP (write to CRP, no flush)
+// Loads 64-bit CRP from (d16,An)
+
+isa_state pc[31:0];
+var instr[15:0];
+var pcrpd_extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+mem dmem[23:0];
+
+isa_state sr[15:0];
+isa_state crp[63:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var pcrpd_ea_reg[2:0];
+var pcrpd_disp[15:0];
+var pcrpd_disp_ext[31:0];
+var pcrpd_addr[31:0];
+var pcrpd_w0[15:0];
+var pcrpd_w1[15:0];
+var pcrpd_w2[15:0];
+var pcrpd_w3[15:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+
+instr = imem[pc_pa];
+assume instr[15:6] == 10'b1111000000;
+assume instr[5:3] == 3'b101;  // EA mode: (d16,An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+pcrpd_ea_reg = instr[2:0];
+
+pcrpd_extw = imem[pc_pa];
+assume pcrpd_extw[15:9] == 7'b0100110;  // PMOVE/PMOVEFD to CRP
+assume pcrpd_extw[7:0] == 8'h00;
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Fetch 16-bit displacement
+pcrpd_disp = imem[pc_pa];
+pc when (~m68k_exc_taken) = pc + 2;
+pcrpd_disp_ext = {{16{pcrpd_disp[15]}}, pcrpd_disp};
+
+assume sr[13] == 1'b1;
+
+pcrpd_addr = aregs[pcrpd_ea_reg] + pcrpd_disp_ext;
+
+// Read 64-bit CRP (big-endian)
+pcrpd_w0 = dmem[pcrpd_addr];
+pcrpd_w1 = dmem[pcrpd_addr + 32'd2];
+pcrpd_w2 = dmem[pcrpd_addr + 32'd4];
+pcrpd_w3 = dmem[pcrpd_addr + 32'd6];
+crp when (~m68k_exc_taken) = {pcrpd_w0, pcrpd_w1, pcrpd_w2, pcrpd_w3};

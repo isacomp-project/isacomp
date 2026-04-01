@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.rfe - Return From Exception
+// Format: l.rfe
+// Restores PC and SR from exception save registers
+// PC <- EPCR[0], SR <- ESR[0]
+// This is how the kernel returns from exception/interrupt/syscall handlers
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state sr[31:0];
+isa_state epcr0[31:0];
+isa_state esr0[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x09;
+assume instr[25:0] == 26'b0;
+
+// Restore SR and PC from exception save registers
+sr = esr0;
+pc = epcr0;

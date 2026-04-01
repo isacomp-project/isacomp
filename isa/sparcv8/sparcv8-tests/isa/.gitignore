@@ -1,0 +1,6 @@
+# Build artifacts
+*.s
+*.bin
+*.elf
+*.hex
+*.addrs

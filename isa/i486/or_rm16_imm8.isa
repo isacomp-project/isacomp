@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 OR r/m16, imm8 (0x83 /1) - sign-extended
+// OR sign-extended 8-bit immediate with r/m16: r/m16 = r/m16 | imm8
+// Uses ModR/M with reg field = 001 as opcode extension
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var imm8[7:0];
+var imm16[15:0];
+var dst_val[15:0];
+var result[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x83;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is OR (reg_bits = 001)
+assume reg_bits == 0b001;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Fetch immediate value (8-bit)
+imm8 = imem[eip];
+eip = eip + 1;
+
+// Sign-extend imm8 to 16 bits
+imm16 = {{8{imm8[7]}}, imm8};
+
+// Read operand
+dst_val = xregs[rm_bits][15:0];
+
+// Perform OR operation
+result = dst_val | imm16;
+
+// Write result to destination
+xregs[rm_bits][15:0] = result;
+
+// Set flags
+flag_CF = 1'b0;
+flag_OF = 1'b0;
+flag_SF = result[15];
+flag_ZF = result == 16'h0000;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);

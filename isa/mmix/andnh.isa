@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX ANDNH - And-Not with High Wyde
+// ANDNH $X,YZ: $X = $X & ~(YZ << 48)
+// Opcode: 0xEC
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var yz[15:0];
+var x_val[63:0];
+var mask[63:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xEC;
+
+x = instr[23:16];
+yz = instr[15:0];
+
+x_val = rf[x];
+mask = {yz, 48'h0};
+
+result = x_val & (~mask);
+
+rf[x] = result;
+pc = pc + 4;

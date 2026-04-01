@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vadd.vv - Vector Add (vector-vector)
+// Encoding: vadd.vv vd, vs2, vs1, vm
+// Operation: vd[i] = vs2[i] + vs1[i]
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];   // Vector register file: 32 regs x 128 bits
+isa_state vl[31:0];          // Vector length
+isa_state vtype[31:0];       // Vector type (contains SEW)
+mem umem[12:0];
+
+var instr[31:0];
+var vs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v1[127:0];
+var v2[127:0];
+var res[127:0];
+var sew[2:0];
+
+instr = umem[pc];
+// Opcode: 1010111 (OP-V)
+assume instr[6:0] == 0b1010111;
+// funct3 = 000 (OPIVV - integer vector-vector)
+assume instr[14:12] == 0b000;
+// funct6 = 000000 (vadd)
+assume instr[31:26] == 0b000000;
+
+pc = pc + 4;
+
+vs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v1 = vrf[vs1];
+v2 = vrf[vs2];
+
+sew = vtype[5:3];
+
+// Element-wise addition based on SEW
+// SEW=0: 8-bit, SEW=1: 16-bit, SEW=2: 32-bit, SEW=3: 64-bit
+// For VLEN=128: 16x8b, 8x16b, 4x32b, 2x64b elements
+res[31:0] = v2[31:0] + v1[31:0];
+res[63:32] = v2[63:32] + v1[63:32];
+res[95:64] = v2[95:64] + v1[95:64];
+res[127:96] = v2[127:96] + v1[127:96];
+
+vrf[vd] = res;

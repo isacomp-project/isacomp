@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V SRAIW (Shift Right Arithmetic Immediate Word) instruction - RV64I only
+// Performs 32-bit arithmetic right shift and sign-extends result to 64 bits
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var shamt[4:0];
+var r1[63:0];
+var r1_word[31:0];
+var res_word[31:0];
+var sign_ext_temp[31:0];
+var res[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0011011;
+assume instr[14:12] == 0x5;
+assume instr[31:25] == 0x20;
+pc = pc + 4;
+rs1 = instr[19:15];
+rd = instr[11:7];
+shamt = instr[24:20];
+
+r1 = rf[rs1];
+r1_word = r1[31:0];
+
+sign_ext_temp = {{32{r1_word[31]}}, r1_word} >> shamt;
+res_word = sign_ext_temp[31:0];
+
+// Sign-extend 32-bit result to 64 bits
+res = {{32{res_word[31]}}, res_word};
+
+rf[rd] when (rd != 0) = res;

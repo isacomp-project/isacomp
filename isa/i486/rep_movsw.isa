@@ -1,0 +1,88 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REP MOVSW (0xF3 0xA5) - WITH PROPER SEGMENTATION
+// Repeat while CX != 0: Move word from DS:[SI] to ES:[DI]
+// IP stays constant until CX reaches 0
+// Uses DS segment for source, ES segment for destination
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment (source)
+isa_state ES[15:0];            // Extra segment (destination)
+isa_state xregs[31:0][2:0];
+isa_state SI[15:0] of xregs[6][15:0];
+isa_state DI[15:0] of xregs[7][15:0];
+isa_state CX[15:0] of xregs[1][15:0];
+isa_state flag_DF[0:0];
+
+var si_offset_lo[7:0];
+var si_offset_hi[7:0];
+var di_offset_lo[7:0];
+var di_offset_hi[7:0];
+var physical_addr_src_lo[31:0];
+var physical_addr_src_hi[31:0];
+var physical_addr_dst_lo[31:0];
+var physical_addr_dst_hi[31:0];
+var low_byte[7:0];
+var high_byte[7:0];
+var cx_is_zero[0:0];
+var cx_not_zero[0:0];
+var new_si_inc[15:0];
+var new_si_dec[15:0];
+var new_di_inc[15:0];
+var new_di_dec[15:0];
+var new_ip[31:0];
+
+// Fetch REP prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+
+// Fetch MOVSW instruction (at IP+1)
+instr = imem[eip + 1];
+assume instr == 0xA5;
+
+// Check counter
+cx_is_zero = CX == 16'h0000;
+cx_not_zero = CX != 16'h0000;
+
+// Calculate source offsets with wraparound
+si_offset_lo = SI;
+si_offset_hi = SI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate destination offsets with wraparound
+di_offset_lo = DI;
+di_offset_hi = DI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using both segments
+physical_addr_src_lo = (DS << 4) + si_offset_lo;  // DS:SI
+physical_addr_src_hi = (DS << 4) + si_offset_hi;  // DS:(SI+1)
+physical_addr_dst_lo = (ES << 4) + di_offset_lo;  // ES:DI
+physical_addr_dst_hi = (ES << 4) + di_offset_hi;  // ES:(DI+1)
+
+// Load word from DS:[SI] (little-endian)
+low_byte = dmem[physical_addr_src_lo];
+high_byte = dmem[physical_addr_src_hi];
+
+// Calculate new SI (increment or decrement by 2)
+new_si_inc = SI + 16'h0002;
+new_si_dec = SI - 16'h0002;
+
+// Calculate new DI (increment or decrement by 2)
+new_di_inc = DI + 16'h0002;
+new_di_dec = DI - 16'h0002;
+
+// Calculate new IP (advance past instruction)
+new_ip = eip + 32'h0002;
+
+// When CX != 0: Execute one iteration
+dmem[physical_addr_dst_lo] when(cx_not_zero) = low_byte;
+dmem[physical_addr_dst_hi] when(cx_not_zero) = high_byte;
+SI when(cx_not_zero) = flag_DF == 1'b0 ? new_si_inc : new_si_dec;
+DI when(cx_not_zero) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero) = CX - 16'h0001;
+eip when(cx_not_zero) = eip;  // Stay at same IP (loop continues)
+
+// When CX == 0: Advance IP and exit
+eip when(cx_is_zero) = new_ip;

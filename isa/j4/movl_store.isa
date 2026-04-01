@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+
+var store_addr[31:0];
+var store_size[1:0];
+var movl_st_no_error[0:0];
+
+var movl_st_rn_lo[2:0];
+var movl_st_rm_lo[2:0];
+var movl_st_rb[0:0];
+var movl_st_rn_bk[0:0];
+var movl_st_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+aspect exception.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+aspect addr_error_store.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+instr = umem[pc];
+assume instr[15:12] == 0x2;
+assume instr[3:0] == 0x2;
+rn = instr[11:8];
+rm = instr[7:4];
+
+movl_st_rn_lo = rn[2:0];
+movl_st_rm_lo = rm[2:0];
+movl_st_rb = sr[29];  // RB bit (bit 29 in SR)
+movl_st_rn_bk = (rn[3] == 1'b0) & movl_st_rb;
+movl_st_rm_bk = (rm[3] == 1'b0) & movl_st_rb;
+
+Rn = movl_st_rn_bk ? rf_bank[movl_st_rn_lo] : rf[rn];
+Rm = movl_st_rm_bk ? rf_bank[movl_st_rm_lo] : rf[rm];
+
+store_addr = Rn;
+store_size = 2'b11;
+
+movl_st_no_error = (Rn[1:0] == 2'b00);
+
+umem[Rn] when (movl_st_no_error) = Rm;
+pc when (movl_st_no_error) = pc + 2;

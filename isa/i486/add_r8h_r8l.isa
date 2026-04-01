@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ADD r8_low, r8_high - Parameterized with wildcard ** syntax
+// Opcode: 0x00 + ModR/M byte
+// Handles low byte to high byte: AL,CL,DL,BL -> AH,CH,DH,BH
+// Replaces 16 separate files (4x4 combinations)
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Byte register arrays using wildcard ** syntax
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];   // AL,CL,DL,BL (low)
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];  // AH,CH,DH,BH (high)
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];            // Data segment register
+
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var reg_idx[2:0];
+var rm_idx[2:0];
+var mod_bits[1:0];
+var src_val[7:0];
+var dst_val[7:0];
+var result[8:0];
+
+instr = imem[eip];
+assume instr == 0x00;
+eip = eip + 1;
+
+modrm = imem[eip];
+eip = eip + 1;
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_idx = modrm[2:0];
+
+assume mod_bits == 0b11;
+
+// Source is low byte (bit[2] == 0), dest is high byte (bit[2] == 1)
+assume reg_idx[2] == 0;
+assume rm_idx[2] == 1;
+
+var src_idx[1:0];
+var dst_idx[1:0];
+src_idx = reg_idx[1:0];
+dst_idx = rm_idx[1:0];
+
+src_val = lregs[src_idx];
+dst_val = hregs[dst_idx];
+
+result = dst_val + src_val;
+
+hregs[dst_idx] = result[7:0];
+
+flag_CF = result[8];
+flag_ZF = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_SF = result[7];
+flag_OF = dst_val[7] & src_val[7] & ~result[7] | ~dst_val[7] & ~src_val[7] & result[7];
+flag_PF = result[0];
+flag_AF = dst_val[3] & src_val[3] | src_val[3] & ~result[3] | ~result[3] & dst_val[3];

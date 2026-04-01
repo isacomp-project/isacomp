@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: MOV src, dst (five-parcel, full 32-bit operands)
+// Five-parcel encoding: opcode 0x06, 10 bytes
+// dst = src
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+mem umem[31:0];
+
+var parcel0[15:0];
+var parcel1[15:0];
+var parcel2[15:0];
+var parcel3[15:0];
+var parcel4[15:0];
+var opcode6[5:0];
+var smode[3:0];
+var dmode[3:0];
+var src_field[31:0];
+var dst_field[31:0];
+var src_addr[31:0];
+var dst_addr[31:0];
+var src_val[31:0];
+
+parcel0 = umem[pc];
+parcel1 = umem[pc + 2];
+parcel2 = umem[pc + 4];
+parcel3 = umem[pc + 6];
+parcel4 = umem[pc + 8];
+
+assume parcel0[15:14] == 0b11;
+opcode6 = parcel0[13:8];
+assume opcode6 == 0x06;
+
+smode = parcel0[7:4];
+dmode = parcel0[3:0];
+src_field = {parcel1, parcel2};
+dst_field = {parcel3, parcel4};
+
+assume smode == 0xD;
+src_addr = sp + src_field;
+src_val = umem[src_addr];
+
+assume dmode == 0xD;
+dst_addr = sp + dst_field;
+
+umem[dst_addr] = src_val;
+
+pc = pc + 10;

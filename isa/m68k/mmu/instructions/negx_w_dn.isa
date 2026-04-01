@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 NEGX.W Dn - Negate with Extend Word
+// Opcode: 0100 0000 01 000 DDD where DDD=reg
+// Operation: 0 - Dn[15:0] - X -> Dn[15:0] (word only, preserves upper bits)
+// Special: Z flag is only cleared if result is non-zero (not set if zero)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+// Word sub-registers using 'of' keyword
+isa_state dregs_negxw[15:0][2:0] of dregs[0b***][15:0];
+
+var negxw_dst_reg[2:0];
+var negxw_src_val[15:0];
+var negxw_x_val[15:0];
+var negxw_result[16:0];
+var negxw_old_z[0:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:8] == 0b01000000;  // NEGX opcode
+assume instr[7:6] == 0b01;         // Size: word
+assume instr[5:3] == 0b000;        // EA mode: Data Register Direct
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+negxw_dst_reg = instr[2:0];
+
+// Save old Z flag for special Z handling
+negxw_old_z = flag_Z;
+
+// Execute: 0 - destination - X (word)
+negxw_src_val = dregs_negxw[negxw_dst_reg];
+negxw_x_val = flag_X;
+negxw_result = 0 - negxw_src_val - negxw_x_val;
+
+// Write result (word only, upper bits preserved via 'of')
+dregs_negxw[negxw_dst_reg] when (~m68k_exc_taken) = negxw_result[15:0];
+
+// Update CCR
+// X and C: Set if there was a borrow (source or X non-zero)
+flag_X when (~m68k_exc_taken) = (negxw_src_val != 0) | (negxw_x_val != 0);
+flag_C when (~m68k_exc_taken) = (negxw_src_val != 0) | (negxw_x_val != 0);
+
+// V: Overflow for word NEGX
+flag_V when (~m68k_exc_taken) = ((negxw_src_val + negxw_x_val) == 16'h8000);
+
+// Z: Special handling - only CLEARED if result is non-zero, not set if zero
+flag_Z when (~m68k_exc_taken) = negxw_old_z & (negxw_result[15:0] == 0);
+
+// N: Sign of result
+flag_N when (~m68k_exc_taken) = negxw_result[15];

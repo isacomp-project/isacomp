@@ -1,0 +1,104 @@
+# J4 Linux Boot Image Builder (MMU Mode)
+#
+# Combines:
+#   - Boot ROM (MMU mode - enables MMU, jumps to P1)
+#   - Device Tree Blob (SH4 MMU compatible)
+#   - Linux kernel (SH4 with MMU)
+#   - Initramfs (minimal cpio with /init)
+#
+# Usage:
+#   make -f Makefile.mmu KERNEL=path/to/vmlinux.bin DTB=path/to/j4.dtb
+
+# Cross compiler (SH4 big-endian)
+CROSS_COMPILE ?= sh-elf-
+
+AS = $(CROSS_COMPILE)as
+LD = $(CROSS_COMPILE)ld
+OBJCOPY = $(CROSS_COMPILE)objcopy
+NM = $(CROSS_COMPILE)nm
+
+# Input files
+KERNEL ?= ../../../linux/vmlinux.bin
+DTB ?= ../j4_sh4_mmu.dtb
+INITRAMFS ?= ../initramfs/initramfs.cpio
+
+# Output files
+BOOTROM_ELF = bootrom_mmu.elf
+BOOTROM_BIN = bootrom_mmu.bin
+BOOT_IMAGE = boot_mmu.bin
+
+# Assembly flags (SH4, big-endian)
+ASFLAGS = -big --isa=sh4
+
+# Linker flags
+LDFLAGS = -T boot.ld -nostdlib
+
+.PHONY: all clean dtb initramfs
+
+all: $(BOOT_IMAGE)
+
+# Compile device tree
+dtb: $(DTB)
+
+$(DTB): ../j4_sh4_mmu.dts
+	dtc -I dts -O dtb -o $@ $<
+
+# Build initramfs
+initramfs: $(INITRAMFS)
+
+$(INITRAMFS):
+	$(MAKE) -C ../initramfs
+
+# Assemble MMU boot ROM
+bootrom_mmu.o: bootrom_mmu.S
+	$(AS) $(ASFLAGS) -o $@ $<
+
+# Create binary section for FDT
+fdt_mmu.o: $(DTB)
+	$(OBJCOPY) -I binary -O elf32-sh -B sh \
+		--rename-section .data=.fdt \
+		$< $@
+
+# Create binary section for kernel
+kernel.o: $(KERNEL)
+	$(OBJCOPY) -I binary -O elf32-sh -B sh \
+		--rename-section .data=.kernel \
+		$< $@
+
+# Create binary section for initramfs
+initramfs.o: $(INITRAMFS)
+	$(OBJCOPY) -I binary -O elf32-sh -B sh \
+		--rename-section .data=.initramfs \
+		$< $@
+
+# Link everything together
+$(BOOTROM_ELF): bootrom_mmu.o fdt_mmu.o kernel.o initramfs.o boot.ld
+	$(LD) $(LDFLAGS) -o $@ bootrom_mmu.o fdt_mmu.o kernel.o initramfs.o
+	@echo "Linked boot image:"
+	@$(CROSS_COMPILE)size $@
+	@echo "Initramfs at physical: $$($(NM) $@ | grep _initramfs$$ | cut -d' ' -f1)"
+	@echo "Initramfs size: $$($(NM) $@ | grep _initramfs_size | cut -d' ' -f1)"
+
+# Create flat binary for simulation
+$(BOOT_IMAGE): $(BOOTROM_ELF)
+	$(OBJCOPY) -O binary $< $@
+	@echo "Created MMU boot image: $@ ($$(stat -c%s $@) bytes)"
+	@echo ""
+	@echo "SH4 MMU Memory Map:"
+	@echo "  Physical 0x00000000 = P1 0x80000000 = P2 0xA0000000"
+	@echo "  Boot ROM entry (P2):  0xA0000000"
+	@echo "  Kernel entry (P1):    0x80002000"
+	@echo "  FDT (P1):            0x80000100"
+	@echo "  Initramfs:           (after kernel, page-aligned)"
+	@echo "  Peripherals (P2):    0xA3F00100"
+
+clean:
+	rm -f *.o $(BOOTROM_ELF) $(BOOTROM_BIN) $(BOOT_IMAGE) $(DTB)
+
+# Debug: show symbols
+symbols: $(BOOTROM_ELF)
+	$(NM) $< | sort
+
+# Debug: disassemble
+disasm: $(BOOTROM_ELF)
+	$(CROSS_COMPILE)objdump -d $<

@@ -1,0 +1,127 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 TEST r/m8, imm8 with 67 prefix (0x67 0xF6 /0) - 32-bit addressing mode
+// In real mode, 67 prefix switches to 32-bit addressing
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var dst_reg_idx[2:0];
+var dst_reg_idx_low[1:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp32_b0[7:0];
+var disp32_b1[7:0];
+var disp32_b2[7:0];
+var disp32_b3[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr[31:0];
+var dst_mem_val[7:0];
+var dst_reg_val_low[7:0];
+var dst_reg_val_high[7:0];
+var dst_reg_val[7:0];
+var dst_val[7:0];
+var imm_val[7:0];
+var result[8:0];
+var is_mem_dst[0:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0xF6;
+
+modrm = imem[eip + 2];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b000;  // TEST
+
+dst_reg_idx = rm_bits;
+dst_reg_idx_low = dst_reg_idx[1:0];
+
+// For 32-bit addressing, rm selects base register
+base_val = xregs[rm_bits];
+
+disp8 = imem[eip + 3];
+disp32_b0 = imem[eip + 3];
+disp32_b1 = imem[eip + 4];
+disp32_b2 = imem[eip + 5];
+disp32_b3 = imem[eip + 6];
+disp32 = {disp32_b3, disp32_b2, disp32_b1, disp32_b0};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  2'b00: offset = base_val;
+  2'b01: offset = base_val + signed_disp8;
+  2'b10: offset = base_val + disp32;
+  2'b11: offset = 32'h00000000;
+}
+
+case (mod_bits) {
+  2'b00: is_mem_dst = 1'b1;
+  2'b01: is_mem_dst = 1'b1;
+  2'b10: is_mem_dst = 1'b1;
+  2'b11: is_mem_dst = 1'b0;
+}
+
+physical_addr = ({16'h0000, DS} << 4) + offset;
+
+dst_mem_val = dmem[physical_addr];
+dst_reg_val_low = lregs[dst_reg_idx_low];
+dst_reg_val_high = hregs[dst_reg_idx_low];
+
+case (dst_reg_idx[2]) {
+  1'b1: dst_reg_val = dst_reg_val_high;
+  1'b0: dst_reg_val = dst_reg_val_low;
+}
+
+case (is_mem_dst) {
+  1'b1: dst_val = dst_mem_val;
+  1'b0: dst_val = dst_reg_val;
+}
+
+case (mod_bits) {
+  2'b00: imm_val = imem[eip + 3];
+  2'b01: imm_val = imem[eip + 4];
+  2'b10: imm_val = imem[eip + 7];
+  2'b11: imm_val = imem[eip + 3];
+}
+
+case (mod_bits) {
+  2'b00: eip = eip + 4;
+  2'b01: eip = eip + 5;
+  2'b10: eip = eip + 8;
+  2'b11: eip = eip + 4;
+}
+
+result = dst_val & imm_val;
+
+flag_CF = 1'b0;
+flag_OF = 1'b0;
+flag_SF = result[7];
+flag_ZF = result[7:0] == 8'h00;
+flag_AF = 1'b0;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+// TEST does not write result

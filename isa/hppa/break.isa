@@ -1,0 +1,165 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// HPPA BREAK instruction (with full interruption framework)
+// =============================================================================
+// BREAK im5,im13 - Breakpoint / Debug Trap
+// Opcode: 0x00 (bits 31:26), function=0x00 (bits 12:5)
+//
+// This instruction raises trap 9 (break instruction trap).
+// BREAK is used for:
+//   - GDB breakpoints (debugger inserts BREAK at breakpoint locations)
+//   - Kernel BUG() macro (self-test assertion failures)
+//   - NOT for syscalls (syscalls use gateway page via BLE instruction)
+//
+// The im5 and im13 fields are encoded in the instruction word and
+// can be read by the trap handler from IIR (CR19).
+//
+// Linux kernel handling (arch/parisc/kernel/traps.c, case 9):
+//   handle_break() examines IIR to determine break type:
+//   - Specific im5/im13 values mapped to different debug operations
+//   - BUG() uses a specific encoding that triggers kernel panic
+//
+// STATE NAMING: Uses crNN naming per CR Audit (CR_AUDIT_REPORT.md).
+//   cr14=IVA, cr18/cr18_back=IAOQ, cr19=IIR, cr20=ISR, cr21=IOR, cr22=IPSW
+//
+// =============================================================================
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state psw[31:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Interruption shadow registers (crNN naming)
+isa_state cr22[31:0];       // IPSW - Interruption PSW
+isa_state cr19[31:0];       // IIR  - Interruption Instruction Register
+isa_state cr20[31:0];       // ISR  - Interruption Space Register
+isa_state cr21[31:0];       // IOR  - Interruption Offset Register
+isa_state cr17[31:0];       // IIASQ - Interruption IA Space Queue (front)
+isa_state cr18[31:0];       // IIAOQ - Interruption IA Offset Queue (front)
+isa_state cr18_back[31:0];  // IIAOQ back (paired with cr18)
+
+// Interrupt vector and external interrupt registers
+isa_state cr14[31:0];       // IVA  - Interruption Vector Address
+isa_state cr15[31:0];       // EIEM - External Interrupt Enable Mask
+isa_state cr16[31:0];       // ITMR - Interval Timer
+ext isa_state cr23[31:0];   // EIRR - External Interrupt Request Register (managed by testbench/SoC)
+
+// Temporary/scratch registers
+isa_state cr24[31:0];       // TR0
+isa_state cr25[31:0];       // TR1
+isa_state cr26[31:0];       // TR2
+isa_state cr27[31:0];       // TR3
+isa_state cr28[31:0];       // TR4
+isa_state cr29[31:0];       // TR5
+isa_state cr30[31:0];       // TR6
+isa_state cr31[31:0];       // TR7
+
+isa_state priv_level[1:0];
+
+// Shadow registers (saved on BREAK trap for IVT handler)
+isa_state shadow_r1[31:0];
+isa_state shadow_r8[31:0];
+isa_state shadow_r9[31:0];
+isa_state shadow_r16[31:0];
+isa_state shadow_r17[31:0];
+isa_state shadow_r24[31:0];
+isa_state shadow_r25[31:0];
+
+ext isa_state timer_irq_pending[0:0];
+ext isa_state ext_irq_lines[31:0];
+mem umem[25:0];
+
+var instr[31:0];
+var im5[4:0];
+var im13[12:0];
+
+// =========================================================================
+// Nullification and interruption aspects
+// =========================================================================
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+instr = umem[pc_pa];
+
+// BREAK encoding: opcode=0x00, function=0x00
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b00000000;
+
+// Extract immediate fields (available to trap handler via IIR/CR19)
+im5 = instr[25:21];
+im13 = instr[20:8];
+
+// =========================================================================
+// BREAK raises trap 9 unconditionally (unless already trapped or nullified)
+// =========================================================================
+// BREAK is NOT gated on privilege - it can be executed from any privilege
+// level. This is essential because user-mode debuggers use BREAK.
+
+var break_trap_number[4:0];
+var break_trap_offset[31:0];
+var break_trap_target[31:0];
+
+break_trap_number = 5'd9;  // Trap 9: Break instruction
+
+// Compute vector address
+break_trap_offset = {22'b0, break_trap_number, 5'b0};  // 9 * 32 = 288
+break_trap_target = cr14 + break_trap_offset;
+
+// =========================================================================
+// STATE SAVE (gated on PSW.Q)
+// =========================================================================
+// Use intermediate variable for pc to prevent ISA compiler from merging this
+// write with the aspect's cr18=pc write (following RISC-V ebreak pattern).
+var break_saved_psw[31:0];
+var break_saved_pc[31:0];
+var break_psw_Q[0:0];
+
+break_saved_psw = psw;
+break_saved_pc = pc;
+break_psw_Q = psw[3];
+
+// Save interruption state (only when Q=1)
+// IAOQ: include privilege bits [1:0] so Linux's user_mode() works
+var brk_pc_plus4[31:0];
+brk_pc_plus4 = break_saved_pc + 4;
+var brk_iaoq_front[31:0];
+var brk_iaoq_back[31:0];
+brk_iaoq_front = {break_saved_pc[31:2], priv_level};
+brk_iaoq_back = {brk_pc_plus4[31:2], priv_level};
+cr22 when (break_psw_Q) = break_saved_psw;
+cr18 when (break_psw_Q) = brk_iaoq_front;
+cr18_back when (break_psw_Q) = brk_iaoq_back;
+cr17 when (break_psw_Q) = 32'h0;
+cr19 when (break_psw_Q) = instr;
+cr20 when (break_psw_Q) = 32'h0;
+cr21 when (break_psw_Q) = break_saved_pc;
+
+// Save shadow registers for BREAK trap (same as external interrupt path)
+shadow_r1 = rf[1];
+shadow_r8 = rf[8];
+shadow_r9 = rf[9];
+shadow_r16 = rf[16];
+shadow_r17 = rf[17];
+shadow_r24 = rf[24];
+shadow_r25 = rf[25];
+
+// =========================================================================
+// PSW MODIFICATION AND PRIVILEGE ESCALATION
+// =========================================================================
+var break_new_psw[31:0];
+break_new_psw = psw & 32'h00010000;  // Clear all except PSW.M
+
+psw = break_new_psw;
+priv_level = 2'b00;  // Escalate to kernel
+
+// =========================================================================
+// PC REDIRECT TO TRAP 9 VECTOR
+// Unconditional write (following RISC-V ebreak pattern) so the generator
+// adds this to the pc_wr_mux priority chain. Aspect gating handles suppression
+// when nullified, in delay slot, or interruption exception_taken.
+// =========================================================================
+pc = break_trap_target;

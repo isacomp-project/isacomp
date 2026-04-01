@@ -1,0 +1,3 @@
+# Build artifacts - regenerate with build_riscv_benchmarks.sh
+*
+!.gitignore

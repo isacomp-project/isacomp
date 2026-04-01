@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 MOVEM.L (An)+,d0, d1, a0, a1 - postincrement (mask 0x0303)
+// Generated ISA stub for MOVEM.L from memory with postincrement
+// Loads 4 registers (16 bytes)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var addr_reg[2:0];
+var movem_postinc_0303_mask[15:0];
+var movem_postinc_0303_base[31:0];
+var movem_postinc_0303_d0_val[31:0];
+var movem_postinc_0303_d1_val[31:0];
+var movem_postinc_0303_a0_val[31:0];
+var movem_postinc_0303_a1_val[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100110011;  // MOVEM.L from memory opcode
+assume instr[5:3] == 0b011;          // Postincrement mode
+pc when (~m68k_exc_taken) = pc + 32'd2;
+
+addr_reg = instr[2:0];
+
+// Fetch register mask
+movem_postinc_0303_mask = dmem[pc + pc_pa_delta];
+assume movem_postinc_0303_mask == 16'h0303;
+pc when (~m68k_exc_taken) = pc + 32'd2;
+
+movem_postinc_0303_base = aregs[addr_reg];
+
+// Load registers (postincrement order)
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = movem_postinc_0303_base;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+movem_postinc_0303_d0_val[31:16] = dmem[ea_pa + 32'd0];
+#else
+movem_postinc_0303_d0_val[31:16] = dmem[movem_postinc_0303_base + 32'd0];
+#endif
+#ifdef MMU
+movem_postinc_0303_d0_val[15:0] = dmem[ea_pa + 32'd2];
+#else
+movem_postinc_0303_d0_val[15:0] = dmem[movem_postinc_0303_base + 32'd2];
+#endif
+dregs[0] when (~m68k_exc_taken & ~data_exc_taken) = movem_postinc_0303_d0_val;
+#ifdef MMU
+movem_postinc_0303_d1_val[31:16] = dmem[ea_pa + 32'd4];
+#else
+movem_postinc_0303_d1_val[31:16] = dmem[movem_postinc_0303_base + 32'd4];
+#endif
+#ifdef MMU
+movem_postinc_0303_d1_val[15:0] = dmem[ea_pa + 32'd6];
+#else
+movem_postinc_0303_d1_val[15:0] = dmem[movem_postinc_0303_base + 32'd6];
+#endif
+dregs[1] when (~m68k_exc_taken & ~data_exc_taken) = movem_postinc_0303_d1_val;
+#ifdef MMU
+movem_postinc_0303_a0_val[31:16] = dmem[ea_pa + 32'd8];
+#else
+movem_postinc_0303_a0_val[31:16] = dmem[movem_postinc_0303_base + 32'd8];
+#endif
+#ifdef MMU
+movem_postinc_0303_a0_val[15:0] = dmem[ea_pa + 32'd10];
+#else
+movem_postinc_0303_a0_val[15:0] = dmem[movem_postinc_0303_base + 32'd10];
+#endif
+aregs[0] when (~m68k_exc_taken & ~data_exc_taken) = movem_postinc_0303_a0_val;
+#ifdef MMU
+movem_postinc_0303_a1_val[31:16] = dmem[ea_pa + 32'd12];
+#else
+movem_postinc_0303_a1_val[31:16] = dmem[movem_postinc_0303_base + 32'd12];
+#endif
+#ifdef MMU
+movem_postinc_0303_a1_val[15:0] = dmem[ea_pa + 32'd14];
+#else
+movem_postinc_0303_a1_val[15:0] = dmem[movem_postinc_0303_base + 32'd14];
+#endif
+aregs[1] when (~m68k_exc_taken & ~data_exc_taken) = movem_postinc_0303_a1_val;
+
+// Update address register: base + 16
+aregs[addr_reg] when (~m68k_exc_taken & ~data_exc_taken) = movem_postinc_0303_base + 32'd16;
+
+// MOVEM does not affect flags

@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// JSR - Jump to Subroutine (with delay slot)
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state pr[31:0];
+mem umem[23:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+var rm[3:0];
+var jsr_rm_lo[2:0];
+var Rm[31:0];
+
+var jsr_rb[0:0];
+var jsr_rm_bk[0:0];
+
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x0B;
+rm = instr[11:8];
+jsr_rm_lo = rm[2:0];
+
+jsr_rb = sr[29];  // RB bit (bit 29 in SR)
+jsr_rm_bk = (rm[3] == 1'b0) & jsr_rb;
+
+Rm = jsr_rm_bk ? rf_bank[jsr_rm_lo] : rf[rm];
+
+// Save return address to PR (PC + 4, after the delay slot)
+pr when (in_delay_slot == 0) = pc + 4;
+
+// Set up delay slot with jump target
+delay_slot when (in_delay_slot == 0) = 1;
+branch_target when (in_delay_slot == 0) = Rm;
+
+pc = pc + 2;

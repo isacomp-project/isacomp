@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 LD DE,nn (0x11) - Load 16-bit immediate into DE
+// DE = nn
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state D[7:0];
+isa_state E[7:0];
+mem mainmem[15:0];
+
+var imm_lo[7:0];
+var imm_hi[7:0];
+
+instr = mainmem[pc];
+assume instr == 0x11;
+pc = pc + 1;
+
+imm_lo = mainmem[pc];
+pc = pc + 1;
+imm_hi = mainmem[pc];
+pc = pc + 1;
+
+E = imm_lo;
+D = imm_hi;

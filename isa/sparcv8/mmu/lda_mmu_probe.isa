@@ -1,0 +1,244 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 SRMMU TLB Probe (LDA from ASI 0x04)
+// Format 3: op=11, op3=010011, i=0, asi=0x04
+// LDA [rs1 + rs2] 0x04, rd
+// Privileged instruction - probes TLB/MMU for address translation
+//
+// Probe returns PTE if found, 0 if not found
+// Address bits [11:8] determine probe level:
+// 0x0: Page probe (full translation)
+// 0x1: Segment probe (reserved)
+// 0x2: Region probe (reserved)
+// 0x3: Context probe (reserved)
+// 0x4: Entire probe (reserved)
+//
+// Return value format (PTE):
+// [31:8]  PPN - Physical Page Number
+// [7]     C   - Cacheable
+// [6]     M   - Modified
+// [5]     R   - Referenced
+// [4:2]   ACC - Access permissions
+// [1:0]   ET  - Entry Type (10 = PTE)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];   // Integer register file (physical windowed)
+isa_state cwp[2:0];        // Current Window Pointer
+isa_state psr[31:0];       // Processor State Register
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect ../delay_slot.isa gates pc, delay_slot;
+
+// Include MMU registers and TLB
+#include "mmu_regs.isa"
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var asi[7:0];
+
+var r1[31:0];
+var r2[31:0];
+var addr[31:0];
+var result[31:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+var phys_rd[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b11;       // op = 11 (Load/Store)
+assume instr[24:19] == 0b010011;   // op3 = LDA
+assume instr[13] == 0b0;           // i = 0 (register addressing with ASI)
+assume instr[12:5] == 8'h04;       // ASI = 0x04 (MMU Probe)
+
+rs1 = instr[18:14];
+rs2 = instr[4:0];
+rd = instr[29:25];
+asi = instr[12:5];
+
+// Compute physical register indices
+cwp_m1 = cwp + 3'b111;
+phys_rs1 = (rs1[4:3] == 2'b00) ? {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs1[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs1[2:0]};
+phys_rs2 = (rs2[4:3] == 2'b00) ? {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs2[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs2[2:0]};
+phys_rd = (rd[4:3] == 2'b00) ? {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rd[2:0]} :
+          ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rd[2:0]};
+
+r1 = (rs1 == 0) ? 32'b0 : rf[phys_rs1];
+r2 = (rs2 == 0) ? 32'b0 : rf[phys_rs2];
+
+addr = r1 + r2;
+
+// Extract VPN for lookup
+var probe_vpn[19:0];
+probe_vpn = addr[31:12];
+
+// Current context
+var current_ctx[7:0];
+current_ctx = mmu_ctx[7:0];
+
+// ============================================================================
+// CAM Lookup - find VPN matches in TLB
+// ============================================================================
+var probe_vpn_matches[63:0];
+probe_vpn_matches = tlb_vpn@[probe_vpn];
+
+// ============================================================================
+// Context and Valid filtering
+// ============================================================================
+var pr_cv_0[0:0]; var pr_cv_1[0:0]; var pr_cv_2[0:0]; var pr_cv_3[0:0];
+var pr_cv_4[0:0]; var pr_cv_5[0:0]; var pr_cv_6[0:0]; var pr_cv_7[0:0];
+var pr_cv_8[0:0]; var pr_cv_9[0:0]; var pr_cv_10[0:0]; var pr_cv_11[0:0];
+var pr_cv_12[0:0]; var pr_cv_13[0:0]; var pr_cv_14[0:0]; var pr_cv_15[0:0];
+var pr_cv_16[0:0]; var pr_cv_17[0:0]; var pr_cv_18[0:0]; var pr_cv_19[0:0];
+var pr_cv_20[0:0]; var pr_cv_21[0:0]; var pr_cv_22[0:0]; var pr_cv_23[0:0];
+var pr_cv_24[0:0]; var pr_cv_25[0:0]; var pr_cv_26[0:0]; var pr_cv_27[0:0];
+var pr_cv_28[0:0]; var pr_cv_29[0:0]; var pr_cv_30[0:0]; var pr_cv_31[0:0];
+var pr_cv_32[0:0]; var pr_cv_33[0:0]; var pr_cv_34[0:0]; var pr_cv_35[0:0];
+var pr_cv_36[0:0]; var pr_cv_37[0:0]; var pr_cv_38[0:0]; var pr_cv_39[0:0];
+var pr_cv_40[0:0]; var pr_cv_41[0:0]; var pr_cv_42[0:0]; var pr_cv_43[0:0];
+var pr_cv_44[0:0]; var pr_cv_45[0:0]; var pr_cv_46[0:0]; var pr_cv_47[0:0];
+var pr_cv_48[0:0]; var pr_cv_49[0:0]; var pr_cv_50[0:0]; var pr_cv_51[0:0];
+var pr_cv_52[0:0]; var pr_cv_53[0:0]; var pr_cv_54[0:0]; var pr_cv_55[0:0];
+var pr_cv_56[0:0]; var pr_cv_57[0:0]; var pr_cv_58[0:0]; var pr_cv_59[0:0];
+var pr_cv_60[0:0]; var pr_cv_61[0:0]; var pr_cv_62[0:0]; var pr_cv_63[0:0];
+
+// Valid AND context match for each entry
+pr_cv_0 = tlb_v[0] & (tlb_ctx[0] == current_ctx);
+pr_cv_1 = tlb_v[1] & (tlb_ctx[1] == current_ctx);
+pr_cv_2 = tlb_v[2] & (tlb_ctx[2] == current_ctx);
+pr_cv_3 = tlb_v[3] & (tlb_ctx[3] == current_ctx);
+pr_cv_4 = tlb_v[4] & (tlb_ctx[4] == current_ctx);
+pr_cv_5 = tlb_v[5] & (tlb_ctx[5] == current_ctx);
+pr_cv_6 = tlb_v[6] & (tlb_ctx[6] == current_ctx);
+pr_cv_7 = tlb_v[7] & (tlb_ctx[7] == current_ctx);
+pr_cv_8 = tlb_v[8] & (tlb_ctx[8] == current_ctx);
+pr_cv_9 = tlb_v[9] & (tlb_ctx[9] == current_ctx);
+pr_cv_10 = tlb_v[10] & (tlb_ctx[10] == current_ctx);
+pr_cv_11 = tlb_v[11] & (tlb_ctx[11] == current_ctx);
+pr_cv_12 = tlb_v[12] & (tlb_ctx[12] == current_ctx);
+pr_cv_13 = tlb_v[13] & (tlb_ctx[13] == current_ctx);
+pr_cv_14 = tlb_v[14] & (tlb_ctx[14] == current_ctx);
+pr_cv_15 = tlb_v[15] & (tlb_ctx[15] == current_ctx);
+pr_cv_16 = tlb_v[16] & (tlb_ctx[16] == current_ctx);
+pr_cv_17 = tlb_v[17] & (tlb_ctx[17] == current_ctx);
+pr_cv_18 = tlb_v[18] & (tlb_ctx[18] == current_ctx);
+pr_cv_19 = tlb_v[19] & (tlb_ctx[19] == current_ctx);
+pr_cv_20 = tlb_v[20] & (tlb_ctx[20] == current_ctx);
+pr_cv_21 = tlb_v[21] & (tlb_ctx[21] == current_ctx);
+pr_cv_22 = tlb_v[22] & (tlb_ctx[22] == current_ctx);
+pr_cv_23 = tlb_v[23] & (tlb_ctx[23] == current_ctx);
+pr_cv_24 = tlb_v[24] & (tlb_ctx[24] == current_ctx);
+pr_cv_25 = tlb_v[25] & (tlb_ctx[25] == current_ctx);
+pr_cv_26 = tlb_v[26] & (tlb_ctx[26] == current_ctx);
+pr_cv_27 = tlb_v[27] & (tlb_ctx[27] == current_ctx);
+pr_cv_28 = tlb_v[28] & (tlb_ctx[28] == current_ctx);
+pr_cv_29 = tlb_v[29] & (tlb_ctx[29] == current_ctx);
+pr_cv_30 = tlb_v[30] & (tlb_ctx[30] == current_ctx);
+pr_cv_31 = tlb_v[31] & (tlb_ctx[31] == current_ctx);
+pr_cv_32 = tlb_v[32] & (tlb_ctx[32] == current_ctx);
+pr_cv_33 = tlb_v[33] & (tlb_ctx[33] == current_ctx);
+pr_cv_34 = tlb_v[34] & (tlb_ctx[34] == current_ctx);
+pr_cv_35 = tlb_v[35] & (tlb_ctx[35] == current_ctx);
+pr_cv_36 = tlb_v[36] & (tlb_ctx[36] == current_ctx);
+pr_cv_37 = tlb_v[37] & (tlb_ctx[37] == current_ctx);
+pr_cv_38 = tlb_v[38] & (tlb_ctx[38] == current_ctx);
+pr_cv_39 = tlb_v[39] & (tlb_ctx[39] == current_ctx);
+pr_cv_40 = tlb_v[40] & (tlb_ctx[40] == current_ctx);
+pr_cv_41 = tlb_v[41] & (tlb_ctx[41] == current_ctx);
+pr_cv_42 = tlb_v[42] & (tlb_ctx[42] == current_ctx);
+pr_cv_43 = tlb_v[43] & (tlb_ctx[43] == current_ctx);
+pr_cv_44 = tlb_v[44] & (tlb_ctx[44] == current_ctx);
+pr_cv_45 = tlb_v[45] & (tlb_ctx[45] == current_ctx);
+pr_cv_46 = tlb_v[46] & (tlb_ctx[46] == current_ctx);
+pr_cv_47 = tlb_v[47] & (tlb_ctx[47] == current_ctx);
+pr_cv_48 = tlb_v[48] & (tlb_ctx[48] == current_ctx);
+pr_cv_49 = tlb_v[49] & (tlb_ctx[49] == current_ctx);
+pr_cv_50 = tlb_v[50] & (tlb_ctx[50] == current_ctx);
+pr_cv_51 = tlb_v[51] & (tlb_ctx[51] == current_ctx);
+pr_cv_52 = tlb_v[52] & (tlb_ctx[52] == current_ctx);
+pr_cv_53 = tlb_v[53] & (tlb_ctx[53] == current_ctx);
+pr_cv_54 = tlb_v[54] & (tlb_ctx[54] == current_ctx);
+pr_cv_55 = tlb_v[55] & (tlb_ctx[55] == current_ctx);
+pr_cv_56 = tlb_v[56] & (tlb_ctx[56] == current_ctx);
+pr_cv_57 = tlb_v[57] & (tlb_ctx[57] == current_ctx);
+pr_cv_58 = tlb_v[58] & (tlb_ctx[58] == current_ctx);
+pr_cv_59 = tlb_v[59] & (tlb_ctx[59] == current_ctx);
+pr_cv_60 = tlb_v[60] & (tlb_ctx[60] == current_ctx);
+pr_cv_61 = tlb_v[61] & (tlb_ctx[61] == current_ctx);
+pr_cv_62 = tlb_v[62] & (tlb_ctx[62] == current_ctx);
+pr_cv_63 = tlb_v[63] & (tlb_ctx[63] == current_ctx);
+
+// Combine into context-valid mask
+var probe_ctx_valid_mask[63:0];
+probe_ctx_valid_mask = {pr_cv_63, pr_cv_62, pr_cv_61, pr_cv_60, pr_cv_59, pr_cv_58, pr_cv_57, pr_cv_56,
+                        pr_cv_55, pr_cv_54, pr_cv_53, pr_cv_52, pr_cv_51, pr_cv_50, pr_cv_49, pr_cv_48,
+                        pr_cv_47, pr_cv_46, pr_cv_45, pr_cv_44, pr_cv_43, pr_cv_42, pr_cv_41, pr_cv_40,
+                        pr_cv_39, pr_cv_38, pr_cv_37, pr_cv_36, pr_cv_35, pr_cv_34, pr_cv_33, pr_cv_32,
+                        pr_cv_31, pr_cv_30, pr_cv_29, pr_cv_28, pr_cv_27, pr_cv_26, pr_cv_25, pr_cv_24,
+                        pr_cv_23, pr_cv_22, pr_cv_21, pr_cv_20, pr_cv_19, pr_cv_18, pr_cv_17, pr_cv_16,
+                        pr_cv_15, pr_cv_14, pr_cv_13, pr_cv_12, pr_cv_11, pr_cv_10, pr_cv_9, pr_cv_8,
+                        pr_cv_7, pr_cv_6, pr_cv_5, pr_cv_4, pr_cv_3, pr_cv_2, pr_cv_1, pr_cv_0};
+
+// Final match
+var probe_tlb_match[63:0];
+probe_tlb_match = probe_vpn_matches & probe_ctx_valid_mask;
+
+// ============================================================================
+// Find first matching entry
+// ============================================================================
+var probe_tlb_hit[0:0];
+var probe_tlb_hit_idx[6:0];
+probe_tlb_hit = |probe_tlb_match;
+probe_tlb_hit_idx = ctz(probe_tlb_match);
+
+var probe_hit_idx[5:0];
+probe_hit_idx = probe_tlb_hit_idx[5:0];
+
+// ============================================================================
+// Read matched TLB entry data and construct PTE
+// ============================================================================
+var probe_matched_ppn[23:0];
+var probe_matched_c[0:0];
+var probe_matched_m[0:0];
+var probe_matched_r[0:0];
+var probe_matched_acc[2:0];
+
+probe_matched_ppn = tlb_ppn[probe_hit_idx];
+probe_matched_c = tlb_c[probe_hit_idx];
+probe_matched_m = tlb_m[probe_hit_idx];
+probe_matched_r = tlb_r[probe_hit_idx];
+probe_matched_acc = tlb_acc[probe_hit_idx];
+
+// Construct PTE result
+// [31:8]  PPN (24 bits)
+// [7]     C
+// [6]     M
+// [5]     R
+// [4:2]   ACC
+// [1:0]   ET (10 = PTE)
+var probe_pte[31:0];
+probe_pte = {probe_matched_ppn, probe_matched_c, probe_matched_m, probe_matched_r,
+             probe_matched_acc, 2'b10};
+
+// Return PTE if hit, 0 if miss
+result = probe_tlb_hit ? probe_pte : 32'b0;
+
+// Write result to destination register (unless rd == 0)
+rf[phys_rd] when (rd != 5'b0) = result;
+
+pc = pc + 4;

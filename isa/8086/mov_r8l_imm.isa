@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 MOV r8l, imm8 - Parameterized with wildcard ** syntax
+// Opcodes: 0xB0-0xB3 (MOV AL/CL/DL/BL, imm8)
+// Replaces 4 separate files: mov_al_imm, mov_cl_imm, mov_dl_imm, mov_bl_imm
+// Opcode encoding: 0xB0 + register_index (bits [1:0] of opcode = register index)
+
+isa_state ip[15:0];
+var instr[7:0];
+
+// Word register file
+isa_state xregs[15:0][2:0];
+
+// Low byte register array using wildcard ** syntax
+// 0b0** means bit[2]=0 (low byte), bits[1:0]=variable (array index)
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];  // AL, CL, DL, BL
+
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var reg_idx[1:0];
+var imm[7:0];
+
+// Fetch instruction
+instr = imem[ip];
+
+// Check this is a MOV r8l, imm8 instruction (0xB0-0xB3)
+assume instr[7:2] == 0b101100;  // Upper 6 bits must be 101100
+
+ip = ip + 1;
+
+// Extract register index from lower 2 bits of opcode
+reg_idx = instr[1:0];
+
+// Read immediate byte
+imm = imem[ip];
+ip = ip + 1;
+
+// Move immediate to low byte register using indexed access
+lregs[reg_idx] = imm[7:0];

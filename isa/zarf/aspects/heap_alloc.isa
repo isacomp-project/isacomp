@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Heap Allocation Aspect
+//
+// Allocates space on the heap for a new object (thunk, closure, or constructor).
+//
+// Requires before inclusion:
+//   alloc_size[9:0] - Number of words to allocate (header + data)
+//
+// Provides after inclusion:
+//   alloc_addr[31:0] - Address of allocated object
+//
+// Gates: fp, alloc_size
+
+var alloc_addr[31:0];
+
+// Current free pointer is the allocation address
+alloc_addr = {{12{1'b0}}, fp};
+
+// Advance free pointer by allocation size
+fp = fp + {{10{1'b0}}, alloc_size};

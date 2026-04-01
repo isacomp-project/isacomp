@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vnot.v - Vector NOT (pseudo-instruction)
+// Encoding: vxor.vi vd, vs2, -1, vm (pseudo: vnot.v vd, vs2, vm)
+// Operation: vd[i] = ~vs2[i]
+// Note: Implemented as vxor.vi with imm=-1
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v2[127:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b011;
+// funct6 = 001011 (vxor)
+assume instr[31:26] == 0b001011;
+// imm = -1 (all ones) for NOT operation
+assume instr[19:15] == 0b11111;
+
+pc = pc + 4;
+
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v2 = vrf[vs2];
+
+res = ~v2;
+
+vrf[vd] = res;

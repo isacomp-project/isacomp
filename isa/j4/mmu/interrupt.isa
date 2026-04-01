@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// J4 (SuperH-4) External Interrupt Handling Aspect
+// This aspect handles external interrupt requests from the AIC.
+// It should be included by instructions that can be interrupted.
+//
+// Interrupt conditions (SH-4 semantics):
+// 1. irq_i input is high (interrupt request pending)
+// 2. BL=0 in SR (exceptions not blocked)
+// 3. Interrupt priority > IMASK (SR bits 7-4)
+// 4. Not in a branch delay slot
+//
+// When an interrupt is taken:
+// - Sets INTEVT register with interrupt code
+// - Saves SR to SSR, PC to SPC
+// - Sets MD=1, BL=1, RB=1 in SR
+// - Jumps to VBR + 0x600 (interrupt handler)
+//
+// SR Register layout (SH-4):
+//   Bits 4-7:  I0-I3 - Interrupt mask (IMASK, 0-15)
+//   Bit 28:    BL - Block exceptions (1=blocked)
+//   Bit 29:    RB - Register bank select (0=bank0, 1=bank1)
+//   Bit 30:    MD - Processor mode (0=user, 1=privileged)
+
+// External interrupt input signals (declared as ext isa_state to become module inputs)
+ext isa_state irq_i[0:0];           // Interrupt request from AIC
+ext isa_state irq_vector[7:0];      // Interrupt vector/code from AIC
+ext isa_state irq_priority[3:0];    // Interrupt priority level from AIC (0-15)
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state t[0:0];  // T flag (tracked separately from SR)
+
+// SH-4 specific saved registers
+isa_state ssr[31:0];  // Saved Status Register
+isa_state spc[31:0];  // Saved Program Counter
+
+// INTEVT - Interrupt Event Register (set on interrupt)
+isa_state intevt[31:0];
+
+// Delay slot state (must not take interrupts during delay slot)
+isa_state delay_slot[0:0];
+
+// Internal variables
+var int_bl[0:0];            // BL bit from SR (block exceptions)
+var int_imask[3:0];         // IMASK from SR bits 7-4
+var int_priority_ok[0:0];   // Priority check passed
+var int_should_take[0:0];   // All conditions met for interrupt
+
+// Variables for interrupt handling
+var int_handler_addr[31:0];
+var int_saved_sr[31:0];
+var int_saved_pc[31:0];
+var int_new_sr[31:0];
+var int_code[31:0];
+
+// Extract BL (bit 28) and IMASK (bits 7-4) from SR
+int_bl = sr[28];
+int_imask = sr[7:4];
+
+// Priority check: interrupt priority must be strictly greater than IMASK
+// Note: priority 0 is lowest, 15 is highest
+// An interrupt is taken if priority > IMASK
+int_priority_ok = irq_priority > int_imask;
+
+// Interrupt should be taken if:
+// 1. irq_i is asserted
+// 2. BL=0 (not blocking exceptions)
+// 3. priority > IMASK
+// 4. NOT in a delay slot
+int_should_take = irq_i & ~int_bl & int_priority_ok & ~delay_slot;
+
+// Save current PC and SR
+// SPC points to the CURRENT instruction because all instruction side effects
+// are suppressed via ~int_should_take guards - the instruction will re-execute on RTE.
+// Include T flag in bit 0 of saved SR (T is tracked separately from SR)
+int_saved_pc = pc;
+int_saved_sr = {sr[31:1], t};
+
+// SH-4 uses fixed offset from VBR for interrupts
+int_handler_addr = vbr + 32'h600;
+
+// Compute INTEVT code from irq_vector
+// INTEVT codes are typically vector << 5 (like EXPEVT)
+int_code = {24'b0, irq_vector} << 5;
+
+// Compute new SR: set MD=1 (privileged), BL=1 (block exceptions), RB=1 (bank1)
+// Keep FD and interrupt mask unchanged
+int_new_sr = {sr[31], 3'b111, sr[27:0]};
+
+// SH-4 specific: Save SR and PC to SSR and SPC
+ssr when (int_should_take) = int_saved_sr;
+spc when (int_should_take) = int_saved_pc;
+
+// Write interrupt code to INTEVT register
+intevt when (int_should_take) = int_code;
+// Also write INTEVT to umem so kernel can read via P4 load from 0xFF000028
+var int_intevt_umem_addr[31:0];
+int_intevt_umem_addr = 32'h03FF0028;
+umem[int_intevt_umem_addr] when (int_should_take) = int_code;
+
+// Update SR (enter privileged mode, block exceptions, select bank1)
+sr when (int_should_take) = int_new_sr;
+
+// Jump to interrupt handler
+pc when (int_should_take) = int_handler_addr;

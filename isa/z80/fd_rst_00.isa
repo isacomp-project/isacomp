@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD C7 - FD prefix passthrough RST 00H
+// FD prefix consumed, RST 00H executes unchanged
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state sp[15:0];
+mem mainmem[15:0];
+
+var return_addr[15:0];
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'hC7FD;
+
+return_addr = pc + 2;
+
+sp_minus_1 = sp - 1;
+sp_minus_2 = sp_minus_1 - 1;
+
+mainmem[sp_minus_1] = return_addr[15:8];
+mainmem[sp_minus_2] = return_addr[7:0];
+sp = sp_minus_2;
+pc = 16'h0000;

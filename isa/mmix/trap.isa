@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX TRAP - Trap (system call)
+// TRAP X,Y,Z: forced trap to operating system
+// Opcode: 0x00
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rT[63:0];  // Trap handler address
+isa_state rWW[63:0]; // Where-interrupted (trap)
+isa_state rXX[63:0]; // Execution register (trap)
+isa_state rYY[63:0]; // Y operand (trap)
+isa_state rZZ[63:0]; // Z operand (trap)
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x00;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+// Save state for trap handler
+rWW = pc + 4;
+rXX = instr;
+rYY = {56'h0, y};
+rZZ = {56'h0, z};
+
+// Jump to trap handler
+pc = rT;

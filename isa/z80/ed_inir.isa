@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED B2 - INIR (Input, Increment, Repeat)
+// Repeat: (HL) = port[C], HL++, B-- until B == 0
+// PC stays same while B != 0, advances when B == 0
+// Affects Z=1 (always when done), N=1
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+var inir_pc_next[15:0];
+isa_state H[7:0];
+isa_state L[7:0];
+isa_state B[7:0];
+isa_state C[7:0];
+isa_state flag_Z;
+isa_state flag_N;
+isa_state io[7:0][7:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+inir_pc_next = pc_plus_1 + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 0xB2ED;
+
+var inir_hl_addr[15:0];
+inir_hl_addr = {H, L};
+
+var inir_value[7:0];
+inir_value = io[C];
+mainmem[inir_hl_addr] = inir_value;
+
+var inir_hl_new[15:0];
+inir_hl_new = inir_hl_addr + 1;
+var inir_b_new[7:0];
+inir_b_new = B - 1;
+
+H = inir_hl_new[15:8];
+L = inir_hl_new[7:0];
+B = inir_b_new;
+
+flag_N = 1'b1;
+
+// B != 0: stay at same PC (repeat), Z = 0
+// B == 0: advance PC (done), Z = 1
+var inir_b_zero[0:0];
+inir_b_zero = (inir_b_new == 8'h00);
+var inir_next_pc[15:0];
+inir_next_pc = inir_b_zero ? inir_pc_next : pc;
+pc = inir_next_pc;
+flag_Z = (inir_b_new == 8'h00) ? 1'b1 : 1'b0;

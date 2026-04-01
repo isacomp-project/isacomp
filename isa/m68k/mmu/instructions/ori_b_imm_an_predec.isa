@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 ORI.B #imm,-(An) - OR immediate byte to memory (predecrement)
+// Opcode: 0000 0000 00 100 AAA followed by immediate word
+// Operation: An = An - 1, then (An) OR #imm -> (An)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var addr_reg[2:0];
+var obipd_ext_word[15:0];
+var obipd_imm_byte[7:0];
+var obipd_addr[31:0];
+var obipd_dst_word[15:0];
+var obipd_dst_byte[7:0];
+var obipd_result_byte[7:0];
+var obipd_new_word[15:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:8] == 0b00000000;  // ORI opcode
+assume instr[7:6] == 0b00;         // Size: byte
+assume instr[5:3] == 0b100;        // EA mode: -(An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+addr_reg = instr[2:0];
+
+// Fetch immediate byte
+obipd_ext_word = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+obipd_imm_byte = obipd_ext_word[7:0];
+
+// Predecrement address register (1 byte for byte)
+obipd_addr = aregs[addr_reg] - 1;
+aregs[addr_reg] when (~m68k_exc_taken) = obipd_addr;
+
+// MMU translate
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = obipd_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+// Read-modify-write byte in memory (16-bit word access)
+#ifdef MMU
+obipd_dst_word = dmem[{ea_pa[31:1], 1'b0}];
+obipd_dst_byte = obipd_addr[0] ? obipd_dst_word[7:0] : obipd_dst_word[15:8];
+#else
+obipd_dst_word = dmem[{obipd_addr[31:1], 1'b0}];
+obipd_dst_byte = obipd_addr[0] ? obipd_dst_word[7:0] : obipd_dst_word[15:8];
+#endif
+obipd_result_byte = obipd_dst_byte | obipd_imm_byte;
+#ifdef MMU
+obipd_new_word = obipd_addr[0] ? {obipd_dst_word[15:8], obipd_result_byte} : {obipd_result_byte, obipd_dst_word[7:0]};
+dmem[{ea_pa[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = obipd_new_word;
+#else
+obipd_new_word = obipd_addr[0] ? {obipd_dst_word[15:8], obipd_result_byte} : {obipd_result_byte, obipd_dst_word[7:0]};
+dmem[{obipd_addr[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = obipd_new_word;
+#endif
+
+// Update CCR
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = obipd_result_byte[7];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = obipd_result_byte == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

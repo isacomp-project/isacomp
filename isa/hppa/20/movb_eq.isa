@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 MOVB,= instruction (64-bit)
+// MOVB,= r1,r2,target - Move and Branch if r1 == 0
+// Opcode: 0x32 (bits 31:26)
+// r2=instr[25:21], r1=instr[20:16], 12-bit displacement
+// Moves r1 to r2, branches if condition on r1 is met
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+var src1[63:0];
+var w[11:0];
+var target_offset[63:0];
+var target[63:0];
+var taken[0:0];
+
+instr = umem[pc_pa];
+
+// MOVB,= encoding: opcode=0x32, condition = EQ (c=instr[15:13]=001)
+assume instr[31:26] == 0b110010;
+assume instr[15:13] == 0b001;
+
+// Extract register fields
+r2 = instr[25:21];
+r1 = instr[20:16];
+
+// Read source register (r0 reads as 0)
+var psw_W[0:0];
+psw_W = psw[27];
+src1 = (r1 == 0) ? 64'h0 : (psw_W ? rf[r1] : {{32{rf[r1][31]}}, rf[r1][31:0]});
+
+// Assemble 12-bit displacement from scattered bits
+w = {instr[0], instr[2], instr[12:4], instr[3]};
+
+// Sign-extend and word-align (shift left 2)
+target_offset = {{50{w[11]}}, w, 2'b00};
+
+// Target is relative to PC+8
+target = pc + 8 + target_offset;
+
+// Condition: value is zero
+taken = (src1 == 64'h0);
+
+// Move r1 to r2
+rf[r2] when (r2 != 0 & ~instr_trap_taken & ~in_nullified) = src1;
+
+// If condition met, set up branch via delay slot
+delay_slot when (taken & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (taken & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+
+// Nullification
+var n_nullify[0:0];
+n_nullify = instr[1] & (taken ^ w[11]);
+psw when (n_nullify & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Advance PC
+pc = pc + 4;

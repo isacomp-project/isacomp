@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER stfsu - Store Floating-Point Single with Update (D-Form)
+// stfsu FRS,D(RA)
+// Primary opcode 53
+// EA <- (RA) + EXTS(D)
+// MEM(EA, 4) <- SINGLE(FRS)
+// RA <- EA
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[14:0];
+
+var frs[4:0];
+var ra[4:0];
+var d[15:0];
+var ra_val[63:0];
+var offset[63:0];
+var ea[63:0];
+var double_val[63:0];
+var single_val[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 53;     // Primary opcode 53 (stfsu)
+
+pc = pc + 4;
+
+frs = instr[25:21];
+ra = instr[20:16];
+d = instr[15:0];
+
+// RA cannot be 0 for update forms
+assume ra != 0;
+
+ra_val = rf[ra];
+offset = {{48{d[15]}}, d};  // Sign-extend displacement
+ea = ra_val + offset;
+
+// Get double-precision value and convert to single (RNE rounding mode = 3'b000)
+double_val = frf[frs];
+single_val = fp_cvt_s_d(double_val, 3'b000);
+
+// Store 32-bit value to memory and update RA
+#ifdef VM
+aspect mmu_store.isa gates pc, msr, srr0, srr1, dar, dsisr;
+umem[ea_pa] when (~store_exception_taken & ~instr_trap_taken) = {32'b0, single_val};
+#else
+umem[ea] = {32'b0, single_val};
+#endif
+#ifdef VM
+rf[ra] when (~store_exception_taken & ~instr_trap_taken) = ea;
+#else
+rf[ra] = ea;
+#endif

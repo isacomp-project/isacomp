@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vsm.v - Store Mask Vector
+// Encoding: vsm.v vs3, (rs1)
+// Operation: Store mask bits to memory
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vs3[4:0];
+var addr[31:0];
+var v3[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0100111;
+assume instr[14:12] == 0b000;
+assume instr[31:26] == 0b000010;
+assume instr[24:20] == 0b01011;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vs3 = instr[11:7];
+
+addr = rf[rs1];
+v3 = vrf[vs3];
+
+// Store mask bits (packed)
+umem[addr] = v3[31:0];

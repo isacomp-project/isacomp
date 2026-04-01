@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vnclip.wv - Narrowing Clip Signed (vector-vector)
+// Encoding: vnclip.wv vd, vs2, vs1, vm
+// Operation: vd[i] = clip_signed((vs2[i] >>> vs1[i]), SEW)
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v1[127:0];
+var v2[127:0];
+var res[127:0];
+var shift0[5:0];
+var shift1[5:0];
+var wide0[63:0];
+var wide1[63:0];
+var shifted0[63:0];
+var shifted1[63:0];
+var max_pos[31:0];
+var max_neg[31:0];
+var clipped0[31:0];
+var clipped1[31:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b000;
+assume instr[31:26] == 0b101111;
+
+pc = pc + 4;
+
+vs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v1 = vrf[vs1];
+v2 = vrf[vs2];
+
+wide0 = v2[63:0];
+wide1 = v2[127:64];
+shift0 = v1[5:0];
+shift1 = v1[37:32];
+
+shifted0 = wide0 >>> shift0;
+shifted1 = wide1 >>> shift1;
+max_pos = 32'h7FFFFFFF;
+max_neg = 32'h80000000;
+
+// Saturate to signed 32-bit range
+clipped0 = (shifted0[63:31] == 33'b0 || shifted0[63:31] == 33'h1FFFFFFFF) ? shifted0[31:0] :
+           (shifted0[63] == 1'b1) ? max_neg : max_pos;
+clipped1 = (shifted1[63:31] == 33'b0 || shifted1[63:31] == 33'h1FFFFFFFF) ? shifted1[31:0] :
+           (shifted1[63] == 1'b1) ? max_neg : max_pos;
+
+res[31:0] = clipped0;
+res[63:32] = clipped1;
+res[95:64] = 32'b0;
+res[127:96] = 32'b0;
+
+vrf[vd] = res;

@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 LD D,D (0x52) - Load D to D (NOP)
+// D = D (no change)
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state D[7:0];
+mem mainmem[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x52;
+pc = pc + 1;
+
+D = D;

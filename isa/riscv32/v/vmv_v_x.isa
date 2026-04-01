@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vmv.v.x - Vector Move (scalar splat)
+// Encoding: vmv.v.x vd, rs1
+// Operation: vd[i] = x[rs1] for all i
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vd[4:0];
+var scalar[31:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b100;
+// funct6 = 010111 (vmv)
+assume instr[31:26] == 0b010111;
+// vs2 = 00000 (required for this encoding)
+assume instr[24:20] == 0b00000;
+// vm = 1 (unmasked)
+assume instr[25:25] == 0b1;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vd = instr[11:7];
+
+scalar = rf[rs1];
+
+// Splat scalar to all elements
+res[31:0] = scalar;
+res[63:32] = scalar;
+res[95:64] = scalar;
+res[127:96] = scalar;
+
+vrf[vd] = res;

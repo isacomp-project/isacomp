@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: KRET (kernel return)
+// One-parcel encoding: opcode 0x0B, subcode 0x1, 2 bytes
+// Restore PC and PSW from interrupt stack
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state isp[31:0];
+isa_state psw[31:0];
+isa_state shad[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var new_pc[31:0];
+var new_psw[31:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+assume instr[14:10] == 0x0B;
+assume instr[9:7] == 0b001;
+assume instr[6:3] == 0b0000;
+assume instr[2:0] == 0b001;
+
+// Restore PC from ISP+8 and PSW from ISP+12
+new_pc = umem[isp + 8];
+new_psw = umem[isp + 12];
+
+isp = isp + 16;
+
+// Update SHAD based on new CSP
+// If CSP bit (bit 9) = 0, use ISP; if 1, use SP
+shad = (new_psw[9] == 0) ? isp : sp;
+
+psw = new_psw;
+pc = new_pc;

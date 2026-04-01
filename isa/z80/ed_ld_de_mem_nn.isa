@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED 5B - LD DE,(nn)
+// Load DE from memory address nn
+// Does not affect flags
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var pc_plus_3[15:0];
+isa_state D[7:0];
+isa_state E[7:0];
+mem mainmem[15:0];
+var ld_de_addr[15:0];
+var ld_de_addr_plus_1[15:0];
+
+pc_plus_1 = pc + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 0x5BED;
+
+pc_plus_2 = pc_plus_1 + 1;
+pc_plus_3 = pc_plus_2 + 1;
+
+ld_de_addr = {mainmem[pc_plus_3], mainmem[pc_plus_2]};
+ld_de_addr_plus_1 = ld_de_addr + 1;
+
+pc = pc_plus_3 + 1;
+
+E = mainmem[ld_de_addr];
+D = mainmem[ld_de_addr_plus_1];

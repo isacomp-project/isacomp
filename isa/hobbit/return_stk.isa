@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: RETURN src (stack offset, one-parcel)
+// One-parcel encoding: opcode 0x02, subcode 0x2, 2 bytes
+// PC = *(CSP + src); CSP += src (deallocate stack frame)
+// The 8-bit offset is zero-extended and multiplied by 16
+
+isa_state pc[31:0];
+isa_state sp[31:0];
+isa_state msp[31:0];
+isa_state shad[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+var opcode[4:0];
+var subcode[1:0];
+var offset[7:0];
+var byte_offset[31:0];
+var return_addr[31:0];
+var new_sp[31:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+opcode = instr[14:10];
+assume opcode == 0x02;
+subcode = instr[9:8];
+assume subcode == 0b10;
+
+offset = instr[7:0];
+
+// Zero-extend and multiply by 16 for quad-aligned offset
+byte_offset = {20'b0, offset, 4'b0000};
+
+// Load return address from stack at CSP + offset
+return_addr = umem[sp + byte_offset];
+
+// Update SP (deallocate frame)
+new_sp = sp + byte_offset;
+sp = new_sp;
+shad = new_sp;
+
+// If new SP > MSP, update MSP
+msp = (new_sp > msp) ? new_sp : msp;
+
+// Jump to return address
+pc = return_addr;

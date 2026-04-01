@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REP OUTSB (0xF3 0x6E)
+// Repeat OUTSB: output byte, decrement ECX (simplified - execute once)
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state ESI[31:0] of xregs[6];
+isa_state ECX[31:0] of xregs[1];
+isa_state DX[15:0] of xregs[2][15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state io_ports[7:0][15:0];
+isa_state flag_DF[0:0];
+
+var new_esi[31:0];
+var val[7:0];
+
+// Fetch REP prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+eip = eip + 1;
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x6E;
+eip = eip + 1;
+
+// Simplified: assume ECX > 0, execute once
+assume xregs[1] != 32'h00000000;
+
+// Read byte from [ESI]
+val = dmem[ESI];
+
+// Write byte to I/O port DX
+io_ports[DX] = val;
+
+// Adjust ESI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 1 : ESI - 1;
+ESI = new_esi;
+
+// Decrement ECX
+ECX = ECX - 1;

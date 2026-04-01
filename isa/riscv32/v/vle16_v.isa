@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vle16.v - Vector Load 16-bit Elements
+// Encoding: vle16.v vd, (rs1), vm
+// Operation: vd[i] = mem[rs1 + i*2]
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+mem dmem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vd[4:0];
+var vm[0:0];
+var addr[31:0];
+var data[127:0];
+
+instr = umem[pc];
+// Opcode: 0000111 (LOAD-FP, vector load)
+assume instr[6:0] == 0b0000111;
+// width = 101 (16-bit)
+assume instr[14:12] == 0b101;
+// mop = 00 (unit-stride)
+assume instr[27:26] == 0b00;
+// nf = 000 (single field)
+assume instr[31:29] == 0b000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vd = instr[11:7];
+vm = instr[25:25];
+
+addr = rf[rs1];
+
+// Load 8 halfwords (128 bits) for 16-bit elements
+data[15:0] = dmem[addr];
+data[31:16] = dmem[addr + 2];
+data[47:32] = dmem[addr + 4];
+data[63:48] = dmem[addr + 6];
+data[79:64] = dmem[addr + 8];
+data[95:80] = dmem[addr + 10];
+data[111:96] = dmem[addr + 12];
+data[127:112] = dmem[addr + 14];
+
+vrf[vd] = data;

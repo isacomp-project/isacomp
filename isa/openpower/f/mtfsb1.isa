@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mtfsb1 - Move To FPSCR Bit 1 (X-Form)
+// mtfsb1 BT (Rc=0)
+// Primary opcode 63, XO=38
+// FPSCR[BT] <- 1
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state fpscr[31:0];
+mem umem[14:0];
+
+var bt[4:0];
+var mask[31:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[31:26] == 63;     // Primary opcode 63
+assume instr[10:1] == 38;      // XO = 38 (mtfsb1)
+assume instr[0] == 0;          // Rc = 0
+
+pc = pc + 4;
+
+bt = instr[25:21];
+
+// Create mask with bit BT set
+// FPSCR bit numbering: bit 0 is MSB (bit 31 in register), bit 31 is LSB (bit 0 in register)
+mask = 32'h80000000 >> bt;
+
+// Set the specified bit
+fpscr = fpscr | mask;

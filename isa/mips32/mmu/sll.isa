@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 SLL - Shift Left Logical (with MMU support)
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rt[4:0]; var rd[4:0]; var sa[4:0];
+var r2[31:0]; var res[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+assume instr[31:26] == 0;
+assume instr[5:0] == 0x00;
+
+rt = instr[20:16]; rd = instr[15:11]; sa = instr[10:6];
+r2 = rf[rt];
+res = r2 << sa;
+rf[rd] when (rd != 0) = res;
+pc = pc + 4;

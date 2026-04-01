@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// FSUB FRm,FRn - Floating-Point Subtract (single precision)
+// FRn = FRn - FRm
+// Encoding: 1111nnnnmmmm0001
+isa_state pc[31:0];
+var instr[15:0];
+mem umem[23:0];
+
+isa_state fr[31:0][3:0];
+isa_state fpscr[31:0];
+isa_state fpul[31:0];
+
+var frn[3:0];
+var frm[3:0];
+var FRn[31:0];
+var FRm[31:0];
+var rm[2:0];
+var sub_result[31:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0xF;
+assume instr[3:0] == 0x1;
+frn = instr[11:8];
+frm = instr[7:4];
+
+FRn = fr[frn];
+FRm = fr[frm];
+
+// FPSCR[1:0] is rounding mode (00=RNE, 01=RTZ)
+rm = {1'b0, fpscr[1:0]};
+
+// Single-precision floating-point subtraction using fp intrinsic
+sub_result = fp_sub(FRn, FRm, rm);
+
+fr[frn] = sub_result;
+pc = pc + 2;

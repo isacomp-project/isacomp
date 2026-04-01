@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 LDA Zero Page,X (0xB5) - Load Accumulator Zero Page Indexed with X
+// Loads a value from zero page + X into accumulator
+// Sets N flag if bit 7 is set, sets Z flag if value is zero
+// Instruction format: LDA $nn,X (2 bytes)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state X[7:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state mainmem[7:0][15:0];
+
+var zp_base[7:0];
+var zp_x_addr[7:0];
+var data[7:0];
+
+instr = mainmem[pc];
+assume instr == 0xB5;
+pc = pc + 1;
+
+zp_base = mainmem[pc];
+pc = pc + 1;
+
+// Zero page wraps around (stays in page 0)
+zp_x_addr = zp_base + X;
+
+data = mainmem[zp_x_addr];
+
+A = data;
+flag_N = data[7];
+flag_Z = data == 0 ? 1'b1 : 1'b0;

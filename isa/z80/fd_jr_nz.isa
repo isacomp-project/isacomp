@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD 20 - FD prefix passthrough JR NZ
+// FD prefix consumed, JR NZ executes unchanged
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state flag_Z;
+mem mainmem[15:0];
+
+var offset[7:0];
+var offset_ext[15:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'h20FD;
+pc = pc + 2;
+
+offset = mainmem[pc];
+pc = pc + 1;
+
+offset_ext = {{8{offset[7]}}, offset};
+pc = (flag_Z == 0) ? (pc + offset_ext) : pc;

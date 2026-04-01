@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030/68851 PFLUSH - Flush ATC Entries by Function Code
+// Opcode: 1111 000 000 000 000 (F000) followed by extension
+// Extension: 001 1000 fff 00000 (30xx-38xx) where fff = function code
+// Invalidates ATC entries matching the function code
+// Privileged instruction
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+mem dmem[23:0];
+
+isa_state sr[15:0];
+
+// ATC entries
+isa_state atc_v[0:0][4:0];
+isa_state atc_fc[2:0][4:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var fc[2:0];
+var match_0[0:0]; var match_1[0:0]; var match_2[0:0]; var match_3[0:0];
+var match_4[0:0]; var match_5[0:0]; var match_6[0:0]; var match_7[0:0];
+var match_8[0:0]; var match_9[0:0]; var match_10[0:0]; var match_11[0:0];
+var match_12[0:0]; var match_13[0:0]; var match_14[0:0]; var match_15[0:0];
+var match_16[0:0]; var match_17[0:0]; var match_18[0:0]; var match_19[0:0];
+var match_20[0:0]; var match_21[0:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+
+instr = imem[pc_pa];
+assume instr == 16'hF000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+extw = imem[pc_pa];
+assume extw[15:11] == 5'b00111;  // PFLUSH FC
+assume extw[4:0] == 5'b00000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+fc = extw[10:8];
+
+assume sr[13] == 1'b1;
+
+// Check each entry and invalidate if FC matches
+match_0 = atc_v[0] & (atc_fc[0] == fc);
+match_1 = atc_v[1] & (atc_fc[1] == fc);
+match_2 = atc_v[2] & (atc_fc[2] == fc);
+match_3 = atc_v[3] & (atc_fc[3] == fc);
+match_4 = atc_v[4] & (atc_fc[4] == fc);
+match_5 = atc_v[5] & (atc_fc[5] == fc);
+match_6 = atc_v[6] & (atc_fc[6] == fc);
+match_7 = atc_v[7] & (atc_fc[7] == fc);
+match_8 = atc_v[8] & (atc_fc[8] == fc);
+match_9 = atc_v[9] & (atc_fc[9] == fc);
+match_10 = atc_v[10] & (atc_fc[10] == fc);
+match_11 = atc_v[11] & (atc_fc[11] == fc);
+match_12 = atc_v[12] & (atc_fc[12] == fc);
+match_13 = atc_v[13] & (atc_fc[13] == fc);
+match_14 = atc_v[14] & (atc_fc[14] == fc);
+match_15 = atc_v[15] & (atc_fc[15] == fc);
+match_16 = atc_v[16] & (atc_fc[16] == fc);
+match_17 = atc_v[17] & (atc_fc[17] == fc);
+match_18 = atc_v[18] & (atc_fc[18] == fc);
+match_19 = atc_v[19] & (atc_fc[19] == fc);
+match_20 = atc_v[20] & (atc_fc[20] == fc);
+match_21 = atc_v[21] & (atc_fc[21] == fc);
+
+atc_v[0] when (match_0 & ~m68k_exc_taken) = 1'b0;
+atc_v[1] when (match_1 & ~m68k_exc_taken) = 1'b0;
+atc_v[2] when (match_2 & ~m68k_exc_taken) = 1'b0;
+atc_v[3] when (match_3 & ~m68k_exc_taken) = 1'b0;
+atc_v[4] when (match_4 & ~m68k_exc_taken) = 1'b0;
+atc_v[5] when (match_5 & ~m68k_exc_taken) = 1'b0;
+atc_v[6] when (match_6 & ~m68k_exc_taken) = 1'b0;
+atc_v[7] when (match_7 & ~m68k_exc_taken) = 1'b0;
+atc_v[8] when (match_8 & ~m68k_exc_taken) = 1'b0;
+atc_v[9] when (match_9 & ~m68k_exc_taken) = 1'b0;
+atc_v[10] when (match_10 & ~m68k_exc_taken) = 1'b0;
+atc_v[11] when (match_11 & ~m68k_exc_taken) = 1'b0;
+atc_v[12] when (match_12 & ~m68k_exc_taken) = 1'b0;
+atc_v[13] when (match_13 & ~m68k_exc_taken) = 1'b0;
+atc_v[14] when (match_14 & ~m68k_exc_taken) = 1'b0;
+atc_v[15] when (match_15 & ~m68k_exc_taken) = 1'b0;
+atc_v[16] when (match_16 & ~m68k_exc_taken) = 1'b0;
+atc_v[17] when (match_17 & ~m68k_exc_taken) = 1'b0;
+atc_v[18] when (match_18 & ~m68k_exc_taken) = 1'b0;
+atc_v[19] when (match_19 & ~m68k_exc_taken) = 1'b0;
+atc_v[20] when (match_20 & ~m68k_exc_taken) = 1'b0;
+atc_v[21] when (match_21 & ~m68k_exc_taken) = 1'b0;

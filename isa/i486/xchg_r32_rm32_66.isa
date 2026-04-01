@@ -1,0 +1,128 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 XCHG r32, r/m32 with 66 prefix (0x66 0x87) - ALL ADDRESSING MODES
+// In real mode, 66 prefix switches to 32-bit operand size
+
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+
+var reg_val[31:0];
+var rm_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var physical_addr[19:0];
+var physical_addr_1[19:0];
+var physical_addr_2[19:0];
+var physical_addr_3[19:0];
+var rm_mem_val_b0[7:0];
+var rm_mem_val_b1[7:0];
+var rm_mem_val_b2[7:0];
+var rm_mem_val_b3[7:0];
+var rm_mem_val[31:0];
+var rm_reg_val[31:0];
+var rm_val[31:0];
+var is_mem[0:0];
+
+prefix = imem[eip];
+assume prefix == 0x66;
+
+instr = imem[eip + 1];
+assume instr == 0x87;
+
+modrm = imem[eip + 2];
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+rm_reg_idx = rm_bits;
+reg_val = xregs[reg_idx];
+
+case (rm_bits) {
+  3'b100: addr_reg_idx = 3'b110;
+  3'b101: addr_reg_idx = 3'b111;
+  3'b111: addr_reg_idx = 3'b011;
+}
+
+base_offset = xregs[addr_reg_idx][15:0];
+
+disp8 = imem[eip + 3];
+disp16_lo = imem[eip + 3];
+disp16_hi = imem[eip + 4];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  2'b00: offset = base_offset;
+  2'b01: offset = base_offset + signed_disp8;
+  2'b10: offset = base_offset + disp16;
+  2'b11: offset = 16'h0000;
+}
+
+case (mod_bits) {
+  2'b00: is_mem = 1'b1;
+  2'b01: is_mem = 1'b1;
+  2'b10: is_mem = 1'b1;
+  2'b11: is_mem = 1'b0;
+}
+
+case (mod_bits) {
+  2'b00: eip = eip + 3;
+  2'b01: eip = eip + 4;
+  2'b10: eip = eip + 5;
+  2'b11: eip = eip + 3;
+}
+
+physical_addr = ({4'b0000, DS} << 4) + {4'b0000, offset};
+physical_addr_1 = physical_addr + 20'h00001;
+physical_addr_2 = physical_addr + 20'h00002;
+physical_addr_3 = physical_addr + 20'h00003;
+
+rm_mem_val_b0 = dmem[physical_addr];
+rm_mem_val_b1 = dmem[physical_addr_1];
+rm_mem_val_b2 = dmem[physical_addr_2];
+rm_mem_val_b3 = dmem[physical_addr_3];
+rm_mem_val = {rm_mem_val_b3, rm_mem_val_b2, rm_mem_val_b1, rm_mem_val_b0};
+rm_reg_val = xregs[rm_reg_idx];
+
+case (is_mem) {
+  1'b1: rm_val = rm_mem_val;
+  1'b0: rm_val = rm_reg_val;
+}
+
+// Exchange: reg gets rm_val, rm gets reg_val
+xregs[reg_idx] = rm_val;
+
+case (is_mem) {
+  1'b1: dmem[physical_addr] = reg_val[7:0];
+  1'b0: xregs[rm_reg_idx] = reg_val;
+}
+
+case (is_mem) {
+  1'b1: dmem[physical_addr_1] = reg_val[15:8];
+  1'b0: xregs[rm_reg_idx] = reg_val;
+}
+
+case (is_mem) {
+  1'b1: dmem[physical_addr_2] = reg_val[23:16];
+  1'b0: xregs[rm_reg_idx] = reg_val;
+}
+
+case (is_mem) {
+  1'b1: dmem[physical_addr_3] = reg_val[31:24];
+  1'b0: xregs[rm_reg_idx] = reg_val;
+}

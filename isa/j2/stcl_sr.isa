@@ -1,0 +1,80 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC.L SR, @-Rn - Store Control Register (Status Register) to Memory with Pre-decrement
+// Decrements Rn by 4, then stores SR to @Rn
+// This is a privileged instruction on SH-2A but executes normally on SH-2/J2
+// Opcode: 0100nnnn00000011 (0x4n03)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var rn[3:0];
+var Rn[31:0];
+var stcl_sr_addr[31:0];
+var stcl_sr_data[31:0];
+
+// Address error checking variables
+var store_addr[31:0];
+var store_size[1:0];
+var stcl_sr_no_error[0:0];
+
+// Register banking variables
+var stcl_sr_rn_lo[2:0];
+var stcl_sr_rb[0:0];
+var stcl_sr_rn_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include address error detection for stores
+aspect addr_error_store.isa gates pc, sr, vbr, rf, umem, exc_taken:2, exc_vector:2;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x03;
+rn = instr[11:8];
+
+// Register banking setup
+stcl_sr_rn_lo = rn[2:0];
+stcl_sr_rb = sr[28];
+stcl_sr_rn_bk = (rn[3] == 1'b0) & stcl_sr_rb;
+
+Rn = stcl_sr_rn_bk ? rf_bank[stcl_sr_rn_lo] : rf[rn];
+// STC.L SR, @-Rn: decrement Rn by 4, store SR to @Rn
+stcl_sr_addr = Rn - 4;
+
+// The stored SR value should include the current T bit
+// Since T is tracked separately from SR, we merge them for storage
+stcl_sr_data = {sr[31:1], t};
+
+// Set up address error checking
+store_addr = stcl_sr_addr;
+store_size = 2'b11;  // Long access (32-bit)
+
+// Compute the no-error condition (bits 1:0 must be 00)
+stcl_sr_no_error = (stcl_sr_addr[1:0] == 2'b00);
+
+// Only update register and store if no address error (combined with banking)
+rf[rn] when (stcl_sr_no_error & (stcl_sr_rn_bk == 0)) = stcl_sr_addr;
+rf_bank[stcl_sr_rn_lo] when (stcl_sr_no_error & stcl_sr_rn_bk) = stcl_sr_addr;
+umem[stcl_sr_addr] when (stcl_sr_no_error) = stcl_sr_data;
+
+// Only advance PC if no address error
+pc when (stcl_sr_no_error) = pc + 2;

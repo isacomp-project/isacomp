@@ -1,0 +1,111 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// CTLZ with Virtual Memory Support
+// Uses ITB/DTB aspects for address translation
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[13:0];
+
+// PAL/MMU state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+isa_state mm_stat[63:0];
+
+// ITB arrays (8 entries)
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+isa_state lock_flag[0:0];
+
+
+var rb[4:0];
+var rc[4:0];
+var Rb[63:0];
+var Rc[63:0];
+
+// ITB translation for instruction fetch
+aspect aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+instr = umem[pc_pa];
+assume instr[31:26] == 28;
+assume instr[11:5] == 50;
+rb = instr[20:16];
+Rb = rf[rb];
+rc = instr[4:0];
+Rc = rf[rc];
+
+// Count leading zeros using hierarchical approach
+// Check 32-bit halves first
+var upper32_zero[0:0];
+var v32[31:0];
+var c32[5:0];
+upper32_zero = (Rb[63:32] == 32'b0);
+v32 = upper32_zero ? Rb[31:0] : Rb[63:32];
+c32 = upper32_zero ? 6'd32 : 6'd0;
+
+// Check 16-bit halves
+var upper16_zero[0:0];
+var v16[15:0];
+var c16[5:0];
+upper16_zero = (v32[31:16] == 16'b0);
+v16 = upper16_zero ? v32[15:0] : v32[31:16];
+c16 = upper16_zero ? c32 + 6'd16 : c32;
+
+// Check 8-bit halves
+var upper8_zero[0:0];
+var v8[7:0];
+var c8[5:0];
+upper8_zero = (v16[15:8] == 8'b0);
+v8 = upper8_zero ? v16[7:0] : v16[15:8];
+c8 = upper8_zero ? c16 + 6'd8 : c16;
+
+// Check 4-bit halves
+var upper4_zero[0:0];
+var v4[3:0];
+var c4[5:0];
+upper4_zero = (v8[7:4] == 4'b0);
+v4 = upper4_zero ? v8[3:0] : v8[7:4];
+c4 = upper4_zero ? c8 + 6'd4 : c8;
+
+// Check 2-bit halves
+var upper2_zero[0:0];
+var v2[1:0];
+var c2[5:0];
+upper2_zero = (v4[3:2] == 2'b0);
+v2 = upper2_zero ? v4[1:0] : v4[3:2];
+c2 = upper2_zero ? c4 + 6'd2 : c4;
+
+// Check final bits
+var bit1_zero[0:0];
+var c1[5:0];
+bit1_zero = (v2[1] == 1'b0);
+c1 = bit1_zero ? c2 + 6'd1 : c2;
+
+// Final count - add 1 if both bits are zero
+var both_zero[0:0];
+var count[63:0];
+both_zero = (v2 == 2'b0);
+count = both_zero ? {58'b0, c1} + 64'd1 : {58'b0, c1};
+
+rf[rc] when (rc != 31 && take_interrupt == 0 && itb_fault == 0) = count;
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+va when (itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+pc when (take_interrupt == 0 && itb_fault == 0) = pc + 4;

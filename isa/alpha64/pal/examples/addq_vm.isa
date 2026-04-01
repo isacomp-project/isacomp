@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ADDQ with Virtual Memory Support (Instruction Fetch)
+//
+// This example shows how to integrate the ITB aspect for
+// instruction fetch translation in ALU instructions.
+//
+// ADDQ: Rc = Ra + Rb_or_imm
+// Opcode: 0x10, Function: 0x20
+
+// ============================================================================
+// State Declarations
+// ============================================================================
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem imem[63:0];  // Note: imem uses physical addresses after translation
+mem dmem[63:0];
+
+// PAL/MMU state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+
+// ITB arrays
+isa_state itb_pte[63:0][4:0];
+isa_state itb_tag[63:0][4:0];
+isa_state itb_valid[0:0][4:0];
+
+// ============================================================================
+// ITB Translation for Instruction Fetch
+// ============================================================================
+
+var pc_pa[63:0];
+var itb_exception[0:0];
+var itb_miss[0:0];
+
+// Extract PC components
+var pc_vpn[29:0];
+var pc_offset[12:0];
+pc_vpn = pc[42:13];
+pc_offset = pc[12:0];
+
+// TLB lookup
+var itb_hit_any[0:0];
+var itb_hit_pte[63:0];
+
+var ihit0[0:0];
+var ihit1[0:0];
+var ihit2[0:0];
+var ihit3[0:0];
+
+ihit0 = itb_valid[0] & (itb_tag[0][29:0] == pc_vpn);
+ihit1 = itb_valid[1] & (itb_tag[1][29:0] == pc_vpn);
+ihit2 = itb_valid[2] & (itb_tag[2][29:0] == pc_vpn);
+ihit3 = itb_valid[3] & (itb_tag[3][29:0] == pc_vpn);
+
+itb_hit_any = ihit0 | ihit1 | ihit2 | ihit3;
+
+var isel_pte[63:0];
+isel_pte = ihit0 ? itb_pte[0] :
+           ihit1 ? itb_pte[1] :
+           ihit2 ? itb_pte[2] :
+           ihit3 ? itb_pte[3] : 64'b0;
+
+itb_hit_pte = isel_pte;
+
+// Extract PTE fields
+var ipte_pfn[31:0];
+var ipte_valid[0:0];
+
+ipte_pfn = itb_hit_pte[63:32];
+ipte_valid = itb_hit_pte[0];
+
+// Check for ITB miss (only when not in PAL mode)
+var fetch_vm_enabled[0:0];
+fetch_vm_enabled = (pal_mode == 0);
+
+itb_miss = fetch_vm_enabled & (itb_hit_any == 0);
+itb_exception = itb_miss;
+
+// PAL entry point for ITB miss
+var itb_miss_entry[63:0];
+itb_miss_entry = pal_base + 64'h140;
+
+// Exception handling
+exc_addr when (itb_exception) = pc;
+va when (itb_exception) = pc;
+pal_mode when (itb_exception) = 1;
+
+// Compute physical address for fetch
+var pc_translated[63:0];
+pc_translated = {ipte_pfn, pc_offset};
+
+pc_pa = pal_mode ? pc :
+        itb_hit_any ? pc_translated :
+        pc;
+
+// ============================================================================
+// Instruction Fetch and Decode
+// ============================================================================
+
+instr = imem[pc_pa];
+assume instr[31:26] == 16;
+assume instr[11:5] == 32;
+
+var ra[4:0];
+var rb[4:0];
+var rc[4:0];
+var Ra[63:0];
+var Rb[63:0];
+var imm_flag[0:0];
+var imm_value[63:0];
+var Rb_or_imm[63:0];
+
+ra = instr[25:21];
+Ra = rf[ra];
+rb = instr[20:16];
+Rb = rf[rb];
+rc = instr[4:0];
+imm_flag = instr[12];
+imm_value = {{56{1'b0}}, instr[20:13]};
+Rb_or_imm = (imm_flag == 1) ? imm_value : Rb;
+
+// ============================================================================
+// Execute and Writeback
+// ============================================================================
+
+// Perform addition (only if no exception)
+rf[rc] when ((rc != 31) & (itb_exception == 0)) = Ra + Rb_or_imm;
+
+// PC update
+pc when (itb_miss) = itb_miss_entry;
+pc when (itb_exception == 0) = pc + 4;

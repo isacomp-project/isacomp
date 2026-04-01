@@ -1,0 +1,23 @@
+// MMIX SUB instruction test
+// Test: SUB $3,$1,$2 where $1=10, $2=3, expect $3=7
+
+// Address 0x00: SETL $1, 10      (E3 01 00 0A)
+E301000A
+// Address 0x04: SETL $2, 3       (E3 02 00 03)
+E3020003
+// Address 0x08: SUB $3,$1,$2     (24 03 01 02)
+24030102
+// Address 0x0C: SETL $4, 7       (E3 04 00 07) - expected result
+E3040007
+// Address 0x10: SUB $5,$3,$4     (24 05 03 04) - $5 = $3 - 7
+24050304
+// Address 0x14: BZ $5, +2        (42 05 00 02) - branch to pass if equal
+42050002
+// Address 0x18: JMP +2           (F0 00 00 02) - jump to fail
+F0000002
+// Address 0x1C: JMP +1           (F0 00 00 01) - pass: jump forward
+F0000001
+// Address 0x20: pass - infinite loop
+F0000000
+// Address 0x24: fail - infinite loop
+F0000000

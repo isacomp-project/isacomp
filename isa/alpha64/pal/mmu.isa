@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha MMU - Address Translation Aspect
+//
+// This aspect implements Alpha's virtual memory translation using
+// a 3-level page table structure for 43-bit virtual addresses.
+//
+// Alpha Virtual Address Format (43-bit VA, 8KB pages):
+//   [42:33] Level 1 index (10 bits) - 1024 entries
+//   [32:23] Level 2 index (10 bits) - 1024 entries
+//   [22:13] Level 3 index (10 bits) - 1024 entries
+//   [12:0]  Page offset (13 bits)   - 8KB pages
+//
+// Page Table Entry (PTE) Format (64-bit, Linux kernel layout):
+//   [63:32] PFN (Physical Frame Number)
+//   [31:14] Reserved / Software
+//   [13]    UWE (User Write Enable)
+//   [12]    URE (User Read Enable)
+//   [11]    Reserved
+//   [10]    KWE (Kernel Write Enable)
+//   [9]     Reserved
+//   [8]     KRE (Kernel Read Enable)
+//   [7]     Reserved
+//   [6:5]   GH (Granularity Hint)
+//   [4]     ASM (Address Space Match)
+//   [3]     FOE (Fault on Execute)
+//   [2]     FOW (Fault on Write)
+//   [1]     FOR (Fault on Read)
+//   [0]     V (Valid)
+//
+// Translation Process:
+// 1. If pal_mode == 1, use physical address directly
+// 2. Check TLB for existing translation
+// 3. On TLB miss, walk page table starting from PTBR
+// 4. On fault, set VA, MM_STAT, invoke PAL exception handler
+
+// State needed for translation
+isa_state pal_mode[0:0];
+isa_state ptbr[63:0];
+isa_state va[63:0];
+isa_state mm_stat[63:0];
+isa_state exc_addr[63:0];
+isa_state pal_base[63:0];
+
+// TLB arrays
+isa_state dtb_pte[63:0][4:0];
+isa_state dtb_tag[63:0][4:0];
+isa_state dtb_valid[0:0][4:0];
+
+// Translation variables
+var va_in[63:0];
+var vpn[42:13];
+var page_offset[12:0];
+var l1_idx[9:0];
+var l2_idx[9:0];
+var l3_idx[9:0];
+
+var tlb_hit[0:0];
+var tlb_pte[63:0];
+var pa_out[63:0];
+
+// Extract address components
+vpn = va_in[42:13];
+page_offset = va_in[12:0];
+l1_idx = va_in[42:33];
+l2_idx = va_in[32:23];
+l3_idx = va_in[22:13];
+
+// TLB lookup (simplified - checks first entry only for illustration)
+// A full implementation would check all 32 entries in parallel
+tlb_hit = (dtb_valid[0] == 1) & (dtb_tag[0][42:13] == vpn);
+tlb_pte = dtb_pte[0];
+
+// Physical address from TLB hit
+// PFN is in bits [63:32] of PTE, shifted to form PA
+var pfn[31:0];
+pfn = tlb_pte[63:32];
+pa_out = {pfn, page_offset};
+
+// If in PAL mode, address is already physical
+// If not PAL mode and TLB hit, use translated address
+// If TLB miss, trigger DTB miss exception (handled by PALcode)

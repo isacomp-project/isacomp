@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var c_instr[15:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var r1[31:0];
+var shamt[4:0];
+var res[31:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.SLLI format: CI-type
+// Encoding: 000 shamt[5] rd/rs1 shamt[4:0] 10
+assume c_instr[1:0] == 0b10;
+assume c_instr[15:13] == 0b000;
+assume c_instr[11:7] != 0;
+
+pc = pc + 2;
+
+rd = c_instr[11:7];
+rs1 = c_instr[11:7];  // same as rd
+
+// Shift amount: shamt[5:0] = {c_instr[12], c_instr[6:2]}
+// For RV32C, shamt[5] must be 0
+shamt = c_instr[6:2];
+
+r1 = rf[rs1];
+
+res = r1 << shamt;
+
+rf[rd] when (rd != 0) = res;

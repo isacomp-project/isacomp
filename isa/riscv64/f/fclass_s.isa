@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV64F - FCLASS.S (Classify floating-point value)
+// Encoding: funct7=1110000, rs2=00000, rs1, funct3=001, rd, opcode=1010011
+// Result written to integer register rd (zero-extended to 64 bits)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[31:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var f1[31:0];
+var class_result[31:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;
+assume instr[31:27] == 0b11100;   // FCLASS/FMV funct5
+assume instr[26:25] == 0b00;
+assume instr[24:20] == 0b00000;   // rs2 = 0 for FCLASS
+assume instr[14:12] == 0b001;     // FCLASS.S funct3
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+
+f1 = frf[rs1];
+
+class_result = fp_class(f1);
+
+// Zero-extend to 64 bits
+result = {32'b0, class_result};
+
+rf[rd] when (rd != 0) = result;

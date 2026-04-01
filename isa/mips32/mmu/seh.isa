@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32r2 SEH - Sign Extend Halfword
+// rd = sign_extend(rt[15:0])
+// Encoding: 011111 00000 rt rd 11000 100000
+//           SPECIAL3        SEH  BSHFL
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rt[4:0];
+var rd[4:0];
+var rt_val[31:0];
+var result[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// SEH encoding
+assume instr[31:26] == 6'b011111;  // SPECIAL3 opcode
+assume instr[25:21] == 5'b00000;   // rs = 0
+assume instr[10:6] == 5'b11000;    // SEH function (24)
+assume instr[5:0] == 6'b100000;    // BSHFL
+
+rt = instr[20:16];
+rd = instr[15:11];
+
+rt_val = rf[rt];
+
+// Sign extend halfword
+result = {{16{rt_val[15]}}, rt_val[15:0]};
+
+rf[rd] = result;
+
+pc = pc + 4;

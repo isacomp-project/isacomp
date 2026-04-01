@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 EORI.B #imm,Dn - Exclusive OR Immediate Byte with Data Register
+// Opcode: 0000 1010 00 000 DDD followed by 16-bit word (only lower 8 bits used)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var ext_word[15:0];
+var imm_val[7:0];
+var dst_val[7:0];
+var result[7:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:8] == 0b00001010;  // EORI opcode
+assume instr[7:6] == 0b00;         // Size: byte
+assume instr[5:3] == 0b000;        // EA mode: Data Register Direct
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode destination register
+dst_reg = instr[2:0];
+
+// Fetch immediate extension word
+ext_word = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Get immediate byte value (low 8 bits of extension word)
+imm_val = ext_word[7:0];
+
+// Get current value (low 8 bits of data register)
+dst_val = dregs[dst_reg][7:0];
+
+// Perform EOR operation
+result = dst_val ^ imm_val;
+
+// Write result back (only low byte, preserve upper 24 bits)
+dregs[dst_reg] when (~m68k_exc_taken) = {dregs[dst_reg][31:8], result};
+
+// Update CCR (X not affected)
+flag_N when (~m68k_exc_taken) = result[7];
+flag_Z when (~m68k_exc_taken) = result == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

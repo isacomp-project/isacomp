@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 PUSH FS (0x0F 0xA0)
+// Push FS segment register onto stack
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state EAX[31:0] of xregs[0];
+isa_state ESP[31:0] of xregs[4];
+
+// Segment registers
+isa_state CS[15:0];
+isa_state DS[15:0];
+isa_state ES[15:0];
+isa_state SS[15:0];
+isa_state FS[15:0];
+isa_state GS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var new_esp[31:0];
+var push_val[31:0];
+var instr2[7:0];
+
+// Fetch first byte (0x0F escape)
+instr = imem[eip];
+
+// Check this is 0x0F (two-byte escape)
+assume instr == 0x0F;
+
+eip = eip + 1;
+
+// Fetch second byte
+instr2 = imem[eip];
+
+// Check this is PUSH FS (0xA0)
+assume instr2 == 0xA0;
+
+eip = eip + 1;
+
+// Zero-extend FS to 32 bits for pushing
+push_val = {16'b0, FS};
+
+// Decrement ESP by 4 (32-bit push)
+new_esp = ESP - 4;
+ESP = new_esp;
+
+// Store value on stack (little-endian)
+dmem[new_esp] = push_val[7:0];
+dmem[new_esp + 1] = push_val[15:8];
+dmem[new_esp + 2] = push_val[23:16];
+dmem[new_esp + 3] = push_val[31:24];
+
+// PUSH does not affect flags

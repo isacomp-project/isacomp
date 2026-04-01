@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LAHF (0x9F)
+// Load AH from flags (SF, ZF, AF, PF, CF)
+// AH[7]=SF, AH[6]=ZF, AH[5]=0, AH[4]=AF, AH[3]=0, AH[2]=PF, AH[1]=1, AH[0]=CF
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// AH register alias (high byte of low word of EAX)
+isa_state AH[7:0] of xregs[0][15:8];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+// Individual flags
+isa_state flag_CF[0:0];  // Bit 0
+isa_state flag_PF[0:0];  // Bit 2
+isa_state flag_AF[0:0];  // Bit 4
+isa_state flag_ZF[0:0];  // Bit 6
+isa_state flag_SF[0:0];  // Bit 7
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x9F;
+eip = eip + 1;
+
+// Load AH from flags
+AH = {flag_SF,    // Bit 7
+      flag_ZF,    // Bit 6
+      1'b0,       // Bit 5
+      flag_AF,    // Bit 4
+      1'b0,       // Bit 3
+      flag_PF,    // Bit 2
+      1'b1,       // Bit 1 (reserved, always 1)
+      flag_CF};   // Bit 0

@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LOOP rel8 (0xE2)
+// Decrement CX, jump if CX != 0
+// Uses signed byte displacement relative to EIP
+// Note: Uses 16-bit CX register, not 32-bit ECX
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+
+var offset[7:0];
+var signed_offset[15:0];
+var next_ip[15:0];
+var target_ip[15:0];
+var new_cx[15:0];
+var cx[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xE2;
+
+// Read signed byte displacement
+offset = imem[eip + 1];
+
+// Sign-extend 8-bit offset to 16 bits
+signed_offset = {{8{offset[7]}}, offset};
+
+// Calculate next IP and target address (16-bit wraparound for real mode)
+next_ip = eip[15:0] + 16'h0002;
+target_ip = next_ip + signed_offset;
+
+// Read CX (lower 16 bits of ECX)
+cx = xregs[1][15:0];
+
+// Decrement CX
+new_cx = cx - 16'h0001;
+
+// Write back CX (preserves upper 16 bits)
+xregs[1] = {xregs[1][31:16], new_cx};
+
+// Jump if CX != 0, otherwise continue to next instruction
+// Only modify lower 16 bits of EIP (real mode behavior)
+case (new_cx != 16'h0000) {
+  1'b1: eip = {eip[31:16], target_ip};
+  1'b0: eip = {eip[31:16], next_ip};
+}

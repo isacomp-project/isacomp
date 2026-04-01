@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64M MULHSU - Multiply high signed x unsigned
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var r1[63:0];
+var r2[63:0];
+var r1_sign[0:0];
+var r1_128[127:0];
+var r2_128[127:0];
+var product[127:0];
+var res[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0110011;
+assume instr[14:12] == 0b010;
+assume instr[31:25] == 0b0000001;
+pc = pc + 4;
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+
+// MULHSU: signed x unsigned multiply, return upper 64 bits
+// Sign extend rs1, zero extend rs2
+r1_sign = r1[63];
+r1_128 = {{64{r1_sign}}, r1};
+r2_128 = {{64{1'b0}}, r2};
+
+// 128-bit multiply
+product = r1_128 * r2_128;
+
+// Extract upper 64 bits
+res = product[127:64];
+
+rf[rd] when (rd != 0) = res;

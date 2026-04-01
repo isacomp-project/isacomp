@@ -1,0 +1,73 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// PDP-11 MUL instruction - Autoincrement Deferred
+// MUL src, Rn: Rn:Rn|1 = Rn * src (signed)
+
+isa_state pc[15:0];
+var instr[15:0];
+isa_state rf[15:0][2:0];  // 8 registers, R7 is PC
+isa_state umem[7:0][15:0];      // Byte-addressable memory
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_val[15:0];
+var multiplicand[15:0];
+var src_sign[15:0];
+var dst_sign[15:0];
+var src_ext[31:0];
+var dst_ext[31:0];
+var result[31:0];
+var eis_ptr_addr[15:0];
+var src_addr[15:0];
+var ep_lo[7:0];
+var ep_hi[7:0];
+var s_lo[7:0];
+var s_hi[7:0];
+
+
+// Fetch instruction (little-endian)
+var instr_lo[7:0];
+var instr_hi[7:0];
+instr_lo = umem[pc];
+instr_hi = umem[pc + 1];
+instr = {instr_hi, instr_lo};
+
+
+assume instr[15:9] == 0b0111000;  // MUL opcode (070)
+assume instr[5:3] == 0b011;       // Source mode 3 (Autoincrement Deferred)
+
+dst_reg = instr[8:6];  // Destination register
+src_reg = instr[2:0];
+
+pc = pc + 2;
+
+// Fetch source operand
+eis_ptr_addr = rf[src_reg];
+rf[src_reg] when (src_reg != 7) = rf[src_reg] + 2;
+ep_lo = umem[eis_ptr_addr];
+ep_hi = umem[eis_ptr_addr + 1];
+src_addr = {ep_hi, ep_lo};
+s_lo = umem[src_addr];
+s_hi = umem[src_addr + 1];
+src_val = {s_hi, s_lo};
+
+multiplicand = dst_reg == 7 ? pc : rf[dst_reg];
+
+// Signed multiplication: sign-extend both operands to 32 bits
+src_sign = src_val[15] ? 16'hFFFF : 16'h0000;
+dst_sign = multiplicand[15] ? 16'hFFFF : 16'h0000;
+src_ext = {src_sign, src_val};
+dst_ext = {dst_sign, multiplicand};
+result = src_ext * dst_ext;
+
+// Store: high word in Rn, low word in Rn|1
+rf[dst_reg] when (dst_reg != 7) = result[31:16];
+rf[dst_reg | 1] when ((dst_reg | 1) != 7) = result[15:0];
+
+flag_N = result[31];
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+flag_V = 0;
+flag_C = (result[31:16] != 0) && (result[31:16] != 16'hFFFF) ? 1'b1 : 1'b0;

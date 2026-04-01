@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA BV instruction
+// BV x(b) - Branch vectored: pc = b + x
+// Opcode: 0x3a (bits 31:26), sub-op for BV
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var b[4:0];
+var x[4:0];
+var n_bit[0:0];
+var base[31:0];
+var index[31:0];
+var target[31:0];
+
+instr = umem[pc_pa];
+
+// BV encoding: opcode=0x3a (bits 31:26), bits[15:13]=110
+// bit[1] = N (nullify delay slot for BV,N)
+// bits[12:2] and bit[0] must be 0
+assume instr[31:26] == 0b111010;
+assume instr[15:13] == 0b110;
+assume instr[12:2] == 11'b0;
+assume instr[0] == 1'b0;
+
+// Extract register fields
+x = instr[20:16];
+b = instr[25:21];
+n_bit = instr[1];
+
+// Read registers
+base = (b == 0) ? 32'h0 : rf[b];
+index = (x == 0) ? 32'h0 : rf[x];
+
+// Calculate target: GR[b] + GR[x]*8  (PA-RISC: index scaled by 8)
+target = base + (index << 3);
+
+// Branch to target
+// Set up delay slot: next instruction executes, then branch takes effect
+delay_slot when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+
+// BV,N: set PSW.N=1 so the delay slot instruction is nullified
+psw when (n_bit == 1 & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 32'h00200000;
+
+pc = pc + 4;

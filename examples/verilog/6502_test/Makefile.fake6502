@@ -1,0 +1,7 @@
+# Compile fake6502 wrapper as pure C to avoid C++ keyword issues
+
+fake6502_wrapper.o: fake6502_wrapper.c
+	gcc -c -I../../isa/6502/fake6502 -DFAKE6502_USE_STDINT -fPIC -o fake6502_wrapper.o fake6502_wrapper.c
+
+clean:
+	rm -f fake6502_wrapper.o

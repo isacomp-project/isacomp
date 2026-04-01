@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 HLT (0xF4)
+// Halt the processor
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state halted[0:0];
+
+instr = imem[ip];
+assume instr == 0xF4;
+ip = ip + 1;
+
+// Set halted flag
+halted = 1'b1;

@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD E1 - POP IX (Pop IX from stack)
+// Does not affect flags
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state IXH[7:0];
+isa_state IXL[7:0];
+isa_state sp[15:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'hE1DD;
+
+var sp_plus_1[15:0];
+sp_plus_1 = sp + 1;
+
+IXL = mainmem[sp];
+IXH = mainmem[sp_plus_1];
+
+sp = sp_plus_1 + 1;
+pc = pc_plus_1 + 1;

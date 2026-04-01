@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 OUTSW (0x66 0x6F)
+// Output word from [ESI] to port DX, adjust ESI by 2 based on DF
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state ESI[31:0] of xregs[6];
+isa_state DX[15:0] of xregs[2][15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state io_ports[7:0][15:0];
+isa_state flag_DF[0:0];
+
+var new_esi[31:0];
+var val_b0[7:0];
+var val_b1[7:0];
+
+// Fetch operand-size override prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+eip = eip + 1;
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x6F;
+eip = eip + 1;
+
+// Read word from [ESI] (little-endian)
+val_b0 = dmem[ESI];
+val_b1 = dmem[ESI + 1];
+
+// Write word to I/O port DX (little-endian)
+io_ports[DX] = val_b0;
+io_ports[DX + 1] = val_b1;
+
+// Adjust ESI based on direction flag
+new_esi = flag_DF == 1'b0 ? ESI + 2 : ESI - 2;
+ESI = new_esi;
+
+// OUTSW does not affect flags

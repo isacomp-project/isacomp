@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 LW - Load Word (with MMU support)
+// Loads a 32-bit word from memory
+// Encoding: 100011 base rt offset
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rs[4:0];
+var rt[4:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var base[31:0];
+var data[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+assume instr[31:26] == 6'b100011;  // LW opcode
+
+rs = instr[25:21];
+rt = instr[20:16];
+imm = instr[15:0];
+
+base = rf[rs];
+sign_ext_imm = {{16{imm[15]}}, imm};
+addr = base + sign_ext_imm;
+
+// TLB lookup for data address
+data = umem[addr];
+
+rf[rt] when (rt != 0) = data;
+pc = pc + 4;

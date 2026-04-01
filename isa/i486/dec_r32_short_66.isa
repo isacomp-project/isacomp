@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 DEC r32 with 66 prefix (0x66 0x48-0x4F) - SHORT FORM
+// In real mode, 66 prefix switches from 16-bit to 32-bit operand size
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var reg_idx[2:0];
+var dst_val[31:0];
+var result[32:0];
+
+// Read and verify 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Read opcode
+instr = imem[eip + 1];
+assume instr[7:3] == 5'b01001;  // 0x48-0x4F
+reg_idx = instr[2:0];
+
+eip = eip + 2;
+
+dst_val = xregs[reg_idx];
+result = {1'b0, dst_val} - 33'h000000001;
+
+flag_OF = (dst_val[31] == 1'b1) & (result[31] == 1'b0);
+flag_SF = result[31];
+flag_ZF = result[31:0] == 32'h00000000;
+flag_AF = (dst_val[3:0] == 4'h0);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+xregs[reg_idx] = result[31:0];

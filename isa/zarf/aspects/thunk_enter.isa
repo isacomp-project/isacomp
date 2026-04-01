@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Thunk Entry Aspect
+//
+// Handles entering a thunk for evaluation. This involves:
+// 1. Checking if the thunk is already evaluated (indirection)
+// 2. If not, setting up the environment and pushing an update continuation
+// 3. Jumping to the thunk's code
+//
+// Requires before inclusion:
+//   thunk_addr[31:0] - Address of thunk to enter
+//
+// Provides after inclusion:
+//   thunk_already_eval[0:0] - 1 if thunk was already evaluated
+//   thunk_result[31:0]      - Result if already evaluated
+//   thunk_result_tag[0:0]   - Tag of result
+//
+// Gates: pc, ct, env_clo, env_args, csp, cstack, lsp, lb, heap, imem, thunk_addr
+
+// Read thunk header
+var thunk_header[31:0];
+thunk_header = heap[thunk_addr];
+
+// Check if this is a memoized thunk (indirection)
+// Bits [31:30] = 11 means memoized; [31:30] = 10 means constructor (not evaluated thunk)
+var thunk_is_evaluated[0:0];
+thunk_is_evaluated = thunk_header[31] & thunk_header[30];
+
+// If evaluated, the result is stored at thunk_addr + 1
+var thunk_result[31:0];
+var thunk_result_tag[0:0];
+thunk_result = heap[thunk_addr + 1];
+thunk_result_tag = thunk_header[29];  // eval_tag stored at bit 29 of memoized header
+
+// If not evaluated, we need to enter the thunk
+var thunk_func_addr[31:0];
+thunk_func_addr = thunk_header[30:0];  // Function address (when not evaluated)
+
+// Read info table to get function metadata
+var thunk_info[31:0];
+thunk_info = imem[thunk_func_addr];
+
+var thunk_nfree[9:0];
+var thunk_nargs_provided[9:0];
+thunk_nfree = thunk_info[19:10];
+
+// Calculate where free variables and arguments are stored
+// In a thunk: [header][freevar0][freevar1]...[arg0][arg1]...
+var thunk_freevar_base[31:0];
+var thunk_args_base[31:0];
+thunk_freevar_base = thunk_addr + 1;
+thunk_args_base = thunk_addr + 1 + {{22{1'b0}}, thunk_nfree};
+
+// Set up environment pointers
+env_clo when (~thunk_is_evaluated) = thunk_freevar_base;
+env_args when (~thunk_is_evaluated) = thunk_args_base;
+
+// Save current thunk address for update
+ct when (~thunk_is_evaluated) = thunk_addr;
+
+// Push update continuation (so we can memoize the result)
+var update_cont_word0[31:0];
+update_cont_word0 = {2'b10, pc[29:0]};  // Type 2 = update
+
+cstack[csp] when (~thunk_is_evaluated) = update_cont_word0;
+cstack[csp + 1] when (~thunk_is_evaluated) = thunk_addr;
+cstack[csp + 2] when (~thunk_is_evaluated) = 32'b0;
+cstack[csp + 3] when (~thunk_is_evaluated) = {{12{1'b0}}, lsp};
+cstack[csp + 4] when (~thunk_is_evaluated) = {{12{1'b0}}, lb};
+csp when (~thunk_is_evaluated) = csp + 5;
+
+// Jump to function code (info table + 1)
+pc when (~thunk_is_evaluated) = thunk_func_addr + 1;
+
+// Output for caller
+var thunk_already_eval[0:0];
+thunk_already_eval = thunk_is_evaluated;

@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD 8E d - ADC A,(IY+d)
+// Affects: S, Z, H, P/V, N=0, C
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+isa_state IYH[7:0];
+isa_state IYL[7:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_S[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_H[0:0];
+isa_state flag_PV[0:0];
+isa_state flag_N[0:0];
+isa_state flag_C[0:0];
+var d[7:0];
+var d_sext[15:0];
+var fd_adc_a_iy_d_addr[15:0];
+var value[7:0];
+var result[8:0];
+var half_carry[4:0];
+var carry_in[8:0];
+
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'h8EFD;
+
+d = mainmem[pc_plus_2];
+d_sext = {{8{d[7]}}, d};
+fd_adc_a_iy_d_addr = {IYH, IYL} + d_sext;
+value = mainmem[fd_adc_a_iy_d_addr];
+
+carry_in = {8'b0, flag_C};
+result = {1'b0, A} + {1'b0, value} + carry_in;
+half_carry = {1'b0, A[3:0]} + {1'b0, value[3:0]} + carry_in[4:0];
+
+A = result[7:0];
+flag_S = result[7];
+flag_Z = (result[7:0] == 8'h00) ? 1'b1 : 1'b0;
+flag_H = half_carry[4];
+flag_PV = (A[7] ^ value[7] ^ result[7] ^ result[8]) ? 1'b1 : 1'b0;
+flag_N = 1'b0;
+flag_C = result[8];
+
+pc = pc_plus_2 + 1;

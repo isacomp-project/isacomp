@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LEAVE (0xC9)
+// Destroy stack frame
+// Equivalent to: MOV ESP, EBP; POP EBP
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Stack pointer and base pointer aliases
+isa_state ESP[31:0] of xregs[4];
+isa_state EBP[31:0] of xregs[5];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var val_b0[7:0];
+var val_b1[7:0];
+var val_b2[7:0];
+var val_b3[7:0];
+var val[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xC9;
+eip = eip + 1;
+
+// Step 1: MOV ESP, EBP (release local variables)
+ESP = EBP;
+
+// Step 2: POP EBP (restore old base pointer)
+val_b0 = dmem[ESP];
+val_b1 = dmem[ESP + 1];
+val_b2 = dmem[ESP + 2];
+val_b3 = dmem[ESP + 3];
+val = {val_b3, val_b2, val_b1, val_b0};
+ESP = ESP + 4;
+EBP = val;
+
+// LEAVE does not affect flags

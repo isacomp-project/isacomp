@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 PLA (0x68) - Pull Accumulator
+// Pulls a value from the stack into the Accumulator (A)
+// Stack pointer (S) is incremented
+// Sets N flag if bit 7 of pulled value is set (negative)
+// Sets Z flag if pulled value is zero
+// Instruction format: PLA (1 byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state S[7:0];  // Stack pointer
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state mainmem[7:0][15:0];
+
+var stack_addr[15:0];
+var data[7:0];
+var new_S[7:0];
+
+instr = mainmem[pc];
+assume instr == 0x68;
+pc = pc + 1;
+
+// Pull from stack (stack is at 0x0100-0x01FF)
+new_S = S + 1;
+stack_addr = {8'h01, new_S[7:0]};
+S = new_S;
+
+// Read the value from stack
+data = mainmem[stack_addr];
+
+// Set A and flags based on pulled value
+A = data;
+flag_N = data[7];
+flag_Z = data == 0 ? 1'b1 : 1'b0;

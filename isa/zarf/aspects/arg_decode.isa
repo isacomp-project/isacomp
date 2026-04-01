@@ -1,0 +1,78 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Argument Word Decoding Aspect
+//
+// Decodes an argument word from the instruction stream.
+// Argument words follow apply instructions and have the format:
+//   Bits [31:29]: source (3 bits)
+//   Bits [28:0]:  index (29 bits)
+//
+// This is similar to source_decode but uses the extended 29-bit index.
+//
+// Requires before inclusion:
+//   arg_word[31:0] - The argument word to decode
+//
+// Provides after inclusion:
+//   arg_decoded_value[31:0] - The decoded argument value
+//   arg_decoded_tag[0:0]    - 1 if primitive, 0 if heap reference
+//
+// Gates: arg_word, env_clo, env_args, lsp, lb, eval_reg, eval_tag, heap, lstack
+
+var arg_source[2:0];
+var arg_index[28:0];
+var arg_decoded_value[31:0];
+var arg_decoded_tag[0:0];
+
+arg_source = arg_word[31:29];
+arg_index = arg_word[28:0];
+
+// Temporaries
+var arg_heap_val[31:0];
+var arg_stack_val[31:0];
+var arg_field_val[31:0];
+
+case (arg_source) {
+    0: {
+        // arg - Function argument
+        arg_heap_val = heap[env_args + {{3{1'b0}}, arg_index}];
+        arg_decoded_value = arg_heap_val;
+        arg_decoded_tag = 1'b0;
+    }
+    1: {
+        // freevar - Free variable
+        arg_heap_val = heap[env_clo + {{3{1'b0}}, arg_index}];
+        arg_decoded_value = arg_heap_val;
+        arg_decoded_tag = 1'b0;
+    }
+    2: {
+        // local - Local variable
+        arg_stack_val = lstack[lb + {{3{1'b0}}, arg_index}];
+        arg_decoded_value = arg_stack_val;
+        arg_decoded_tag = 1'b0;
+    }
+    3: {
+        // self - Reserved
+        arg_decoded_value = 32'b0;
+        arg_decoded_tag = 1'b0;
+    }
+    4: {
+        // literal - Integer constant (sign-extended)
+        arg_decoded_value = {{3{arg_index[28]}}, arg_index};
+        arg_decoded_tag = 1'b1;
+    }
+    5: {
+        // caseValue - Scrutinized value
+        arg_decoded_value = eval_reg;
+        arg_decoded_tag = eval_tag;
+    }
+    6: {
+        // caseField - Constructor field
+        arg_field_val = heap[eval_reg + {{3{1'b0}}, arg_index} + 1];
+        arg_decoded_value = arg_field_val;
+        arg_decoded_tag = 1'b0;
+    }
+    7: {
+        // itable - Function index
+        arg_decoded_value = {{3{1'b0}}, arg_index};
+        arg_decoded_tag = 1'b0;
+    }
+}

@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC TTB,Rn - Store TTB to register
+// Encoding: 0000nnnn00100101 (0x0n25)
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state ttb[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var stc_ttb_rn_lo[2:0];
+var stc_ttb_rb[0:0];
+var stc_ttb_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x0;
+assume instr[7:0] == 0x25;
+rn = instr[11:8];
+
+stc_ttb_rn_lo = rn[2:0];
+stc_ttb_rb = sr[29];  // RB bit (bit 29 in SR)
+stc_ttb_rn_bk = (rn[3] == 1'b0) & stc_ttb_rb;
+
+rf[rn] when (stc_ttb_rn_bk == 0) = ttb;
+rf_bank[stc_ttb_rn_lo] when (stc_ttb_rn_bk) = ttb;
+pc = pc + 2;

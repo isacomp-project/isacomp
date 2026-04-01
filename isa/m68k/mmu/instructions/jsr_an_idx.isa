@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 JSR (d8,An,Xn) - Jump to subroutine with indexed addressing (brief format)
+// Opcode: 0100 1110 10 110 AAA followed by brief extension word
+// Pushes return address onto stack (A7)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var jsr_ix_reg[2:0];
+var jsr_ix_ext[15:0];
+var idx_reg[2:0];
+var jsr_ix_idx_is_addr[0:0];
+var jsr_ix_idx_is_long[0:0];
+var jsr_ix_scale[1:0];
+var jsr_ix_disp8[7:0];
+var jsr_ix_disp_ext[31:0];
+var jsr_ix_raw_idx[31:0];
+var jsr_ix_idx_val[31:0];
+var jsr_ix_scaled_idx[31:0];
+var jsr_ix_target[31:0];
+var jsr_ix_return[31:0];
+var jsr_ix_sp[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100111010;  // JSR opcode
+assume instr[5:3] == 0b110;          // EA mode: indexed
+
+// Decode base register
+jsr_ix_reg = instr[2:0];
+
+// Fetch extension word
+jsr_ix_ext = dmem[pc + 2 + pc_pa_delta];
+assume jsr_ix_ext[8] == 0b0;  // Brief format
+
+// Decode extension word
+idx_reg = jsr_ix_ext[14:12];
+jsr_ix_idx_is_addr = jsr_ix_ext[15];
+jsr_ix_idx_is_long = jsr_ix_ext[11];
+jsr_ix_scale = jsr_ix_ext[10:9];
+jsr_ix_disp8 = jsr_ix_ext[7:0];
+jsr_ix_disp_ext = {{24{jsr_ix_disp8[7]}}, jsr_ix_disp8};
+
+// Get index register value
+jsr_ix_raw_idx = jsr_ix_idx_is_addr ? aregs[idx_reg] : dregs[idx_reg];
+jsr_ix_idx_val = jsr_ix_idx_is_long ? jsr_ix_raw_idx : {{16{jsr_ix_raw_idx[15]}}, jsr_ix_raw_idx[15:0]};
+
+// Apply scale
+jsr_ix_scaled_idx = jsr_ix_scale == 2'b00 ? jsr_ix_idx_val :
+                    jsr_ix_scale == 2'b01 ? (jsr_ix_idx_val << 1) :
+                    jsr_ix_scale == 2'b10 ? (jsr_ix_idx_val << 2) :
+                                            (jsr_ix_idx_val << 3);
+
+// Calculate target address
+jsr_ix_target = aregs[jsr_ix_reg] + jsr_ix_disp_ext + jsr_ix_scaled_idx;
+
+// Return address is after the full instruction (pc + 4 for this 4-byte instruction)
+jsr_ix_return = pc + 4;
+
+// Push return address onto stack (A7, pre-decrement)
+jsr_ix_sp = aregs[7] - 4;
+aregs[7] when (~m68k_exc_taken) = jsr_ix_sp;
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = jsr_ix_sp;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = jsr_ix_return[31:16];
+#else
+dmem[jsr_ix_sp] when (~m68k_exc_taken & ~data_exc_taken) = jsr_ix_return[31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa + 2] when (~m68k_exc_taken & ~data_exc_taken) = jsr_ix_return[15:0];
+#else
+dmem[jsr_ix_sp + 2] when (~m68k_exc_taken & ~data_exc_taken) = jsr_ix_return[15:0];
+#endif
+
+// Jump to subroutine
+pc when (~m68k_exc_taken) = jsr_ix_target;
+
+// JSR does not affect flags

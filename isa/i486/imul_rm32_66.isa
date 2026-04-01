@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 IMUL r/m32 with 66 prefix (0x66 0xF7 /5)
+// Signed multiply EAX by r/m32, result in EDX:EAX
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var src_val[31:0];
+var eax_val[31:0];
+var result[63:0];
+var sign_extend[31:0];
+
+prefix = imem[eip];
+assume prefix == 0x66;
+
+instr = imem[eip + 1];
+assume instr == 0xF7;
+
+modrm = imem[eip + 2];
+
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+assume reg_bits == 0b101;
+assume mod_bits == 0b11;
+
+eip = eip + 3;
+
+src_val = xregs[rm_bits];
+eax_val = xregs[0];
+
+// Signed 32x32->64 multiplication
+result = {{32{eax_val[31]}}, eax_val} * {{32{src_val[31]}}, src_val};
+
+// Store result: low 32 in EAX, high 32 in EDX
+xregs[0] = result[31:0];
+xregs[2] = result[63:32];
+
+// CF and OF set if sign extension of low 32 bits != high 32 bits
+sign_extend = result[31] ? 32'hFFFFFFFF : 32'h0;
+flag_CF = result[63:32] != sign_extend;
+flag_OF = result[63:32] != sign_extend;

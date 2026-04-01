@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED BB - OTDR (Output, Decrement, Repeat)
+// Repeat: port[C] = (HL), HL--, B-- until B == 0
+// PC stays same while B != 0, advances when B == 0
+// Affects Z=1 (always when done), N=1
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+var otdr_pc_next[15:0];
+isa_state H[7:0];
+isa_state L[7:0];
+isa_state B[7:0];
+isa_state C[7:0];
+isa_state flag_Z;
+isa_state flag_N;
+isa_state io[7:0][7:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+otdr_pc_next = pc_plus_1 + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 0xBBED;
+
+var otdr_hl_addr[15:0];
+otdr_hl_addr = {H, L};
+
+var otdr_value[7:0];
+otdr_value = mainmem[otdr_hl_addr];
+io[C] = otdr_value;
+
+var otdr_hl_new[15:0];
+otdr_hl_new = otdr_hl_addr - 1;
+var otdr_b_new[7:0];
+otdr_b_new = B - 1;
+
+H = otdr_hl_new[15:8];
+L = otdr_hl_new[7:0];
+B = otdr_b_new;
+
+flag_N = 1'b1;
+
+// B != 0: stay at same PC (repeat), Z = 0
+// B == 0: advance PC (done), Z = 1
+var otdr_b_zero[0:0];
+otdr_b_zero = (otdr_b_new == 8'h00);
+var otdr_next_pc[15:0];
+otdr_next_pc = otdr_b_zero ? otdr_pc_next : pc;
+pc = otdr_next_pc;
+flag_Z = (otdr_b_new == 8'h00) ? 1'b1 : 1'b0;

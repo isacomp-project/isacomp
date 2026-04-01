@@ -1,0 +1,77 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 TG instruction (trap on greater)
+// Format 3: op=10, op3=111010, cond=1010
+// TG rs1 + reg_or_imm
+// Trap if ~(Z | (N ^ V))
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];  // 256 physical registers (136 used for 8 windows)
+isa_state cwp[2:0];       // Current Window Pointer (0-7)
+isa_state psr[31:0];      // Processor State Register (icc in bits 23:20)
+isa_state trap[0:0];      // Trap pending flag
+isa_state tt[7:0];        // Trap type
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+var rs1[4:0];
+var imm[0:0];
+var rs2[4:0];
+var simm13[12:0];
+
+var r1[31:0];
+var r2[31:0];
+var operand2[31:0];
+var trap_num[31:0];
+var icc_n[0:0];
+var icc_z[0:0];
+var icc_v[0:0];
+var taken[0:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;       // op = 10 (Format 3)
+assume instr[28:25] == 0b1010;     // cond = greater
+assume instr[24:19] == 0b111010;   // op3 = Ticc
+
+rs1 = instr[18:14];
+imm = instr[13];
+rs2 = instr[4:0];
+simm13 = instr[12:0];
+
+// Compute physical register indices for windowed register file
+cwp_m1 = cwp + 3'b111;  // cwp - 1 mod 8
+phys_rs1 = (rs1[4:3] == 2'b00) ? {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs1[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs1[2:0]};
+phys_rs2 = (rs2[4:3] == 2'b00) ? {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs2[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs2[2:0]};
+
+r1 = (rs1 == 0) ? 32'b0 : rf[phys_rs1];
+r2 = (rs2 == 0) ? 32'b0 : rf[phys_rs2];
+operand2 = imm ? {{19{simm13[12]}}, simm13} : r2;
+
+// Trap number is (rs1 + operand2)[6:0] + 128
+trap_num = r1 + operand2;
+
+// TG traps if ~(Z | (N ^ V))
+icc_n = psr[23];
+icc_z = psr[22];
+icc_v = psr[21];
+taken = ~(icc_z | (icc_n ^ icc_v));
+
+trap when (taken) = 1;
+tt when (taken) = {1'b1, trap_num[6:0]};
+pc = pc + 4;

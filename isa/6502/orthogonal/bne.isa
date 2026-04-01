@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 BNE - Branch if Not Equal (0xD0)
+// Branches if Z flag is clear (not equal)
+// Offset is signed 8-bit value relative to PC+2 (after fetching offset byte)
+// Does not affect any flags
+// Instruction format: BNE offset (2 bytes: opcode + signed offset)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state mainmem[7:0][15:0];
+isa_state flag_Z[0:0];
+
+var offset[7:0];
+var sign_ext_offset[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var branch_dest[15:0];
+var not_equal[0:0];
+
+instr = mainmem[pc];
+assume instr == 0xd0;
+pc_plus_1 = pc + 1;
+offset = mainmem[pc_plus_1];
+
+sign_ext_offset = {{8{offset[7]}}, offset};
+pc_plus_2 = pc_plus_1 + 1;
+branch_dest = pc_plus_2 + sign_ext_offset;
+
+not_equal = flag_Z == 0 ? 1'b1 : 1'b0;
+pc = not_equal ? branch_dest : pc_plus_2;

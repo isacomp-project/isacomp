@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 BFTST Dn{offset:width} - Bit Field Test
+// Opcode: 1110 1000 11 000 rrr followed by extension word
+// Extension: 0000 Do ooooo Dw wwwww
+// Tests bit field and sets condition codes, does not modify source
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_reg[2:0];
+var offset_in_reg[0:0];
+var offset_field[4:0];
+var width_in_reg[0:0];
+var width_field[4:0];
+var offset[5:0];
+var width[5:0];
+var source[31:0];
+var mask[31:0];
+var field[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b1110100011;  // BFTST opcode
+assume instr[5:3] == 3'b000;           // EA mode: Dn
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_reg = instr[2:0];
+
+// Fetch extension word
+extw = dmem[pc + pc_pa_delta];
+assume extw[15:12] == 4'b0000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+offset_in_reg = extw[11];
+offset_field = extw[10:6];
+width_in_reg = extw[5];
+width_field = extw[4:0];
+
+// Get offset
+offset = offset_in_reg ? dregs[offset_field[2:0]][5:0] : {1'b0, offset_field};
+
+// Get width (0 means 32)
+width = width_in_reg ?
+        (dregs[width_field[2:0]][4:0] == 0 ? 6'd32 : {1'b0, dregs[width_field[2:0]][4:0]}) :
+        (width_field == 0 ? 6'd32 : {1'b0, width_field});
+
+// Get source register
+source = dregs[ea_reg];
+
+// Create mask for the field width
+mask = (width == 6'd32) ? 32'hFFFFFFFF : ((32'b1 << width) - 1);
+
+// Extract field value
+field = (source >> (6'd32 - offset - width)) & mask;
+
+// Update CCR (no modification to source)
+flag_N when (~m68k_exc_taken) = field[31];
+flag_Z when (~m68k_exc_taken) = field == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

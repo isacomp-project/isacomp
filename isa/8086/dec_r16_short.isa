@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 DEC r16 (0x48-0x4F) - SHORT FORM CONSOLIDATED
+// Single-byte encoding for register decrement
+
+isa_state xregs[15:0][7:0];
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var reg_idx[2:0];
+var dst_val[15:0];
+var result[16:0];
+
+instr = imem[ip];
+// Opcodes 0x48-0x4F: DEC AX/CX/DX/BX/SP/BP/SI/DI
+reg_idx = instr[2:0];
+ip = ip + 1;
+
+dst_val = xregs[reg_idx];
+result = dst_val - 16'h0001;
+
+flag_OF = (dst_val[15] == 1'b1) & (result[15] == 1'b0);
+flag_SF = result[15];
+flag_ZF = result[15:0] == 16'h0000;
+flag_AF = (dst_val[3:0] == 4'h0);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+xregs[reg_idx] = result[15:0];

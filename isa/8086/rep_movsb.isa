@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 REP MOVSB (0xF3 0xA4) - WITH PROPER SEGMENTATION
+// Repeat while CX != 0: Move byte from DS:[SI] to ES:[DI]
+// IP stays constant until CX reaches 0
+// Uses DS segment for source, ES segment for destination
+
+isa_state ip[15:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment (source)
+isa_state ES[15:0];            // Extra segment (destination)
+isa_state SI[15:0];
+isa_state DI[15:0];
+isa_state CX[15:0];
+isa_state flag_DF[0:0];
+
+var physical_addr_src[19:0];
+var physical_addr_dst[19:0];
+var byte_value[7:0];
+var cx_is_zero[0:0];
+var cx_not_zero[0:0];
+var new_si_inc[15:0];
+var new_si_dec[15:0];
+var new_di_inc[15:0];
+var new_di_dec[15:0];
+var new_ip[15:0];
+
+// Fetch REP prefix
+prefix = imem[ip];
+assume prefix == 0xF3;
+
+// Fetch MOVSB instruction (at IP+1)
+instr = imem[ip + 1];
+assume instr == 0xA4;
+
+// Check counter
+cx_is_zero = CX == 16'h0000;
+cx_not_zero = CX != 16'h0000;
+
+// Calculate physical addresses using both segments
+physical_addr_src = (DS << 4) + SI;  // DS:SI for source
+physical_addr_dst = (ES << 4) + DI;  // ES:DI for destination
+
+// Load byte from DS:[SI]
+byte_value = dmem[physical_addr_src];
+
+// Calculate new SI (increment or decrement)
+new_si_inc = SI + 16'h0001;
+new_si_dec = SI - 16'h0001;
+
+// Calculate new DI (increment or decrement)
+new_di_inc = DI + 16'h0001;
+new_di_dec = DI - 16'h0001;
+
+// Calculate new IP (advance past instruction)
+new_ip = ip + 16'h0002;
+
+// When CX != 0: Execute one iteration
+dmem[physical_addr_dst] when(cx_not_zero) = byte_value;
+SI when(cx_not_zero) = flag_DF == 1'b0 ? new_si_inc : new_si_dec;
+DI when(cx_not_zero) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero) = CX - 16'h0001;
+ip when(cx_not_zero) = ip;  // Stay at same IP (loop continues)
+
+// When CX == 0: Advance IP and exit
+ip when(cx_is_zero) = new_ip;

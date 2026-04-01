@@ -1,0 +1,235 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030 Data Address Translation Aspect with External Function Code
+// Variant of atc_translate_data.isa for MOVES instructions.
+// Uses externally-provided fc_is_super variable instead of
+// deriving it from SR[13]. This allows MOVES to use SFC/DFC registers
+// for address translation (user page tables) instead of supervisor mapping.
+//
+// REQUIRED: The instruction must set this var BEFORE including this aspect:
+//   var fc_is_super[0:0];  // 0 for user FC, 1 for supervisor FC
+//   (Typically: sfc[2] for MOVES reads, dfc[2] for MOVES writes)
+//
+// Input: mmu_va (virtual address, defined by instruction body)
+//        is_write (1 for store, 0 for load, defined by instruction body)
+// Output: ea_pa (physical address for memory access)
+//         data_exc_taken (1 if bus error occurred, consumed by m68k_interrupt)
+
+// ============================================================================
+// State declarations (independent — no sharing with instruction fetch aspect)
+// ============================================================================
+isa_state pc[31:0];
+isa_state sr[15:0];
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+isa_state aregs[31:0][2:0];
+isa_state vbr[31:0];
+isa_state flag_C[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_X[0:0];
+
+// Data memory for page table walks and exception frame push
+mem dmem[25:0];
+
+// Physical address output
+var ea_pa[31:0];
+
+// Exception flag output (consumed by instruction body for write gating)
+var data_exc_taken[0:0];
+
+// ============================================================================
+// Extract processor state (all data_ prefixed to avoid collision)
+// ============================================================================
+// NOTE: fc_is_super is set by the calling instruction, NOT here.
+// This is the key difference from atc_translate_data.isa.
+
+var data_mmu_enabled[0:0];
+data_mmu_enabled = tc[31];
+
+// ============================================================================
+// Transparent Translation Check (TT0, TT1) for DATA address
+// ============================================================================
+var data_tt0_base[7:0];
+var data_tt0_mask[7:0];
+var data_tt0_enable[0:0];
+var data_tt1_base[7:0];
+var data_tt1_mask[7:0];
+var data_tt1_enable[0:0];
+
+data_tt0_base = tt0[31:24];
+data_tt0_mask = tt0[23:16];
+data_tt0_enable = tt0[15];
+data_tt1_base = tt1[31:24];
+data_tt1_mask = tt1[23:16];
+data_tt1_enable = tt1[15];
+
+// S-field: 00=match always, 01=user only, 10=supervisor only, 11=never match
+var data_tt0_sfield[1:0];
+var data_tt1_sfield[1:0];
+var data_tt0_s_ok[0:0];
+var data_tt1_s_ok[0:0];
+
+data_tt0_sfield = tt0[14:13];
+data_tt1_sfield = tt1[14:13];
+data_tt0_s_ok = (data_tt0_sfield == 2'b00) | ((data_tt0_sfield == 2'b01) & ~fc_is_super) | ((data_tt0_sfield == 2'b10) & fc_is_super);
+data_tt1_s_ok = (data_tt1_sfield == 2'b00) | ((data_tt1_sfield == 2'b01) & ~fc_is_super) | ((data_tt1_sfield == 2'b10) & fc_is_super);
+
+var data_tt0_match[0:0];
+var data_tt1_match[0:0];
+data_tt0_match = data_tt0_enable & data_tt0_s_ok & ((mmu_va[31:24] & ~data_tt0_mask) == (data_tt0_base & ~data_tt0_mask));
+data_tt1_match = data_tt1_enable & data_tt1_s_ok & ((mmu_va[31:24] & ~data_tt1_mask) == (data_tt1_base & ~data_tt1_mask));
+
+var data_transparent[0:0];
+data_transparent = data_tt0_match | data_tt1_match;
+
+// ============================================================================
+// Address decomposition (4KB pages)
+// ============================================================================
+var data_offset[11:0];
+data_offset = mmu_va[11:0];
+
+// ============================================================================
+// Page Table Walk (68030 short format descriptors)
+// ============================================================================
+// 3-level walk: Root -> Level A -> Level B -> Level C (page)
+// Linux/m68k: TIA=7, TIB=7, TIC=6, PS=4 (4KB pages)
+
+// Select root pointer: SRP if SRE=1 and supervisor, else CRP
+// Fallback: also use SRP when CRP is invalid (DT=00), matching Linux boot behavior
+var data_crp_dt_invalid[0:0];
+data_crp_dt_invalid = ~((crp[33:32] == 2'b10) | (crp[33:32] == 2'b11));
+var data_use_srp[0:0];
+// MC68030 TC register: SRE is bit 25 (not bit 30 as in some references)
+data_use_srp = (tc[25] & fc_is_super) | data_crp_dt_invalid;
+
+var data_root_desc[31:0];
+data_root_desc = data_use_srp ? srp[31:0] : crp[31:0];
+
+// DT is in the upper longword bits [1:0] = register bits [33:32]
+var data_root_dt[1:0];
+data_root_dt = data_use_srp ? srp[33:32] : crp[33:32];
+var data_root_valid[0:0];
+data_root_valid = (data_root_dt == 2'b10) | (data_root_dt == 2'b11);
+
+var data_root_table_base[31:0];
+data_root_table_base = {data_root_desc[31:4], 4'b0000};
+
+// Level A: VA[31:25] (7 bits)
+var data_la_idx[6:0];
+data_la_idx = mmu_va[31:25];
+var data_la_addr[31:0];
+data_la_addr = data_root_table_base + {23'b0, data_la_idx, 2'b00};
+var data_la_hi[15:0];
+var data_la_lo[15:0];
+data_la_hi = dmem[data_la_addr];
+data_la_lo = dmem[data_la_addr + 2];
+var data_la_desc[31:0];
+data_la_desc = {data_la_hi, data_la_lo};
+var data_la_dt[1:0];
+data_la_dt = data_la_desc[1:0];
+var data_la_valid[0:0];
+data_la_valid = (data_la_dt == 2'b10) | (data_la_dt == 2'b11);
+var data_la_is_page[0:0];
+data_la_is_page = (data_la_dt == 2'b01);
+
+// Level B: VA[24:18] (7 bits)
+var data_lb_idx[6:0];
+data_lb_idx = mmu_va[24:18];
+var data_lb_base[31:0];
+data_lb_base = {data_la_desc[31:4], 4'b0000};
+var data_lb_addr[31:0];
+data_lb_addr = data_lb_base + {23'b0, data_lb_idx, 2'b00};
+var data_lb_hi[15:0];
+var data_lb_lo[15:0];
+data_lb_hi = dmem[data_lb_addr];
+data_lb_lo = dmem[data_lb_addr + 2];
+var data_lb_desc[31:0];
+data_lb_desc = {data_lb_hi, data_lb_lo};
+var data_lb_dt[1:0];
+data_lb_dt = data_lb_desc[1:0];
+var data_lb_valid[0:0];
+data_lb_valid = (data_lb_dt == 2'b10) | (data_lb_dt == 2'b11);
+var data_lb_is_page[0:0];
+data_lb_is_page = (data_lb_dt == 2'b01);
+
+// Level C: VA[17:12] (6 bits)
+var data_lc_idx[5:0];
+data_lc_idx = mmu_va[17:12];
+var data_lc_base[31:0];
+data_lc_base = {data_lb_desc[31:4], 4'b0000};
+var data_lc_addr[31:0];
+data_lc_addr = data_lc_base + {24'b0, data_lc_idx, 2'b00};
+var data_lc_hi[15:0];
+var data_lc_lo[15:0];
+data_lc_hi = dmem[data_lc_addr];
+data_lc_lo = dmem[data_lc_addr + 2];
+var data_lc_desc[31:0];
+data_lc_desc = {data_lc_hi, data_lc_lo};
+var data_lc_dt[1:0];
+data_lc_dt = data_lc_desc[1:0];
+var data_lc_is_page[0:0];
+data_lc_is_page = (data_lc_dt == 2'b01);
+
+// Extract page descriptor fields
+var data_walked_ppn[19:0];
+var data_walked_wp[0:0];
+data_walked_ppn = data_la_is_page ? {data_la_desc[31:25], mmu_va[24:12]} :
+                  (data_la_valid & data_lb_is_page) ? {data_lb_desc[31:18], mmu_va[17:12]} :
+                  data_lc_desc[31:12];
+data_walked_wp = data_la_is_page ? data_la_desc[2] :
+                 (data_la_valid & data_lb_is_page) ? data_lb_desc[2] :
+                 data_lc_desc[2];
+
+// Walk result
+var data_need_walk[0:0];
+data_need_walk = data_mmu_enabled & ~data_transparent;
+
+var data_walk_ok[0:0];
+data_walk_ok = data_root_valid & (data_la_is_page | (data_la_valid & (data_lb_is_page | (data_lb_valid & data_lc_is_page))));
+
+var data_walk_success[0:0];
+data_walk_success = data_need_walk & data_walk_ok;
+
+var data_walk_fault[0:0];
+data_walk_fault = data_need_walk & ~data_walk_ok;
+
+// Write protection fault (stores to write-protected pages)
+var data_wp_fault[0:0];
+data_wp_fault = data_walk_success & is_write & data_walked_wp;
+
+// ============================================================================
+// Exception detection
+// ============================================================================
+data_exc_taken = data_walk_fault | data_wp_fault;
+
+// ============================================================================
+// Compute physical address
+// ============================================================================
+var data_walked_pa[31:0];
+data_walked_pa = {data_walked_ppn, data_offset};
+
+ea_pa = (~data_mmu_enabled | data_transparent) ? mmu_va :
+        data_walk_success ? data_walked_pa :
+        mmu_va;
+
+// ============================================================================
+// Bus error frame data (data access fault)
+// ============================================================================
+// Fault address and SSW for format 0xA bus error frame.
+// These use OR-with-zero pattern: m68k_interrupt.isa provides default 0,
+// this aspect overrides when present.
+var data_fault_addr[31:0];
+data_fault_addr = mmu_va;
+
+// MC68030 SSW layout: FC(15) FB(14) RC(13) RB(12) res(11:9) DF(8) RM(7) RW(6) SZ(5:4) res(3) DFC(2:0)
+// Data access fault: DF=1, RW=~is_write (1=read, 0=write), SZ=10 (word)
+var data_fc[2:0];
+data_fc = fc_is_super ? 3'b101 : 3'b001;
+var data_fault_ssw[15:0];
+data_fault_ssw = {2'b00, 5'b00000, 1'b1, 1'b0, ~is_write, 2'b10, 1'b0, data_fc};

@@ -1,0 +1,84 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LDS r32, m16:32 (0xC5)
+// Load far pointer: offset to r32, segment to DS
+// Reads 6 bytes from memory: 4-byte offset (dword) + 2-byte segment (word)
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state EAX[31:0] of xregs[0];
+isa_state ESP[31:0] of xregs[4];
+
+// Segment registers
+isa_state CS[15:0];
+isa_state DS[15:0];
+isa_state ES[15:0];
+isa_state SS[15:0];
+isa_state FS[15:0];
+isa_state GS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var modrm[7:0];
+var reg_idx[2:0];
+var disp32[31:0];
+var addr[31:0];
+var offset_b0[7:0];
+var offset_b1[7:0];
+var offset_b2[7:0];
+var offset_b3[7:0];
+var seg_b0[7:0];
+var seg_b1[7:0];
+var offset[31:0];
+var segment[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is LDS (0xC5)
+assume instr == 0xC5;
+
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+
+// Extract register index (destination r32)
+reg_idx = modrm[5:3];
+
+// Assume mod=00 with disp32 (simplified addressing: mod=00, rm=101)
+assume modrm[7:6] == 0b00;
+assume modrm[2:0] == 0b101;
+
+eip = eip + 1;
+
+// Fetch 32-bit displacement (little-endian)
+disp32 = {imem[eip + 3], imem[eip + 2], imem[eip + 1], imem[eip]};
+eip = eip + 4;
+
+// Calculate memory address
+addr = disp32;
+
+// Read 6 bytes from memory (little-endian)
+// First 4 bytes: offset (32-bit)
+offset_b0 = dmem[addr];
+offset_b1 = dmem[addr + 1];
+offset_b2 = dmem[addr + 2];
+offset_b3 = dmem[addr + 3];
+offset = {offset_b3, offset_b2, offset_b1, offset_b0};
+
+// Next 2 bytes: segment selector (16-bit)
+seg_b0 = dmem[addr + 4];
+seg_b1 = dmem[addr + 5];
+segment = {seg_b1, seg_b0};
+
+// Store offset in destination register
+xregs[reg_idx] = offset;
+
+// Store segment in DS
+DS = segment;
+
+// LDS does not affect flags

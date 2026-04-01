@@ -1,0 +1,139 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 IDTLBT instruction (64-bit)
+// IDTLBT r1,r2 - Insert Data TLB Translation (combined PA-RISC 2.0 form)
+// Opcode: 0x01 (bits 31:26), sub=0x60 (bits 12:5)
+//
+// PA-RISC 2.0 combined form: inserts both the page translation and protection
+// in a single instruction. GR[r1] contains the PTE (page table entry) with
+// PPN, and GR[r2] contains the protection/access rights word.
+// Replaces the two-step IDTLBA+IDTLBP sequence. Used by the 64-bit kernel's
+// dtlb_miss_20w handler.
+// Privileged instruction.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// Control registers for faulting address (used as VPN/space source)
+isa_state cr20[63:0];  // ISR - Interruption Space Register
+isa_state cr21[63:0];  // IOR - Interruption Offset Register
+
+// DTLB CAM state - 16 entries (64-bit widened)
+isa_state cam dtlb_vpn[51:0]@[3:0][];
+isa_state dtlb_space[63:0][3:0];
+isa_state dtlb_valid[0:0][3:0];
+isa_state dtlb_ppn[51:0][3:0];
+isa_state dtlb_prot[63:0][3:0];
+
+// Round-robin replacement pointer
+isa_state dtlb_next[3:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r1[4:0];
+var r2[4:0];
+
+instr = umem[pc_pa];
+
+// IDTLBT encoding: opcode=0x01, bit[12]=1(data), bit[11]=1(combined), bits[10:5]=000000
+assume instr[31:26] == 0b000001;
+assume instr[12:5] == 0b11000000;
+
+// PA-RISC encoding: r1=instr[20:16] (PTE/translation), r2=instr[25:21] (protection)
+r1 = instr[20:16];
+r2 = instr[25:21];
+
+// Source register values (64-bit)
+var pte_value[63:0];
+var prot_value[63:0];
+pte_value = (r1 == 0) ? 64'h0 : rf[r1];
+prot_value = (r2 == 0) ? 64'h0 : rf[r2];
+
+// VPN and space from CR20 (ISR) / CR21 (IOR)
+// In wide mode (when trap occurred with PSW.W=1), ISR/IOR use compact encoding:
+//   ISR = {space[63:10], VA[41:32]}  — upper VA bits packed in lower 10 bits
+//   IOR = {32'h0, VA[31:0]}          — only lower 32 bits of VA
+// CR22 (IPSW) holds the PSW at trap time; bit 27 = W (wide mode)
+isa_state cr22[63:0];  // IPSW - saved PSW from trap
+var ipsw_W[0:0];
+ipsw_W = cr22[27];
+
+// Decode space: in wide mode, strip embedded VA bits from ISR
+var space[63:0];
+space = ipsw_W ? {cr20[63:10], 10'b0} : cr20;
+
+// Decode VPN: in wide mode, reconstruct full VA from ISR[9:0] and IOR[31:0]
+var vpn[51:0];
+vpn = ipsw_W ? {12'b0, cr20[9:0], cr21[31:12]} : cr21[63:12];
+
+// PPN from PTE: PA-RISC 2.0 PTE format has PPN at bits[56:5]
+var ppn[51:0];
+ppn = pte_value[56:5];
+
+// Check for existing entry matching VPN+space (to update in place)
+var exist_matches[15:0];
+exist_matches = dtlb_vpn@[vpn];
+
+// Filter existing matches by valid + space
+var ev_0[0:0];  ev_0  = dtlb_valid[0]  & (dtlb_space[0]  == space);
+var ev_1[0:0];  ev_1  = dtlb_valid[1]  & (dtlb_space[1]  == space);
+var ev_2[0:0];  ev_2  = dtlb_valid[2]  & (dtlb_space[2]  == space);
+var ev_3[0:0];  ev_3  = dtlb_valid[3]  & (dtlb_space[3]  == space);
+var ev_4[0:0];  ev_4  = dtlb_valid[4]  & (dtlb_space[4]  == space);
+var ev_5[0:0];  ev_5  = dtlb_valid[5]  & (dtlb_space[5]  == space);
+var ev_6[0:0];  ev_6  = dtlb_valid[6]  & (dtlb_space[6]  == space);
+var ev_7[0:0];  ev_7  = dtlb_valid[7]  & (dtlb_space[7]  == space);
+var ev_8[0:0];  ev_8  = dtlb_valid[8]  & (dtlb_space[8]  == space);
+var ev_9[0:0];  ev_9  = dtlb_valid[9]  & (dtlb_space[9]  == space);
+var ev_10[0:0]; ev_10 = dtlb_valid[10] & (dtlb_space[10] == space);
+var ev_11[0:0]; ev_11 = dtlb_valid[11] & (dtlb_space[11] == space);
+var ev_12[0:0]; ev_12 = dtlb_valid[12] & (dtlb_space[12] == space);
+var ev_13[0:0]; ev_13 = dtlb_valid[13] & (dtlb_space[13] == space);
+var ev_14[0:0]; ev_14 = dtlb_valid[14] & (dtlb_space[14] == space);
+var ev_15[0:0]; ev_15 = dtlb_valid[15] & (dtlb_space[15] == space);
+
+var exist_valid_space[15:0];
+exist_valid_space = {ev_15, ev_14, ev_13, ev_12, ev_11, ev_10, ev_9, ev_8,
+                     ev_7, ev_6, ev_5, ev_4, ev_3, ev_2, ev_1, ev_0};
+
+var exist_final[15:0];
+exist_final = exist_matches & exist_valid_space;
+
+var match_found[0:0];
+match_found = |exist_final;
+
+var match_idx[4:0];
+match_idx = ctz(exist_final);
+var match_idx4[3:0];
+match_idx4 = match_idx[3:0];
+
+// Select slot: existing entry if found, else round-robin
+var slot[3:0];
+slot = match_found ? match_idx4 : dtlb_next;
+
+// Write entry (gated on not trapped/nullified)
+var commit[0:0];
+commit = ~instr_trap_taken & ~in_nullified;
+
+dtlb_vpn[slot] when (commit) = vpn;
+dtlb_space[slot] when (commit) = space;
+dtlb_valid[slot] when (commit) = 1'b1;
+dtlb_ppn[slot] when (commit) = ppn;
+dtlb_prot[slot] when (commit) = prot_value;
+
+// Advance round-robin pointer (only when using a new slot)
+var advance_dtlb[0:0];
+advance_dtlb = commit & ~match_found;
+dtlb_next when (advance_dtlb) = dtlb_next + 4'b0001;
+
+pc = pc + 4;

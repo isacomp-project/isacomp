@@ -1,0 +1,281 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030 ATC Data Translation - Inline Include
+// This file is #include'd by MMU-aware load/store instructions.
+// NOT an aspect - it's pasted inline before memory accesses.
+//
+// Required setup by including instruction:
+//   var mmu_va[31:0];    - virtual address to translate
+//   var is_write[0:0];   - 1 for store, 0 for load
+//
+// Outputs:
+//   var ea_pa[31:0];           - physical address for memory access
+//   var access_exception[0:0]; - 1 if translation fault (triggers bus error)
+//
+// All isa_state declarations for MMU registers must be in the
+// including instruction file (added by the preprocessor).
+
+// ============================================================================
+// Extract processor state
+// ============================================================================
+var atc_is_supervisor[0:0];
+atc_is_supervisor = sr[13];
+
+var atc_mmu_enabled[0:0];
+atc_mmu_enabled = tc[31];
+
+// Function code: supervisor data=5, user data=1
+var mmu_fc[2:0];
+mmu_fc = atc_is_supervisor ? 3'b101 : 3'b001;
+
+// ============================================================================
+// Transparent Translation Check (TT0, TT1)
+// ============================================================================
+var atc_tt0_base[7:0];
+var atc_tt0_mask[7:0];
+var atc_tt0_enable[0:0];
+var atc_tt1_base[7:0];
+var atc_tt1_mask[7:0];
+var atc_tt1_enable[0:0];
+
+atc_tt0_base = tt0[31:24];
+atc_tt0_mask = tt0[23:16];
+atc_tt0_enable = tt0[15];
+atc_tt1_base = tt1[31:24];
+atc_tt1_mask = tt1[23:16];
+atc_tt1_enable = tt1[15];
+
+var atc_tt0_sfield[1:0];
+var atc_tt1_sfield[1:0];
+var atc_tt0_s_ok[0:0];
+var atc_tt1_s_ok[0:0];
+atc_tt0_sfield = tt0[14:13];
+atc_tt1_sfield = tt1[14:13];
+
+atc_tt0_s_ok = (atc_tt0_sfield == 2'b00) | ((atc_tt0_sfield == 2'b01) & ~atc_is_supervisor) | ((atc_tt0_sfield == 2'b10) & atc_is_supervisor);
+atc_tt1_s_ok = (atc_tt1_sfield == 2'b00) | ((atc_tt1_sfield == 2'b01) & ~atc_is_supervisor) | ((atc_tt1_sfield == 2'b10) & atc_is_supervisor);
+
+var atc_tt0_match[0:0];
+var atc_tt1_match[0:0];
+atc_tt0_match = atc_tt0_enable & atc_tt0_s_ok & ((mmu_va[31:24] & ~atc_tt0_mask) == (atc_tt0_base & ~atc_tt0_mask));
+atc_tt1_match = atc_tt1_enable & atc_tt1_s_ok & ((mmu_va[31:24] & ~atc_tt1_mask) == (atc_tt1_base & ~atc_tt1_mask));
+
+var atc_transparent[0:0];
+atc_transparent = atc_tt0_match | atc_tt1_match;
+
+// ============================================================================
+// Address decomposition (4KB pages)
+// ============================================================================
+var atc_vpn[19:0];
+var atc_offset[11:0];
+atc_vpn = mmu_va[31:12];
+atc_offset = mmu_va[11:0];
+
+// ============================================================================
+// ATC CAM Lookup
+// ============================================================================
+var atc_vpn_matches[21:0];
+atc_vpn_matches = atc_va@[atc_vpn];
+
+// FC and Valid filtering for all 22 entries
+var acv_0[0:0]; var acv_1[0:0]; var acv_2[0:0]; var acv_3[0:0];
+var acv_4[0:0]; var acv_5[0:0]; var acv_6[0:0]; var acv_7[0:0];
+var acv_8[0:0]; var acv_9[0:0]; var acv_10[0:0]; var acv_11[0:0];
+var acv_12[0:0]; var acv_13[0:0]; var acv_14[0:0]; var acv_15[0:0];
+var acv_16[0:0]; var acv_17[0:0]; var acv_18[0:0]; var acv_19[0:0];
+var acv_20[0:0]; var acv_21[0:0];
+
+acv_0 = atc_v[0] & (atc_fc[0] == mmu_fc);
+acv_1 = atc_v[1] & (atc_fc[1] == mmu_fc);
+acv_2 = atc_v[2] & (atc_fc[2] == mmu_fc);
+acv_3 = atc_v[3] & (atc_fc[3] == mmu_fc);
+acv_4 = atc_v[4] & (atc_fc[4] == mmu_fc);
+acv_5 = atc_v[5] & (atc_fc[5] == mmu_fc);
+acv_6 = atc_v[6] & (atc_fc[6] == mmu_fc);
+acv_7 = atc_v[7] & (atc_fc[7] == mmu_fc);
+acv_8 = atc_v[8] & (atc_fc[8] == mmu_fc);
+acv_9 = atc_v[9] & (atc_fc[9] == mmu_fc);
+acv_10 = atc_v[10] & (atc_fc[10] == mmu_fc);
+acv_11 = atc_v[11] & (atc_fc[11] == mmu_fc);
+acv_12 = atc_v[12] & (atc_fc[12] == mmu_fc);
+acv_13 = atc_v[13] & (atc_fc[13] == mmu_fc);
+acv_14 = atc_v[14] & (atc_fc[14] == mmu_fc);
+acv_15 = atc_v[15] & (atc_fc[15] == mmu_fc);
+acv_16 = atc_v[16] & (atc_fc[16] == mmu_fc);
+acv_17 = atc_v[17] & (atc_fc[17] == mmu_fc);
+acv_18 = atc_v[18] & (atc_fc[18] == mmu_fc);
+acv_19 = atc_v[19] & (atc_fc[19] == mmu_fc);
+acv_20 = atc_v[20] & (atc_fc[20] == mmu_fc);
+acv_21 = atc_v[21] & (atc_fc[21] == mmu_fc);
+
+var atc_fc_valid_mask[21:0];
+atc_fc_valid_mask = {acv_21, acv_20, acv_19, acv_18, acv_17, acv_16, acv_15, acv_14,
+                     acv_13, acv_12, acv_11, acv_10, acv_9, acv_8, acv_7, acv_6,
+                     acv_5, acv_4, acv_3, acv_2, acv_1, acv_0};
+
+var atc_data_match[21:0];
+atc_data_match = atc_vpn_matches & atc_fc_valid_mask;
+
+var data_atc_hit[0:0];
+var atc_hit_idx[4:0];
+data_atc_hit = |atc_data_match;
+atc_hit_idx = ctz(atc_data_match);
+
+// Read matched entry
+var atc_matched_pa[19:0];
+var atc_matched_s[0:0];
+var atc_matched_wp[0:0];
+var atc_matched_m[0:0];
+atc_matched_pa = atc_pa[atc_hit_idx];
+atc_matched_s = atc_s[atc_hit_idx];
+atc_matched_wp = atc_wp[atc_hit_idx];
+atc_matched_m = atc_m[atc_hit_idx];
+
+// Permission checking
+var atc_sv_violation[0:0];
+var atc_wp_violation[0:0];
+atc_sv_violation = atc_matched_s & ~atc_is_supervisor;
+atc_wp_violation = is_write & atc_matched_wp;
+
+// ============================================================================
+// Page Table Walk on ATC Miss (68030 short format descriptors)
+// ============================================================================
+// 3-level walk: Root -> Level A -> Level B -> Level C (page)
+// Linux/m68k: TIA=7, TIB=7, TIC=6, PS=4 (4KB pages)
+
+var atc_use_srp[0:0];
+atc_use_srp = tc[30] & atc_is_supervisor;
+
+var atc_root_desc[31:0];
+atc_root_desc = atc_use_srp ? srp[31:0] : crp[31:0];
+// DT is in the upper longword bits [1:0] = register bits [33:32]
+var atc_root_dt[1:0];
+atc_root_dt = atc_use_srp ? srp[33:32] : crp[33:32];
+var atc_root_valid[0:0];
+atc_root_valid = (atc_root_dt == 2'b10) | (atc_root_dt == 2'b11);
+
+// Level A: VA[31:25] (7 bits)
+var atc_la_idx[6:0];
+atc_la_idx = mmu_va[31:25];
+var atc_root_base[31:0];
+atc_root_base = {atc_root_desc[31:2], 2'b00};
+var atc_la_addr[31:0];
+atc_la_addr = atc_root_base + {23'b0, atc_la_idx, 2'b00};
+var atc_la_hi[15:0];
+var atc_la_lo[15:0];
+atc_la_hi = dmem[atc_la_addr];
+atc_la_lo = dmem[atc_la_addr + 2];
+var atc_la_desc[31:0];
+atc_la_desc = {atc_la_hi, atc_la_lo};
+var atc_la_dt[1:0];
+atc_la_dt = atc_la_desc[1:0];
+var atc_la_valid[0:0];
+atc_la_valid = (atc_la_dt == 2'b10) | (atc_la_dt == 2'b11);
+
+// Level B: VA[24:18] (7 bits)
+var atc_lb_idx[6:0];
+atc_lb_idx = mmu_va[24:18];
+var atc_lb_base[31:0];
+atc_lb_base = {atc_la_desc[31:2], 2'b00};
+var atc_lb_addr[31:0];
+atc_lb_addr = atc_lb_base + {23'b0, atc_lb_idx, 2'b00};
+var atc_lb_hi[15:0];
+var atc_lb_lo[15:0];
+atc_lb_hi = dmem[atc_lb_addr];
+atc_lb_lo = dmem[atc_lb_addr + 2];
+var atc_lb_desc[31:0];
+atc_lb_desc = {atc_lb_hi, atc_lb_lo};
+var atc_lb_dt[1:0];
+atc_lb_dt = atc_lb_desc[1:0];
+var atc_lb_valid[0:0];
+atc_lb_valid = (atc_lb_dt == 2'b10) | (atc_lb_dt == 2'b11);
+
+// Level C: VA[17:12] (6 bits)
+var atc_lc_idx[5:0];
+atc_lc_idx = mmu_va[17:12];
+var atc_lc_base[31:0];
+atc_lc_base = {atc_lb_desc[31:2], 2'b00};
+var atc_lc_addr[31:0];
+atc_lc_addr = atc_lc_base + {24'b0, atc_lc_idx, 2'b00};
+var atc_lc_hi[15:0];
+var atc_lc_lo[15:0];
+atc_lc_hi = dmem[atc_lc_addr];
+atc_lc_lo = dmem[atc_lc_addr + 2];
+var atc_lc_desc[31:0];
+atc_lc_desc = {atc_lc_hi, atc_lc_lo};
+var atc_lc_dt[1:0];
+atc_lc_dt = atc_lc_desc[1:0];
+var atc_lc_is_page[0:0];
+atc_lc_is_page = (atc_lc_dt == 2'b01);
+
+// Walk result
+var atc_walked_ppn[19:0];
+var atc_walked_wp[0:0];
+atc_walked_ppn = atc_lc_desc[31:12];
+atc_walked_wp = atc_lc_desc[2];
+
+var atc_need_walk[0:0];
+atc_need_walk = atc_mmu_enabled & ~atc_transparent & ~data_atc_hit;
+
+var atc_walk_success[0:0];
+atc_walk_success = atc_need_walk & atc_root_valid & atc_la_valid & atc_lb_valid & atc_lc_is_page;
+
+var atc_walk_fault[0:0];
+atc_walk_fault = atc_need_walk & (~atc_root_valid | ~atc_la_valid | ~atc_lb_valid | ~atc_lc_is_page);
+
+var atc_walk_wp[0:0];
+atc_walk_wp = atc_walk_success & is_write & atc_walked_wp;
+
+// ============================================================================
+// ATC Fill on successful walk (skip if write-protected on store)
+// ============================================================================
+var atc_do_fill[0:0];
+atc_do_fill = atc_walk_success & ~atc_walk_wp;
+
+var data_atc_fill_idx[4:0];
+data_atc_fill_idx = atc_next;
+
+atc_va[data_atc_fill_idx] when (atc_do_fill & ~m68k_exc_taken) = atc_vpn;
+atc_fc[data_atc_fill_idx] when (atc_do_fill & ~m68k_exc_taken) = mmu_fc;
+atc_v[data_atc_fill_idx] when (atc_do_fill & ~m68k_exc_taken) = 1'b1;
+atc_pa[data_atc_fill_idx] when (atc_do_fill & ~m68k_exc_taken) = atc_walked_ppn;
+atc_wp[data_atc_fill_idx] when (atc_do_fill & ~m68k_exc_taken) = atc_walked_wp;
+atc_s[data_atc_fill_idx] when (atc_do_fill & ~m68k_exc_taken) = 1'b0;
+atc_m[data_atc_fill_idx] when (atc_do_fill & ~m68k_exc_taken) = atc_lc_desc[4];
+atc_u[data_atc_fill_idx] when (atc_do_fill & ~m68k_exc_taken) = 1'b1;
+
+var atc_next_ptr[4:0];
+atc_next_ptr = (atc_next == 5'd21) ? 5'd0 : (atc_next + 5'd1);
+atc_next when (atc_do_fill & ~m68k_exc_taken) = atc_next_ptr;
+
+// ============================================================================
+// Access exception
+// ============================================================================
+var access_exception[0:0];
+access_exception = atc_mmu_enabled & ~atc_transparent &
+                   ((data_atc_hit & (atc_sv_violation | atc_wp_violation)) |
+                    atc_walk_fault | atc_walk_wp);
+
+// ============================================================================
+// Compute physical address
+// ============================================================================
+var ea_pa[31:0];
+var atc_translated[31:0];
+var atc_walked[31:0];
+atc_translated = {atc_matched_pa, atc_offset};
+atc_walked = {atc_walked_ppn, atc_offset};
+
+ea_pa = (~atc_mmu_enabled | atc_transparent) ? mmu_va :
+        data_atc_hit ? atc_translated :
+        atc_walk_success ? atc_walked :
+        mmu_va;
+
+// ============================================================================
+// Update U bit on ATC hit, U+M bits on walk
+// ============================================================================
+atc_u[atc_hit_idx] when (atc_mmu_enabled & data_atc_hit & ~access_exception & ~m68k_exc_taken) = 1'b1;
+
+// Page table U/M bit update removed: the dmem write here conflicts with
+// instruction data writes in the OR-mux architecture (CLR writes zero,
+// but OR-mux merges it with atc_lc_update producing non-zero).
+// The ATC entry M bit is already stored via atc_m[] on fill (line 241).
+// Linux manages page table dirty/accessed bits through software.

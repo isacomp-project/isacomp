@@ -1,0 +1,256 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 SRMMU Data Load Translation Aspect
+// Translates addr (virtual address) to addr_pa (physical address) for loads
+// Uses CAM-based TLB lookup with context matching
+//
+// This aspect should be included in all data load .isa files when MMU is enabled.
+// Requires: addr variable must be defined before including this aspect
+// Outputs: addr_pa (physical address), data_access_exception flag
+
+// Include MMU registers and TLB arrays
+
+// Physical address output (36-bit for SRMMU)
+var addr_pa[35:0];
+
+// Exception signaling
+var data_access_exception[0:0];
+
+// ============================================================================
+// Extract processor state for permission checking
+// ============================================================================
+var load_is_supervisor[0:0];
+load_is_supervisor = psr[7];  // PSR.S (supervisor mode)
+
+var load_mmu_enabled[0:0];
+load_mmu_enabled = mmu_ctrl[0];  // MMU Control.E
+
+var load_current_ctx[7:0];
+load_current_ctx = mmu_ctx[7:0];
+
+// ============================================================================
+// Address decomposition
+// ============================================================================
+var addr_vpn[19:0];         // Virtual Page Number for 4KB pages
+var addr_offset[11:0];      // Page offset (preserved through translation)
+
+addr_vpn = addr[31:12];
+addr_offset = addr[11:0];
+
+// ============================================================================
+// CAM Lookup - find VPN matches in TLB
+// ============================================================================
+var load_vpn_matches[63:0];
+load_vpn_matches = tlb_vpn@[addr_vpn];
+
+// ============================================================================
+// Context and Valid filtering
+// ============================================================================
+var ld_cv_0[0:0]; var ld_cv_1[0:0]; var ld_cv_2[0:0]; var ld_cv_3[0:0];
+var ld_cv_4[0:0]; var ld_cv_5[0:0]; var ld_cv_6[0:0]; var ld_cv_7[0:0];
+var ld_cv_8[0:0]; var ld_cv_9[0:0]; var ld_cv_10[0:0]; var ld_cv_11[0:0];
+var ld_cv_12[0:0]; var ld_cv_13[0:0]; var ld_cv_14[0:0]; var ld_cv_15[0:0];
+var ld_cv_16[0:0]; var ld_cv_17[0:0]; var ld_cv_18[0:0]; var ld_cv_19[0:0];
+var ld_cv_20[0:0]; var ld_cv_21[0:0]; var ld_cv_22[0:0]; var ld_cv_23[0:0];
+var ld_cv_24[0:0]; var ld_cv_25[0:0]; var ld_cv_26[0:0]; var ld_cv_27[0:0];
+var ld_cv_28[0:0]; var ld_cv_29[0:0]; var ld_cv_30[0:0]; var ld_cv_31[0:0];
+var ld_cv_32[0:0]; var ld_cv_33[0:0]; var ld_cv_34[0:0]; var ld_cv_35[0:0];
+var ld_cv_36[0:0]; var ld_cv_37[0:0]; var ld_cv_38[0:0]; var ld_cv_39[0:0];
+var ld_cv_40[0:0]; var ld_cv_41[0:0]; var ld_cv_42[0:0]; var ld_cv_43[0:0];
+var ld_cv_44[0:0]; var ld_cv_45[0:0]; var ld_cv_46[0:0]; var ld_cv_47[0:0];
+var ld_cv_48[0:0]; var ld_cv_49[0:0]; var ld_cv_50[0:0]; var ld_cv_51[0:0];
+var ld_cv_52[0:0]; var ld_cv_53[0:0]; var ld_cv_54[0:0]; var ld_cv_55[0:0];
+var ld_cv_56[0:0]; var ld_cv_57[0:0]; var ld_cv_58[0:0]; var ld_cv_59[0:0];
+var ld_cv_60[0:0]; var ld_cv_61[0:0]; var ld_cv_62[0:0]; var ld_cv_63[0:0];
+
+// Valid AND context match for each entry
+ld_cv_0 = tlb_v[0] & (tlb_ctx[0] == load_current_ctx);
+ld_cv_1 = tlb_v[1] & (tlb_ctx[1] == load_current_ctx);
+ld_cv_2 = tlb_v[2] & (tlb_ctx[2] == load_current_ctx);
+ld_cv_3 = tlb_v[3] & (tlb_ctx[3] == load_current_ctx);
+ld_cv_4 = tlb_v[4] & (tlb_ctx[4] == load_current_ctx);
+ld_cv_5 = tlb_v[5] & (tlb_ctx[5] == load_current_ctx);
+ld_cv_6 = tlb_v[6] & (tlb_ctx[6] == load_current_ctx);
+ld_cv_7 = tlb_v[7] & (tlb_ctx[7] == load_current_ctx);
+ld_cv_8 = tlb_v[8] & (tlb_ctx[8] == load_current_ctx);
+ld_cv_9 = tlb_v[9] & (tlb_ctx[9] == load_current_ctx);
+ld_cv_10 = tlb_v[10] & (tlb_ctx[10] == load_current_ctx);
+ld_cv_11 = tlb_v[11] & (tlb_ctx[11] == load_current_ctx);
+ld_cv_12 = tlb_v[12] & (tlb_ctx[12] == load_current_ctx);
+ld_cv_13 = tlb_v[13] & (tlb_ctx[13] == load_current_ctx);
+ld_cv_14 = tlb_v[14] & (tlb_ctx[14] == load_current_ctx);
+ld_cv_15 = tlb_v[15] & (tlb_ctx[15] == load_current_ctx);
+ld_cv_16 = tlb_v[16] & (tlb_ctx[16] == load_current_ctx);
+ld_cv_17 = tlb_v[17] & (tlb_ctx[17] == load_current_ctx);
+ld_cv_18 = tlb_v[18] & (tlb_ctx[18] == load_current_ctx);
+ld_cv_19 = tlb_v[19] & (tlb_ctx[19] == load_current_ctx);
+ld_cv_20 = tlb_v[20] & (tlb_ctx[20] == load_current_ctx);
+ld_cv_21 = tlb_v[21] & (tlb_ctx[21] == load_current_ctx);
+ld_cv_22 = tlb_v[22] & (tlb_ctx[22] == load_current_ctx);
+ld_cv_23 = tlb_v[23] & (tlb_ctx[23] == load_current_ctx);
+ld_cv_24 = tlb_v[24] & (tlb_ctx[24] == load_current_ctx);
+ld_cv_25 = tlb_v[25] & (tlb_ctx[25] == load_current_ctx);
+ld_cv_26 = tlb_v[26] & (tlb_ctx[26] == load_current_ctx);
+ld_cv_27 = tlb_v[27] & (tlb_ctx[27] == load_current_ctx);
+ld_cv_28 = tlb_v[28] & (tlb_ctx[28] == load_current_ctx);
+ld_cv_29 = tlb_v[29] & (tlb_ctx[29] == load_current_ctx);
+ld_cv_30 = tlb_v[30] & (tlb_ctx[30] == load_current_ctx);
+ld_cv_31 = tlb_v[31] & (tlb_ctx[31] == load_current_ctx);
+ld_cv_32 = tlb_v[32] & (tlb_ctx[32] == load_current_ctx);
+ld_cv_33 = tlb_v[33] & (tlb_ctx[33] == load_current_ctx);
+ld_cv_34 = tlb_v[34] & (tlb_ctx[34] == load_current_ctx);
+ld_cv_35 = tlb_v[35] & (tlb_ctx[35] == load_current_ctx);
+ld_cv_36 = tlb_v[36] & (tlb_ctx[36] == load_current_ctx);
+ld_cv_37 = tlb_v[37] & (tlb_ctx[37] == load_current_ctx);
+ld_cv_38 = tlb_v[38] & (tlb_ctx[38] == load_current_ctx);
+ld_cv_39 = tlb_v[39] & (tlb_ctx[39] == load_current_ctx);
+ld_cv_40 = tlb_v[40] & (tlb_ctx[40] == load_current_ctx);
+ld_cv_41 = tlb_v[41] & (tlb_ctx[41] == load_current_ctx);
+ld_cv_42 = tlb_v[42] & (tlb_ctx[42] == load_current_ctx);
+ld_cv_43 = tlb_v[43] & (tlb_ctx[43] == load_current_ctx);
+ld_cv_44 = tlb_v[44] & (tlb_ctx[44] == load_current_ctx);
+ld_cv_45 = tlb_v[45] & (tlb_ctx[45] == load_current_ctx);
+ld_cv_46 = tlb_v[46] & (tlb_ctx[46] == load_current_ctx);
+ld_cv_47 = tlb_v[47] & (tlb_ctx[47] == load_current_ctx);
+ld_cv_48 = tlb_v[48] & (tlb_ctx[48] == load_current_ctx);
+ld_cv_49 = tlb_v[49] & (tlb_ctx[49] == load_current_ctx);
+ld_cv_50 = tlb_v[50] & (tlb_ctx[50] == load_current_ctx);
+ld_cv_51 = tlb_v[51] & (tlb_ctx[51] == load_current_ctx);
+ld_cv_52 = tlb_v[52] & (tlb_ctx[52] == load_current_ctx);
+ld_cv_53 = tlb_v[53] & (tlb_ctx[53] == load_current_ctx);
+ld_cv_54 = tlb_v[54] & (tlb_ctx[54] == load_current_ctx);
+ld_cv_55 = tlb_v[55] & (tlb_ctx[55] == load_current_ctx);
+ld_cv_56 = tlb_v[56] & (tlb_ctx[56] == load_current_ctx);
+ld_cv_57 = tlb_v[57] & (tlb_ctx[57] == load_current_ctx);
+ld_cv_58 = tlb_v[58] & (tlb_ctx[58] == load_current_ctx);
+ld_cv_59 = tlb_v[59] & (tlb_ctx[59] == load_current_ctx);
+ld_cv_60 = tlb_v[60] & (tlb_ctx[60] == load_current_ctx);
+ld_cv_61 = tlb_v[61] & (tlb_ctx[61] == load_current_ctx);
+ld_cv_62 = tlb_v[62] & (tlb_ctx[62] == load_current_ctx);
+ld_cv_63 = tlb_v[63] & (tlb_ctx[63] == load_current_ctx);
+
+// Combine into context-valid mask
+var load_ctx_valid_mask[63:0];
+load_ctx_valid_mask = {ld_cv_63, ld_cv_62, ld_cv_61, ld_cv_60, ld_cv_59, ld_cv_58, ld_cv_57, ld_cv_56,
+                       ld_cv_55, ld_cv_54, ld_cv_53, ld_cv_52, ld_cv_51, ld_cv_50, ld_cv_49, ld_cv_48,
+                       ld_cv_47, ld_cv_46, ld_cv_45, ld_cv_44, ld_cv_43, ld_cv_42, ld_cv_41, ld_cv_40,
+                       ld_cv_39, ld_cv_38, ld_cv_37, ld_cv_36, ld_cv_35, ld_cv_34, ld_cv_33, ld_cv_32,
+                       ld_cv_31, ld_cv_30, ld_cv_29, ld_cv_28, ld_cv_27, ld_cv_26, ld_cv_25, ld_cv_24,
+                       ld_cv_23, ld_cv_22, ld_cv_21, ld_cv_20, ld_cv_19, ld_cv_18, ld_cv_17, ld_cv_16,
+                       ld_cv_15, ld_cv_14, ld_cv_13, ld_cv_12, ld_cv_11, ld_cv_10, ld_cv_9, ld_cv_8,
+                       ld_cv_7, ld_cv_6, ld_cv_5, ld_cv_4, ld_cv_3, ld_cv_2, ld_cv_1, ld_cv_0};
+
+// Final match
+var load_tlb_match[63:0];
+load_tlb_match = load_vpn_matches & load_ctx_valid_mask;
+
+// ============================================================================
+// Find first matching entry
+// ============================================================================
+var load_tlb_hit[0:0];
+var load_tlb_hit_idx[6:0];
+load_tlb_hit = |load_tlb_match;
+load_tlb_hit_idx = ctz(load_tlb_match);
+
+var load_hit_idx[5:0];
+load_hit_idx = load_tlb_hit_idx[5:0];
+
+// ============================================================================
+// Read matched TLB entry data
+// ============================================================================
+var load_matched_ppn[23:0];
+var load_matched_acc[2:0];
+var load_matched_c[0:0];
+
+load_matched_ppn = tlb_ppn[load_hit_idx];
+load_matched_acc = tlb_acc[load_hit_idx];
+load_matched_c = tlb_c[load_hit_idx];
+
+// ============================================================================
+// Permission checking for data read
+// ACC encoding for read permission:
+// 000 = super read only - YES for super
+// 001 = super read/write - YES for super
+// 010 = super read/execute - YES for super
+// 011 = super read/write/execute - YES for super
+// 100 = super execute only - NO (execute only)
+// 101 = user read only, super read only - YES for both
+// 110 = user read/execute, super all - YES for both
+// 111 = user all, super all - YES for both
+// ============================================================================
+var read_allowed[0:0];
+var super_read[0:0];
+var user_read[0:0];
+
+// Supervisor can read for ACC in {000, 001, 010, 011, 101, 110, 111}
+super_read = (load_matched_acc != 3'b100);
+
+// User can read for ACC in {101, 110, 111}
+user_read = (load_matched_acc == 3'b101) | (load_matched_acc == 3'b110) |
+            (load_matched_acc == 3'b111);
+
+read_allowed = load_is_supervisor ? super_read : user_read;
+
+// ============================================================================
+// Exception detection
+// ============================================================================
+var load_tlb_miss[0:0];
+var load_prot_error[0:0];
+
+// TLB miss: MMU enabled, no TLB hit
+load_tlb_miss = load_mmu_enabled & (~load_tlb_hit);
+
+// Protection error: TLB hit but no read permission
+load_prot_error = load_mmu_enabled & load_tlb_hit & (~read_allowed);
+
+// Any data access exception
+data_access_exception = load_tlb_miss | load_prot_error;
+
+// ============================================================================
+// Fault Status Register update
+// AT = 001 (supervisor data load) or 000 (user data load)
+// FT = 100 (translation error) for miss, 010 (protection error) for prot
+// ============================================================================
+var load_fault_at[2:0];
+var load_fault_ft[2:0];
+var load_new_fsr[31:0];
+
+load_fault_at = load_is_supervisor ? 3'b001 : 3'b000;
+load_fault_ft = load_tlb_miss ? 3'b100 : 3'b010;
+
+load_new_fsr = {14'b0, 8'b0, 2'b00, load_fault_at, load_fault_ft, 1'b1, mmu_fsr[0:0]};
+
+// Update FSR and FAR on exception
+mmu_fsr when (data_access_exception) = load_new_fsr;
+mmu_far when (data_access_exception) = addr;
+
+// ============================================================================
+// Trap vector calculation
+// data_access_exception = trap type 0x09
+// ============================================================================
+var load_trap_vector[31:0];
+load_trap_vector = {tbr[31:12], 8'h09, 4'b0000};
+
+// Update PC: trap handler on exception, otherwise pc + 4
+pc = data_access_exception ? load_trap_vector : (pc + 4);
+
+// Update PSR: set S bit, clear ET bit
+var load_new_psr[31:0];
+load_new_psr = {psr[31:8], 1'b1, psr[6:5], 1'b0, psr[3:0]};
+psr when (data_access_exception) = load_new_psr;
+
+// ============================================================================
+// Compute physical address
+// ============================================================================
+var load_translated_pa[35:0];
+var load_passthrough_pa[35:0];
+
+load_translated_pa = {load_matched_ppn, addr_offset};
+load_passthrough_pa = {4'b0000, addr};
+
+addr_pa = data_access_exception ? {4'b0, load_trap_vector} :
+          load_mmu_enabled ? load_translated_pa : load_passthrough_pa;
+
+// ============================================================================
+// Update Referenced bit on successful access
+// ============================================================================
+tlb_r[load_hit_idx] when (load_mmu_enabled & load_tlb_hit & (~data_access_exception)) = 1'b1;

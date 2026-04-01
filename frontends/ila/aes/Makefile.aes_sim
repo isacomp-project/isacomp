@@ -1,0 +1,86 @@
+# Makefile for AES-128 Verilog Simulation
+#
+# Requirements:
+#   - Icarus Verilog (iverilog): for simulation
+#   - GTKWave: for waveform viewing
+#
+# Usage:
+#   make -f Makefile.aes_sim sim     # Compile and run simulation
+#   make -f Makefile.aes_sim wave    # View waveforms
+#   make -f Makefile.aes_sim clean   # Clean generated files
+
+# Verilog source files
+RTL_SRC = aes128_function.v
+TB_SRC = aes128_function_tb.v
+
+# Output files
+VVP_OUT = aes128_function_tb.vvp
+VCD_OUT = aes128_function_tb.vcd
+
+# Tools
+IVERILOG = iverilog
+VVP = vvp
+GTKWAVE = gtkwave
+
+# Compiler flags
+IVERILOG_FLAGS = -g2012 -Wall
+
+# Default target
+.PHONY: all
+all: sim
+
+# Compile and simulate
+.PHONY: sim
+sim: $(VVP_OUT)
+	@echo "========================================="
+	@echo "Running AES-128 simulation..."
+	@echo "========================================="
+	$(VVP) $(VVP_OUT)
+	@echo ""
+	@echo "Simulation complete. Waveform saved to $(VCD_OUT)"
+	@echo "View with: make wave"
+
+# Compile Verilog to VVP
+$(VVP_OUT): $(RTL_SRC) $(TB_SRC)
+	@echo "Compiling Verilog..."
+	$(IVERILOG) $(IVERILOG_FLAGS) -o $(VVP_OUT) $(TB_SRC) $(RTL_SRC)
+
+# View waveforms
+.PHONY: wave
+wave: $(VCD_OUT)
+	$(GTKWAVE) $(VCD_OUT) &
+
+# Lint check with Verilator
+.PHONY: lint
+lint:
+	verilator --lint-only -Wall $(RTL_SRC)
+
+# Synthesis check with Yosys
+.PHONY: synth
+synth:
+	yosys -p "read_verilog $(RTL_SRC); synth -top aes128_function; stat"
+
+# Clean generated files
+.PHONY: clean
+clean:
+	rm -f $(VVP_OUT) $(VCD_OUT)
+	rm -f *.log *.vcd
+
+# Help
+.PHONY: help
+help:
+	@echo "AES-128 Verilog Simulation Makefile"
+	@echo ""
+	@echo "Targets:"
+	@echo "  sim    - Compile and run simulation (default)"
+	@echo "  wave   - View waveforms with GTKWave"
+	@echo "  lint   - Lint check with Verilator"
+	@echo "  synth  - Synthesis check with Yosys"
+	@echo "  clean  - Clean generated files"
+	@echo "  help   - Show this help message"
+	@echo ""
+	@echo "Requirements:"
+	@echo "  - Icarus Verilog: sudo apt-get install iverilog"
+	@echo "  - GTKWave: sudo apt-get install gtkwave"
+	@echo "  - Verilator: sudo apt-get install verilator"
+	@echo "  - Yosys: sudo apt-get install yosys"

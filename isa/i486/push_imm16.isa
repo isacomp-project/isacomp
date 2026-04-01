@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 PUSH imm16 (0x68) - Real mode (16-bit default)
+// Push 16-bit immediate value onto stack
+// Uses SS segment for stack access
+
+isa_state eip[31:0];
+var instr[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];
+
+var imm_lo[7:0];
+var imm_hi[7:0];
+var imm16[15:0];
+var stack_offset_lo[31:0];
+var stack_offset_hi[31:0];
+var stack_addr_lo[31:0];
+var stack_addr_hi[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x68;
+
+// Read 16-bit immediate value (little-endian)
+imm_lo = imem[eip + 1];
+imm_hi = imem[eip + 2];
+imm16 = {imm_hi, imm_lo};
+
+// Update EIP to point after instruction (3 bytes: opcode + imm16)
+eip = eip + 3;
+
+// Decrement ESP by 2 (word size)
+xregs[4] = xregs[4] - 32'h00000002;
+
+// Calculate stack offsets
+stack_offset_lo = xregs[4];
+stack_offset_hi = xregs[4] + 32'h00000001;
+
+// Calculate physical addresses using SS segment
+stack_addr_lo = (SS << 4) + stack_offset_lo;
+stack_addr_hi = (SS << 4) + stack_offset_hi;
+
+// Write immediate to stack (little-endian)
+dmem[stack_addr_lo] = imm16[7:0];
+dmem[stack_addr_hi] = imm16[15:8];

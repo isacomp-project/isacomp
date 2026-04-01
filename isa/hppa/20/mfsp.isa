@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 MFSP instruction (64-bit)
+// MFSP sr,t - Move From Space Register
+// Opcode: 0x00 (bits 31:26), sub=0x25 (bits 12:5)
+// Reads a space register to a general register.
+// sr_num = instr[15:14], t = instr[4:0]
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// Space registers (64-bit in PA2.0)
+isa_state sr0[63:0];
+isa_state sr1[63:0];
+isa_state sr2[63:0];
+isa_state sr3[63:0];
+isa_state sr4[63:0];
+isa_state sr5[63:0];
+isa_state sr6[63:0];
+isa_state sr7[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var sr_num[2:0];
+var t[4:0];
+var sr_val[63:0];
+
+instr = umem[pc_pa];
+
+// MFSP encoding: opcode=0x00, sub=0x25
+assume instr[31:26] == 0b000000;
+assume instr[25:21] == 0b00000;
+assume instr[20:16] == 0b00000;
+assume instr[12:5] == 0b00100101;
+
+// Extract fields
+// Space register: 3-bit SCRAMBLED field at bits[15:13]
+// SR = {instr[13], instr[15], instr[14]} (verified from PA-RISC 1.1 cross-assembler)
+sr_num = {instr[13], instr[15], instr[14]};
+t = instr[4:0];
+
+// Select space register value based on sr_num
+sr_val = (sr_num == 3'd0) ? sr0 :
+         (sr_num == 3'd1) ? sr1 :
+         (sr_num == 3'd2) ? sr2 :
+         (sr_num == 3'd3) ? sr3 :
+         (sr_num == 3'd4) ? sr4 :
+         (sr_num == 3'd5) ? sr5 :
+         (sr_num == 3'd6) ? sr6 :
+         (sr_num == 3'd7) ? sr7 : 64'h0;
+
+// Write SR value to target register
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = sr_val;
+
+// Advance PC
+pc = pc + 4;

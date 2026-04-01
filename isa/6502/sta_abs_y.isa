@@ -1,0 +1,30 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 STA Absolute,Y (0x99) - Store Accumulator Absolute Indexed with Y
+// Stores accumulator to absolute address + Y
+// Does not affect any flags
+// Instruction format: STA $hhll,Y (3 bytes)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state Y[7:0];
+isa_state mainmem[7:0][15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var base_addr[15:0];
+var addr[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x99;
+pc = pc + 1;
+
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+base_addr = {addr_hi, addr_lo};
+addr = base_addr + Y;
+
+mainmem[addr] = A;

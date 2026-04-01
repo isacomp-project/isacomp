@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 NOP (0x90)
+// No operation - just advance IP
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+instr = imem[ip];
+assume instr == 0x90;
+ip = ip + 1;
+
+// NOP does nothing except advance IP

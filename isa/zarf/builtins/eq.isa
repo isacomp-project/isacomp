@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Equality Builtin (0x05)
+//
+// Tests if two primitive integers are equal.
+// Returns 1 if equal, 0 if not equal.
+// Both arguments must be primitives (eval_tag = 1).
+
+// State declarations
+isa_state pc[31:0];
+isa_state eval_reg[31:0];
+isa_state eval_tag[0:0];
+isa_state env_args[31:0];
+isa_state csp[19:0];
+isa_state lsp[19:0];
+isa_state env_clo[31:0];
+mem imem[14:0];
+mem heap[19:0];
+mem cstack[19:0];
+
+// Read arguments from environment
+var arg1[31:0];
+var arg2[31:0];
+
+arg1 = heap[env_args];
+arg2 = heap[env_args + 1];
+
+// Perform equality test
+var is_equal[0:0];
+is_equal = (arg1 == arg2);
+
+// Set return value as primitive (1 or 0)
+var result[31:0];
+result = {{31{1'b0}}, is_equal};
+
+eval_reg = result;
+eval_tag = 1'b1;
+
+// Pop continuation and return
+aspect ../aspects/cont_pop.isa gates pc, csp, cstack, env_clo, env_args, lsp, eval_reg, eval_tag, heap;

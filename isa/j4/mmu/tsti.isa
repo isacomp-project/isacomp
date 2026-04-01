@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state t[0:0];
+mem umem[23:0];
+
+var imm[7:0];
+var R0[31:0];
+var res[31:0];
+
+var tsti_rb[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:8] == 0xC8;
+imm = instr[7:0];
+
+tsti_rb = sr[29];  // RB bit (bit 29 in SR)
+R0 = tsti_rb ? rf_bank[0] : rf[0];
+
+res = R0 & {24'b0, imm};
+t when (~int_should_take & ~itlb_exc_actually_taken) = (res == 0);
+pc = pc + 2;

@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// LDC Rm, SPC - Load Control Register SPC from Rm
+// SH-4 specific: Saved Program Counter
+// Encoding: 0100mmmm01001110
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state spc[31:0];  // Saved Program Counter (SH-4 specific)
+mem umem[23:0];
+
+var rm[3:0];
+var Rm[31:0];
+var ldc_spc_rm_lo[2:0];
+var ldc_spc_rb[0:0];
+var ldc_spc_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[7:0] == 0x4E;
+rm = instr[11:8];
+
+ldc_spc_rm_lo = rm[2:0];
+ldc_spc_rb = sr[29];  // RB bit (bit 29 in SR)
+ldc_spc_rm_bk = (rm[3] == 1'b0) & ldc_spc_rb;
+
+Rm = ldc_spc_rm_bk ? rf_bank[ldc_spc_rm_lo] : rf[rm];
+
+// Load SPC from Rm (privileged, SH-4 specific)
+spc = Rm;
+pc = pc + 2;

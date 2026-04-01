@@ -1,0 +1,171 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Zarf (H-Machine) ISA - Pop Continuation Aspect
+//
+// Pops a continuation frame from the stack and dispatches based on type.
+// This is called when returning from a function or completing evaluation.
+//
+// Continuation types:
+//   00 - Case: restore environment, continue pattern matching
+//   01 - Argcont: apply excess arguments to returned function (oversaturated apply)
+//   10 - Update: overwrite thunk with evaluated result
+//   11 - Eval: continue primitive operation with evaluated argument
+//
+// Gates: pc, csp, cstack, env_clo, env_args, lsp, lb, eval_reg, eval_tag, heap, fp
+
+// Read continuation frame (stack grows up, so subtract to access)
+var pop_cont_word0[31:0];
+var pop_cont_word1[31:0];
+var pop_cont_word2[31:0];
+var pop_cont_word3[31:0];
+var pop_cont_word4[31:0];
+
+pop_cont_word0 = cstack[csp - 5];
+pop_cont_word1 = cstack[csp - 4];
+pop_cont_word2 = cstack[csp - 3];
+pop_cont_word3 = cstack[csp - 2];
+pop_cont_word4 = cstack[csp - 1];
+
+// Extract type and saved PC
+var pop_cont_type[1:0];
+var pop_saved_pc[29:0];
+
+pop_cont_type = pop_cont_word0[31:30];
+pop_saved_pc = pop_cont_word0[29:0];
+
+// Pop frame from stack
+csp = csp - 5;
+
+// Compute next PC based on type
+var pop_next_pc[31:0];
+pop_next_pc = {2'b00, pop_saved_pc};
+
+// ========================================================================
+// Extract packed argcont fields (type 1)
+// ========================================================================
+// word1: {excess_args_addr[11:0], env_clo[19:0]}
+// word2: {decoded_value[11:0], env_args[19:0]}
+// word3: {excess_args_addr[19:12], n_excess[3:0], lsp[19:0]}
+// word4: {decoded_value[19:12], 4'b0, lb[19:0]}
+
+var pop_excess_addr[31:0];
+pop_excess_addr = {{12{1'b0}}, pop_cont_word3[31:24], pop_cont_word1[31:20]};
+
+var pop_orig_thunk[31:0];
+pop_orig_thunk = {{12{1'b0}}, pop_cont_word4[31:24], pop_cont_word2[31:20]};
+
+var pop_n_excess[3:0];
+pop_n_excess = pop_cont_word3[23:20];
+
+var pop_restored_env_clo[31:0];
+pop_restored_env_clo = {{12{1'b0}}, pop_cont_word1[19:0]};
+
+var pop_restored_env_args[31:0];
+pop_restored_env_args = {{12{1'b0}}, pop_cont_word2[19:0]};
+
+// ========================================================================
+// Read excess args from heap (up to 8 slots for type 1)
+// ========================================================================
+var xarg_0[31:0];
+var xarg_1[31:0];
+var xarg_2[31:0];
+var xarg_3[31:0];
+var xarg_4[31:0];
+var xarg_5[31:0];
+var xarg_6[31:0];
+var xarg_7[31:0];
+
+xarg_0 = heap[pop_excess_addr];
+xarg_1 = heap[pop_excess_addr + 1];
+xarg_2 = heap[pop_excess_addr + 2];
+xarg_3 = heap[pop_excess_addr + 3];
+xarg_4 = heap[pop_excess_addr + 4];
+xarg_5 = heap[pop_excess_addr + 5];
+xarg_6 = heap[pop_excess_addr + 6];
+xarg_7 = heap[pop_excess_addr + 7];
+
+// ========================================================================
+// Argcont handler (type 1): Build dynamic thunk at fp from eval_reg + excess args
+// ========================================================================
+// Dynamic thunk header: [31:30]=00, [29]=1, [28:19]=n_args (= pop_n_excess),
+//                       [18:0]=0
+// data[0] = eval_reg (the returned function/PAP)
+// data[1..n_excess] = excess args
+
+var argcont_dyn_header[31:0];
+argcont_dyn_header = {2'b00, 1'b1, {6'b0, pop_n_excess}, 19'b0};
+
+heap[fp] when (pop_cont_type == 2'b01) = argcont_dyn_header;
+heap[fp + 1] when (pop_cont_type == 2'b01) = eval_reg;
+heap[fp + 2] when (pop_cont_type == 2'b01 & (pop_n_excess > 4'b0000)) = xarg_0;
+heap[fp + 3] when (pop_cont_type == 2'b01 & (pop_n_excess > 4'b0001)) = xarg_1;
+heap[fp + 4] when (pop_cont_type == 2'b01 & (pop_n_excess > 4'b0010)) = xarg_2;
+heap[fp + 5] when (pop_cont_type == 2'b01 & (pop_n_excess > 4'b0011)) = xarg_3;
+heap[fp + 6] when (pop_cont_type == 2'b01 & (pop_n_excess > 4'b0100)) = xarg_4;
+heap[fp + 7] when (pop_cont_type == 2'b01 & (pop_n_excess > 4'b0101)) = xarg_5;
+heap[fp + 8] when (pop_cont_type == 2'b01 & (pop_n_excess > 4'b0110)) = xarg_6;
+heap[fp + 9] when (pop_cont_type == 2'b01 & (pop_n_excess > 4'b0111)) = xarg_7;
+
+// Memoize original thunk as heap-ref pointing to the dynamic thunk at fp
+// Header: [31:30]=11 (memoized), [29]=0 (eval_tag=0, heap ref), rest=0 + fp low bits
+heap[pop_orig_thunk] when (pop_cont_type == 2'b01) = {2'b11, 1'b0, 13'b0, fp[15:0]};
+heap[pop_orig_thunk + 1] when (pop_cont_type == 2'b01) = {{12{1'b0}}, fp};
+
+// Override eval_reg/eval_tag to point to the new dynamic thunk
+eval_reg when (pop_cont_type == 2'b01) = {{12{1'b0}}, fp};
+eval_tag when (pop_cont_type == 2'b01) = 1'b0;
+
+// Update fp past the dynamic thunk: header + func_ref + n_excess args = 2 + n_excess
+fp when (pop_cont_type == 2'b01) = fp + 2 + {{16{1'b0}}, pop_n_excess};
+
+// ========================================================================
+// Dispatch based on continuation type
+// ========================================================================
+// Type 0: Case - restore env_clo, env_args, lsp
+// Type 1: Argcont - restore packed env_clo, env_args (from upper bits)
+// Type 2: Update - restore env_clo, env_args
+// Type 3: Eval - restore env_clo, env_args
+
+// Update env_clo based on type
+case (pop_cont_type) {
+    0: env_clo = pop_cont_word1;
+    1: env_clo = pop_restored_env_clo;
+    2: env_clo = pop_cont_word1;
+    3: env_clo = pop_cont_word1;
+}
+
+// Update env_args based on type
+case (pop_cont_type) {
+    0: env_args = pop_cont_word2;
+    1: env_args = pop_restored_env_args;
+    2: env_args = pop_cont_word2;
+    3: env_args = pop_cont_word2;
+}
+
+// Update lsp based on type
+case (pop_cont_type) {
+    0: lsp = pop_cont_word3[19:0];
+    1: lsp = pop_cont_word3[19:0];
+    2: lsp = pop_cont_word3[19:0];
+    3: lsp = pop_cont_word3[19:0];
+}
+
+// Update lb based on type
+case (pop_cont_type) {
+    0: lb = pop_cont_word4[19:0];
+    1: lb = pop_cont_word4[19:0];
+    2: lb = pop_cont_word4[19:0];
+    3: lb = pop_cont_word4[19:0];
+}
+
+// For update continuation, write result to thunk
+// Thunk address is packed into the upper bits of word3/word4:
+//   word3[31:20] = thunk_addr[11:0], word4[27:20] = thunk_addr[19:12]
+// Header format: [31:30]=11 (memoized marker), [29]=eval_tag, [28:16]=0, [15:0]=eval_reg low bits
+// Bit 30=1 distinguishes memoized thunks from constructors (which have bit 30=0)
+var pop_thunk_addr[31:0];
+pop_thunk_addr = {{12{1'b0}}, pop_cont_word4[27:20], pop_cont_word3[31:20]};
+heap[pop_thunk_addr] when (pop_cont_type == 2'b10) = {2'b11, eval_tag, 13'b0, eval_reg[15:0]};
+heap[pop_thunk_addr + 1] when (pop_cont_type == 2'b10) = eval_reg;
+
+// Update PC
+pc = pop_next_pc;

@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 - FTOIT (Floating to Integer, move bits)
+// Opcode: 0x1C, Function: 0x70
+// Format: FTOIT Fa, Rc
+// Moves 64 bits from FP register to integer register
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit)
+isa_state fpcr[63:0];          // FP control register
+mem umem[13:0];
+
+var fa[4:0];
+var rc[4:0];
+
+instr = umem[pc];
+assume instr[31:26] == 28;     // Opcode 0x1C
+assume instr[15:5] == 11'h070; // FTOIT function code
+
+fa = instr[25:21];
+rc = instr[4:0];
+
+// Move bits from FP to integer register
+rf[rc] when (rc != 31) = frf[fa];
+pc = pc + 4;

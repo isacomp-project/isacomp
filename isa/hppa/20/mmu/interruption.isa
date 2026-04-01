@@ -1,0 +1,469 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// HPPA PA-RISC 2.0 Interruption Handling Aspect (64-bit)
+// =============================================================================
+//
+// 64-bit version of the unified PA-RISC interruption mechanism.
+// All registers, addresses, and control registers widened to 64 bits.
+//   - 64-bit virtual addresses
+//   - 64-bit control registers
+//   - PSW.W (bit 27) enables 64-bit wide mode
+//   - Extended IVT with 64-bit state saves
+//
+// STATE NAMING: Uses crNN naming per CR Audit.
+//   cr14=IVA, cr15=EIEM, cr16=ITMR, cr17=IIASQ, cr18/cr18_back=IAOQ,
+//   cr19=IIR, cr20=ISR, cr21=IOR, cr22=IPSW, cr23=EIRR, cr24-31=TR0-7
+//
+// PSW BIT LAYOUT (PA-RISC 2.0, C-style, bit 0 = LSB):
+//   Bit  0: I  (PSW_I)  External interrupt enable
+//   Bit  1: D  (PSW_D)  Data address translation enable
+//   Bit  2: P  (PSW_P)  Protection ID validation enable
+//   Bit  3: Q  (PSW_Q)  Interruption state collection enable
+//   Bit  4: R  (PSW_R)  Recovery counter enable
+//   Bit  5: F  (PSW_F)  FP coprocessor / perf monitor
+//   Bit  6: G  (PSW_G)  Debug trap enable
+//   Bit  7: O  (PSW_O)  Ordered references (new in PA2.0)
+//   Bits 15:8: CB       Carry/Borrow bits
+//   Bit 16: M  (PSW_M)  HPMC disable
+//   Bit 17: V  (PSW_V)  Divide step correction
+//   Bit 18: C  (PSW_C)  Code address translation enable
+//   Bit 19: B  (PSW_B)  Taken branch flag
+//   Bit 20: X  (PSW_X)  Data memory break disable
+//   Bit 21: N  (PSW_N)  Nullify next instruction
+//   Bit 22: L  (PSW_L)  Lower-privilege transfer trap
+//   Bit 23: H  (PSW_H)  Higher-privilege transfer trap
+//   Bit 24: T  (PSW_T)  Taken branch trap enable
+//   Bit 25: S  (PSW_S)  Secure interval timer
+//   Bit 26: E  (PSW_E)  Little-endian byte ordering
+//   Bit 27: W  (PSW_W)  64-bit wide mode (PA2.0)
+//
+// =============================================================================
+
+// =========================================================================
+// ISA STATE: Processor Status Word (64-bit in PA2.0)
+// =========================================================================
+isa_state psw[63:0];
+
+// =========================================================================
+// ISA STATE: Control Registers (64-bit in PA2.0)
+// =========================================================================
+isa_state cr22[63:0];       // IPSW - Interruption PSW
+isa_state cr19[63:0];       // IIR  - Interruption Instruction Register
+isa_state cr20[63:0];       // ISR  - Interruption Space Register
+isa_state cr21[63:0];       // IOR  - Interruption Offset Register
+isa_state cr17[63:0];       // IIASQ front
+isa_state cr17_back[63:0];  // IIASQ back
+isa_state cr18[63:0];       // IIAOQ front
+isa_state cr18_back[63:0];  // IIAOQ back
+
+isa_state cr14[63:0];       // IVA  - Interruption Vector Address
+isa_state cr15[63:0];       // EIEM - External Interrupt Enable Mask
+ext isa_state cr16[63:0];   // ITMR - Interval Timer
+ext isa_state cr23[63:0];   // EIRR - External Interrupt Request Register
+
+// Temporary/scratch registers
+isa_state cr24[63:0];       // TR0
+isa_state cr25[63:0];       // TR1
+isa_state cr26[63:0];       // TR2
+isa_state cr27[63:0];       // TR3
+isa_state cr28[63:0];       // TR4
+isa_state cr29[63:0];       // TR5
+isa_state cr30[63:0];       // TR6
+isa_state cr31[63:0];       // TR7
+
+// =========================================================================
+// ISA STATE: Privilege level
+// =========================================================================
+isa_state priv_level[1:0];
+
+// =========================================================================
+// ISA STATE: Shadow Registers (64-bit in PA2.0)
+// =========================================================================
+isa_state shadow_r1[63:0];
+isa_state shadow_r8[63:0];
+isa_state shadow_r9[63:0];
+isa_state shadow_r16[63:0];
+isa_state shadow_r17[63:0];
+isa_state shadow_r24[63:0];
+isa_state shadow_r25[63:0];
+
+// =========================================================================
+// ISA STATE: ITLB - 16 entries, fully associative CAM
+// =========================================================================
+// PA-RISC 2.0: wider VPN for 64-bit virtual addresses
+// Using 52-bit VPN (64-bit VA with 12-bit page offset)
+isa_state cam itlb_vpn[51:0]@[3:0][];    // 16-entry CAM on VPN[63:12]
+isa_state itlb_space[63:0][3:0];          // Space ID per entry
+isa_state itlb_valid[0:0][3:0];           // Valid bit per entry
+isa_state itlb_ppn[51:0][3:0];            // Physical Page Number (wider)
+isa_state itlb_prot[63:0][3:0];           // Protection word
+
+// =========================================================================
+// ISA STATE: Block TLB (BTLB) - 8 entries, variable page size
+// =========================================================================
+isa_state btlb_valid[0:0][2:0];
+isa_state btlb_va_base[63:0][2:0];
+isa_state btlb_pa_base[63:0][2:0];
+isa_state btlb_page_mask[63:0][2:0];
+isa_state btlb_space[63:0][2:0];
+isa_state btlb_type_i[0:0][2:0];
+isa_state btlb_type_d[0:0][2:0];
+
+// =========================================================================
+// ISA STATE: Instruction address space
+// =========================================================================
+isa_state code_iasq[63:0];
+
+// =========================================================================
+// EXTERNAL STATE
+// =========================================================================
+ext isa_state timer_irq_pending[0:0];
+ext isa_state ext_irq_lines[63:0];
+
+// =========================================================================
+// Memory
+// =========================================================================
+mem umem[25:0];
+
+// =========================================================================
+// Capture original PC (64-bit)
+// =========================================================================
+var original_pc[63:0];
+original_pc = pc;
+
+// =========================================================================
+// PSW bit extraction
+// =========================================================================
+var psw_I[0:0];
+var psw_Q[0:0];
+var psw_C[0:0];
+var psw_N[0:0];
+var psw_W[0:0];
+
+psw_I = psw[0];
+psw_Q = psw[3];
+psw_C = psw[18];
+psw_N = psw[21];
+psw_W = psw[27];   // Wide mode (PA2.0)
+
+// =========================================================================
+// INSTRUCTION FETCH PATH — ITLB CAM Lookup
+// =========================================================================
+var pc_pa[63:0];
+
+// Extract VPN and page offset from PC (64-bit VA)
+var ivpn[51:0];
+var ioffset[11:0];
+ivpn = original_pc[63:12];
+ioffset = original_pc[11:0];
+
+var ispace[63:0];
+ispace = code_iasq;
+
+// Step 1: CAM lookup
+var itlb_vpn_matches[15:0];
+itlb_vpn_matches = itlb_vpn@[ivpn];
+
+// Step 2: Filter by valid AND space match
+var iv_0[0:0];  iv_0  = itlb_valid[0]  & (itlb_space[0]  == ispace);
+var iv_1[0:0];  iv_1  = itlb_valid[1]  & (itlb_space[1]  == ispace);
+var iv_2[0:0];  iv_2  = itlb_valid[2]  & (itlb_space[2]  == ispace);
+var iv_3[0:0];  iv_3  = itlb_valid[3]  & (itlb_space[3]  == ispace);
+var iv_4[0:0];  iv_4  = itlb_valid[4]  & (itlb_space[4]  == ispace);
+var iv_5[0:0];  iv_5  = itlb_valid[5]  & (itlb_space[5]  == ispace);
+var iv_6[0:0];  iv_6  = itlb_valid[6]  & (itlb_space[6]  == ispace);
+var iv_7[0:0];  iv_7  = itlb_valid[7]  & (itlb_space[7]  == ispace);
+var iv_8[0:0];  iv_8  = itlb_valid[8]  & (itlb_space[8]  == ispace);
+var iv_9[0:0];  iv_9  = itlb_valid[9]  & (itlb_space[9]  == ispace);
+var iv_10[0:0]; iv_10 = itlb_valid[10] & (itlb_space[10] == ispace);
+var iv_11[0:0]; iv_11 = itlb_valid[11] & (itlb_space[11] == ispace);
+var iv_12[0:0]; iv_12 = itlb_valid[12] & (itlb_space[12] == ispace);
+var iv_13[0:0]; iv_13 = itlb_valid[13] & (itlb_space[13] == ispace);
+var iv_14[0:0]; iv_14 = itlb_valid[14] & (itlb_space[14] == ispace);
+var iv_15[0:0]; iv_15 = itlb_valid[15] & (itlb_space[15] == ispace);
+
+// Step 3: Per-entry match
+var im_0[0:0];  im_0  = itlb_vpn_matches[0]  & iv_0;
+var im_1[0:0];  im_1  = itlb_vpn_matches[1]  & iv_1;
+var im_2[0:0];  im_2  = itlb_vpn_matches[2]  & iv_2;
+var im_3[0:0];  im_3  = itlb_vpn_matches[3]  & iv_3;
+var im_4[0:0];  im_4  = itlb_vpn_matches[4]  & iv_4;
+var im_5[0:0];  im_5  = itlb_vpn_matches[5]  & iv_5;
+var im_6[0:0];  im_6  = itlb_vpn_matches[6]  & iv_6;
+var im_7[0:0];  im_7  = itlb_vpn_matches[7]  & iv_7;
+var im_8[0:0];  im_8  = itlb_vpn_matches[8]  & iv_8;
+var im_9[0:0];  im_9  = itlb_vpn_matches[9]  & iv_9;
+var im_10[0:0]; im_10 = itlb_vpn_matches[10] & iv_10;
+var im_11[0:0]; im_11 = itlb_vpn_matches[11] & iv_11;
+var im_12[0:0]; im_12 = itlb_vpn_matches[12] & iv_12;
+var im_13[0:0]; im_13 = itlb_vpn_matches[13] & iv_13;
+var im_14[0:0]; im_14 = itlb_vpn_matches[14] & iv_14;
+var im_15[0:0]; im_15 = itlb_vpn_matches[15] & iv_15;
+
+// Step 4: Hit detection
+var itlb_hit[0:0];
+itlb_hit = im_0 | im_1 | im_2 | im_3 | im_4 | im_5 | im_6 | im_7 |
+           im_8 | im_9 | im_10 | im_11 | im_12 | im_13 | im_14 | im_15;
+
+// Step 5: Priority-encoded PPN and protection
+var itlb_ppn_result[51:0];
+itlb_ppn_result = im_0 ? itlb_ppn[0] :
+                  im_1 ? itlb_ppn[1] :
+                  im_2 ? itlb_ppn[2] :
+                  im_3 ? itlb_ppn[3] :
+                  im_4 ? itlb_ppn[4] :
+                  im_5 ? itlb_ppn[5] :
+                  im_6 ? itlb_ppn[6] :
+                  im_7 ? itlb_ppn[7] :
+                  im_8 ? itlb_ppn[8] :
+                  im_9 ? itlb_ppn[9] :
+                  im_10 ? itlb_ppn[10] :
+                  im_11 ? itlb_ppn[11] :
+                  im_12 ? itlb_ppn[12] :
+                  im_13 ? itlb_ppn[13] :
+                  im_14 ? itlb_ppn[14] : itlb_ppn[15];
+var itlb_prot_result[63:0];
+itlb_prot_result = im_0 ? itlb_prot[0] :
+                   im_1 ? itlb_prot[1] :
+                   im_2 ? itlb_prot[2] :
+                   im_3 ? itlb_prot[3] :
+                   im_4 ? itlb_prot[4] :
+                   im_5 ? itlb_prot[5] :
+                   im_6 ? itlb_prot[6] :
+                   im_7 ? itlb_prot[7] :
+                   im_8 ? itlb_prot[8] :
+                   im_9 ? itlb_prot[9] :
+                   im_10 ? itlb_prot[10] :
+                   im_11 ? itlb_prot[11] :
+                   im_12 ? itlb_prot[12] :
+                   im_13 ? itlb_prot[13] :
+                   im_14 ? itlb_prot[14] : itlb_prot[15];
+
+// =========================================================================
+// BLOCK TLB (BTLB) LOOKUP
+// =========================================================================
+// Entry 0
+var bp_mask_0[63:0]; bp_mask_0 = btlb_page_mask[0];
+var bp_masked_pc_0[63:0]; bp_masked_pc_0 = original_pc & bp_mask_0;
+var bp_va_0[63:0]; bp_va_0 = btlb_va_base[0];
+var bp_sp_0[63:0]; bp_sp_0 = btlb_space[0];
+var bm_0[0:0]; bm_0 = btlb_valid[0] & btlb_type_i[0] & (bp_masked_pc_0 == bp_va_0) & (ispace == bp_sp_0);
+var bp_pa_0[63:0]; bp_pa_0 = btlb_pa_base[0] | (original_pc & (bp_mask_0 ^ 64'hFFFFFFFFFFFFFFFF));
+
+// Entry 1
+var bp_mask_1[63:0]; bp_mask_1 = btlb_page_mask[1];
+var bp_masked_pc_1[63:0]; bp_masked_pc_1 = original_pc & bp_mask_1;
+var bp_va_1[63:0]; bp_va_1 = btlb_va_base[1];
+var bp_sp_1[63:0]; bp_sp_1 = btlb_space[1];
+var bm_1[0:0]; bm_1 = btlb_valid[1] & btlb_type_i[1] & (bp_masked_pc_1 == bp_va_1) & (ispace == bp_sp_1);
+var bp_pa_1[63:0]; bp_pa_1 = btlb_pa_base[1] | (original_pc & (bp_mask_1 ^ 64'hFFFFFFFFFFFFFFFF));
+
+// Entry 2
+var bp_mask_2[63:0]; bp_mask_2 = btlb_page_mask[2];
+var bp_masked_pc_2[63:0]; bp_masked_pc_2 = original_pc & bp_mask_2;
+var bp_va_2[63:0]; bp_va_2 = btlb_va_base[2];
+var bp_sp_2[63:0]; bp_sp_2 = btlb_space[2];
+var bm_2[0:0]; bm_2 = btlb_valid[2] & btlb_type_i[2] & (bp_masked_pc_2 == bp_va_2) & (ispace == bp_sp_2);
+var bp_pa_2[63:0]; bp_pa_2 = btlb_pa_base[2] | (original_pc & (bp_mask_2 ^ 64'hFFFFFFFFFFFFFFFF));
+
+// Entry 3
+var bp_mask_3[63:0]; bp_mask_3 = btlb_page_mask[3];
+var bp_masked_pc_3[63:0]; bp_masked_pc_3 = original_pc & bp_mask_3;
+var bp_va_3[63:0]; bp_va_3 = btlb_va_base[3];
+var bp_sp_3[63:0]; bp_sp_3 = btlb_space[3];
+var bm_3[0:0]; bm_3 = btlb_valid[3] & btlb_type_i[3] & (bp_masked_pc_3 == bp_va_3) & (ispace == bp_sp_3);
+var bp_pa_3[63:0]; bp_pa_3 = btlb_pa_base[3] | (original_pc & (bp_mask_3 ^ 64'hFFFFFFFFFFFFFFFF));
+
+// Entry 4
+var bp_mask_4[63:0]; bp_mask_4 = btlb_page_mask[4];
+var bp_masked_pc_4[63:0]; bp_masked_pc_4 = original_pc & bp_mask_4;
+var bp_va_4[63:0]; bp_va_4 = btlb_va_base[4];
+var bp_sp_4[63:0]; bp_sp_4 = btlb_space[4];
+var bm_4[0:0]; bm_4 = btlb_valid[4] & btlb_type_i[4] & (bp_masked_pc_4 == bp_va_4) & (ispace == bp_sp_4);
+var bp_pa_4[63:0]; bp_pa_4 = btlb_pa_base[4] | (original_pc & (bp_mask_4 ^ 64'hFFFFFFFFFFFFFFFF));
+
+// Entry 5
+var bp_mask_5[63:0]; bp_mask_5 = btlb_page_mask[5];
+var bp_masked_pc_5[63:0]; bp_masked_pc_5 = original_pc & bp_mask_5;
+var bp_va_5[63:0]; bp_va_5 = btlb_va_base[5];
+var bp_sp_5[63:0]; bp_sp_5 = btlb_space[5];
+var bm_5[0:0]; bm_5 = btlb_valid[5] & btlb_type_i[5] & (bp_masked_pc_5 == bp_va_5) & (ispace == bp_sp_5);
+var bp_pa_5[63:0]; bp_pa_5 = btlb_pa_base[5] | (original_pc & (bp_mask_5 ^ 64'hFFFFFFFFFFFFFFFF));
+
+// Entry 6
+var bp_mask_6[63:0]; bp_mask_6 = btlb_page_mask[6];
+var bp_masked_pc_6[63:0]; bp_masked_pc_6 = original_pc & bp_mask_6;
+var bp_va_6[63:0]; bp_va_6 = btlb_va_base[6];
+var bp_sp_6[63:0]; bp_sp_6 = btlb_space[6];
+var bm_6[0:0]; bm_6 = btlb_valid[6] & btlb_type_i[6] & (bp_masked_pc_6 == bp_va_6) & (ispace == bp_sp_6);
+var bp_pa_6[63:0]; bp_pa_6 = btlb_pa_base[6] | (original_pc & (bp_mask_6 ^ 64'hFFFFFFFFFFFFFFFF));
+
+// Entry 7
+var bp_mask_7[63:0]; bp_mask_7 = btlb_page_mask[7];
+var bp_masked_pc_7[63:0]; bp_masked_pc_7 = original_pc & bp_mask_7;
+var bp_va_7[63:0]; bp_va_7 = btlb_va_base[7];
+var bp_sp_7[63:0]; bp_sp_7 = btlb_space[7];
+var bm_7[0:0]; bm_7 = btlb_valid[7] & btlb_type_i[7] & (bp_masked_pc_7 == bp_va_7) & (ispace == bp_sp_7);
+var bp_pa_7[63:0]; bp_pa_7 = btlb_pa_base[7] | (original_pc & (bp_mask_7 ^ 64'hFFFFFFFFFFFFFFFF));
+
+var btlb_i_hit[0:0];
+btlb_i_hit = bm_0 | bm_1 | bm_2 | bm_3 | bm_4 | bm_5 | bm_6 | bm_7;
+
+var btlb_i_pa[63:0];
+btlb_i_pa = bm_0 ? bp_pa_0 :
+            bm_1 ? bp_pa_1 :
+            bm_2 ? bp_pa_2 :
+            bm_3 ? bp_pa_3 :
+            bm_4 ? bp_pa_4 :
+            bm_5 ? bp_pa_5 :
+            bm_6 ? bp_pa_6 : bp_pa_7;
+
+// =========================================================================
+// ITLB MISS DETECTION
+// =========================================================================
+var itlb_miss[0:0];
+itlb_miss = psw_C & ~itlb_hit & ~btlb_i_hit;
+
+// =========================================================================
+// Physical address
+// =========================================================================
+var pc_translated[63:0];
+pc_translated = {itlb_ppn_result, ioffset};
+pc_pa = psw_C ? (itlb_hit ? pc_translated : (btlb_i_hit ? btlb_i_pa : original_pc)) : original_pc;
+
+// =========================================================================
+// Fetch instruction for IIR save
+// =========================================================================
+var fetched_instr[31:0];
+fetched_instr = itlb_miss ? 32'h0 : umem[pc_pa];
+
+// =========================================================================
+// EXTERNAL INTERRUPT DETECTION (trap 4)
+// =========================================================================
+var eirr_masked[63:0];
+var ext_int_pending[0:0];
+
+eirr_masked = cr23 & cr15;
+ext_int_pending = (eirr_masked != 0);
+
+var take_any_ext_int[0:0];
+// PA-RISC: external interrupts are recognized between instructions. A branch
+// + delay slot sequence must complete atomically before an interrupt is taken.
+// Deferring by one cycle (past the delay slot) ensures the delay slot instruction's
+// side effects (register writes, memory writes) complete, and the branch takes
+// effect. The interrupt is then taken at the branch target.
+take_any_ext_int = (timer_irq_pending | ext_int_pending) & psw_I & ~in_nullified & ~delay_slot;
+
+// =========================================================================
+// EXCEPTION/INTERRUPT PRIORITY
+// =========================================================================
+var exception_taken[0:0];
+var exception_trap_number[4:0];
+var trap_target[63:0];
+
+exception_taken = itlb_miss | take_any_ext_int;
+exception_trap_number = itlb_miss ? 5'd6 : 5'd4;
+
+// =========================================================================
+// VECTOR ADDRESS CALCULATION
+// =========================================================================
+var trap_offset[63:0];
+trap_offset = {54'b0, exception_trap_number, 5'b0};
+trap_target = cr14 + trap_offset;
+
+// =========================================================================
+// STATE SAVE ON INTERRUPTION
+// =========================================================================
+var exc_saved_psw[63:0];
+var exc_saved_pc[63:0];
+
+exc_saved_psw = psw;
+exc_saved_pc = pc;
+
+var exc_pc_with_priv[63:0];
+var exc_pc_m4[63:0];
+var exc_pc_m4_with_priv[63:0];
+var exc_pc_p4[63:0];
+var exc_pc_p4_with_priv[63:0];
+exc_pc_with_priv = {exc_saved_pc[63:2], priv_level};
+exc_pc_m4 = exc_saved_pc - 4;
+exc_pc_m4_with_priv = {exc_pc_m4[63:2], priv_level};
+exc_pc_p4 = exc_saved_pc + 4;
+exc_pc_p4_with_priv = {exc_pc_p4[63:2], priv_level};
+
+var exc_in_delay_slot[0:0];
+exc_in_delay_slot = delay_slot;
+
+cr22 when (exception_taken & psw_Q) = exc_saved_psw;
+
+// IAOQ save with delay slot awareness:
+// External interrupt during delay slot: the delay slot instruction has already
+// completed and the branch link register was set in the previous cycle. Saving
+// the branch instruction address would cause re-execution with a modified link
+// register (e.g., bve,l (rp),rp where rp is both target and link). Instead,
+// save branch_target directly since that's where execution should resume.
+// ITLB miss during delay slot: the delay slot instruction was NOT fetched/executed.
+// Save delay_slot_pc for re-execution, branch_target in cr18_back so RFI detects
+// it as a delay slot resume (cr18_back != cr18+4) and sets delay_slot=1.
+var exc_bt_with_priv[63:0];
+var exc_bt_p4[63:0];
+var exc_bt_p4_with_priv[63:0];
+exc_bt_with_priv = {branch_target[63:2], priv_level};
+exc_bt_p4 = branch_target + 4;
+exc_bt_p4_with_priv = {exc_bt_p4[63:2], priv_level};
+
+cr18 when (exception_taken & psw_Q & exc_in_delay_slot & ~itlb_miss) = exc_bt_with_priv;
+cr18 when (exception_taken & psw_Q & exc_in_delay_slot & itlb_miss) = exc_pc_with_priv;
+cr18 when (exception_taken & psw_Q & ~exc_in_delay_slot) = exc_pc_with_priv;
+cr18_back when (exception_taken & psw_Q & exc_in_delay_slot & ~itlb_miss) = exc_bt_p4_with_priv;
+cr18_back when (exception_taken & psw_Q & exc_in_delay_slot & itlb_miss) = exc_bt_with_priv;
+cr18_back when (exception_taken & psw_Q & ~exc_in_delay_slot) = exc_pc_p4_with_priv;
+cr17 when (exception_taken & psw_Q) = code_iasq;
+cr17_back when (exception_taken & psw_Q) = code_iasq;
+cr19 when (exception_taken & psw_Q) = {32'h0, fetched_instr};
+cr20 when (exception_taken & psw_Q) = code_iasq;
+cr21 when (exception_taken & psw_Q) = exc_saved_pc;
+
+// =========================================================================
+// SHADOW REGISTER SAVE
+// =========================================================================
+shadow_r1 when (exception_taken) = rf[1];
+shadow_r8 when (exception_taken) = rf[8];
+shadow_r9 when (exception_taken) = rf[9];
+shadow_r16 when (exception_taken) = rf[16];
+shadow_r17 when (exception_taken) = rf[17];
+shadow_r24 when (exception_taken) = rf[24];
+shadow_r25 when (exception_taken) = rf[25];
+
+// =========================================================================
+// PSW MODIFICATION ON INTERRUPTION ENTRY
+// =========================================================================
+var new_psw_on_trap[63:0];
+new_psw_on_trap = psw & 64'h0000000000010000;  // Keep only PSW.M
+psw when (exception_taken) = new_psw_on_trap;
+
+// =========================================================================
+// CODE ADDRESS SPACE RESET
+// =========================================================================
+code_iasq when (exception_taken) = 64'h0;
+
+// =========================================================================
+// PRIVILEGE ESCALATION
+// =========================================================================
+priv_level when (exception_taken) = 2'b00;
+
+// Gateway page privilege promotion
+var gateway_promote[0:0];
+gateway_promote = psw_C & itlb_hit & itlb_prot_result[58] & ~exception_taken & ~in_nullified;
+priv_level when (gateway_promote) = 2'b00;
+
+// =========================================================================
+// PC REDIRECT TO TRAP VECTOR
+// =========================================================================
+pc when (exception_taken) = trap_target;
+
+// =========================================================================
+// COMBINED TRAP SIGNAL
+// =========================================================================
+var instr_trap_taken[0:0];
+instr_trap_taken = exception_taken;

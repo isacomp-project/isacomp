@@ -1,0 +1,90 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REPE SCASB (0xF3 0xAE) - WITH PROPER SEGMENTATION
+// Repeat while CX != 0 AND ZF == 1: Compare AL with ES:[DI]
+// Exit when CX == 0 OR ZF == 0 (not equal)
+// IP stays constant until loop exits
+// Uses ES segment for destination
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state ES[15:0];            // Extra segment register
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state DI[15:0] of xregs[7][15:0];
+isa_state CX[15:0] of xregs[1][15:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_PF[0:0];
+
+var physical_addr[31:0];
+var byte_value[7:0];
+var result[8:0];
+var new_zf[7:0];
+var cx_is_zero[0:0];
+var cx_not_zero_and_equal[0:0];
+var cx_not_zero_and_not_equal[0:0];
+var new_di_inc[15:0];
+var new_di_dec[15:0];
+var new_ip[31:0];
+
+// Fetch REPE prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+
+// Fetch SCASB instruction (at IP+1)
+instr = imem[eip + 1];
+assume instr == 0xAE;
+
+// Check counter
+cx_is_zero = CX == 16'h0000;
+
+// Calculate physical address using ES segment
+physical_addr = (ES << 4) + DI;  // ES:DI
+
+// Compare AL with byte at ES:[DI] (subtraction)
+byte_value = dmem[physical_addr];
+result = AL - byte_value;
+
+// Calculate new flags based on result
+new_zf = result[7:0] == 8'h00 ? 1'b1 : 1'b0;
+
+// Three mutually exclusive conditions
+cx_not_zero_and_equal = (CX != 16'h0000) & (new_zf == 1'b1);
+cx_not_zero_and_not_equal = (CX != 16'h0000) & (new_zf == 1'b0);
+
+// Calculate new DI (increment or decrement)
+new_di_inc = DI + 16'h0001;
+new_di_dec = DI - 16'h0001;
+
+// Calculate new IP (advance past instruction)
+new_ip = eip + 32'h0002;
+
+// When CX == 0: Just advance IP (don't execute)
+eip when(cx_is_zero) = new_ip;
+
+// When CX != 0 AND equal: Execute and continue (keep IP)
+flag_CF when(cx_not_zero_and_equal) = AL < byte_value ? 1'b1 : 1'b0;
+flag_ZF when(cx_not_zero_and_equal) = new_zf;
+flag_SF when(cx_not_zero_and_equal) = result[7];
+flag_PF when(cx_not_zero_and_equal) = result[0];
+flag_OF when(cx_not_zero_and_equal) = ((AL[7] != byte_value[7]) & (result[7] != AL[7])) ? 1'b1 : 1'b0;
+DI when(cx_not_zero_and_equal) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero_and_equal) = CX - 16'h0001;
+eip when(cx_not_zero_and_equal) = eip;  // Stay at same IP (loop continues)
+
+// When CX != 0 AND not equal: Execute and exit (advance IP)
+flag_CF when(cx_not_zero_and_not_equal) = AL < byte_value ? 1'b1 : 1'b0;
+flag_ZF when(cx_not_zero_and_not_equal) = new_zf;
+flag_SF when(cx_not_zero_and_not_equal) = result[7];
+flag_PF when(cx_not_zero_and_not_equal) = result[0];
+flag_OF when(cx_not_zero_and_not_equal) = ((AL[7] != byte_value[7]) & (result[7] != AL[7])) ? 1'b1 : 1'b0;
+DI when(cx_not_zero_and_not_equal) = flag_DF == 1'b0 ? new_di_inc : new_di_dec;
+CX when(cx_not_zero_and_not_equal) = CX - 16'h0001;
+eip when(cx_not_zero_and_not_equal) = new_ip;

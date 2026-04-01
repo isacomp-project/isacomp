@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LODSB (0xAC) - Real mode
+// Load byte from DS:[SI] into AL, adjust SI by 1 based on DF
+// Uses 16-bit SI (lower 16 bits of ESI) with DS segment in real mode
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state ESI[31:0] of xregs[6];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+isa_state flag_DF[0:0];
+
+var byte_val[7:0];
+var si_val[15:0];
+var new_si[15:0];
+var physical_addr[19:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xAC;
+
+// In real mode, use 16-bit SI with DS segment
+si_val = ESI[15:0];
+physical_addr = (DS << 4) + si_val;
+
+// Load byte from DS:[SI]
+byte_val = dmem[physical_addr];
+AL = byte_val;
+
+// Adjust SI based on direction flag (only 16-bit SI in real mode)
+new_si = flag_DF == 1'b0 ? si_val + 16'h0001 : si_val - 16'h0001;
+ESI[15:0] = new_si;
+
+// LODSB does not affect flags
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

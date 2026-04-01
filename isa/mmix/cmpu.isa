@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX CMPU - Compare Unsigned
+// CMPU $X,$Y,$Z: $X = ($Y < $Z) ? -1 : (($Y > $Z) ? 1 : 0) (unsigned comparison)
+// Opcode: 0x32
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var lt[0:0];
+var gt[0:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x32;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+
+lt = y_val < z_val;
+gt = y_val > z_val;
+
+result = lt ? 64'hFFFFFFFFFFFFFFFF : (gt ? 64'h0000000000000001 : 64'h0000000000000000);
+
+rf[x] = result;
+pc = pc + 4;

@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 LEAVE with 66 prefix (0x66 0xC9)
+// High-level procedure exit
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var ebp_val[31:0];
+var pop_b0[7:0];
+var pop_b1[7:0];
+var pop_b2[7:0];
+var pop_b3[7:0];
+var pop_val[31:0];
+
+prefix = imem[eip];
+assume prefix == 0x66;
+
+instr = imem[eip + 1];
+assume instr == 0xC9;
+
+eip = eip + 2;
+
+// ESP = EBP
+ebp_val = xregs[5];
+xregs[4] = ebp_val;
+
+// Pop EBP
+pop_b0 = dmem[ebp_val];
+pop_b1 = dmem[ebp_val + 1];
+pop_b2 = dmem[ebp_val + 2];
+pop_b3 = dmem[ebp_val + 3];
+pop_val = {pop_b3, pop_b2, pop_b1, pop_b0};
+
+xregs[5] = pop_val;
+xregs[4] = ebp_val + 4;

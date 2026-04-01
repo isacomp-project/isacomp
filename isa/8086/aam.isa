@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 AAM (0xD4)
+// ASCII adjust AX after multiply
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state AX[15:0];
+isa_state AL[7:0] of AX[7:0];
+isa_state AH[7:0] of AX[15:8];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var imm[7:0];
+var quotient[7:0];
+var remainder[7:0];
+
+instr = imem[ip];
+assume instr == 0xD4;
+ip = ip + 1;
+
+// Read immediate byte (typically 0x0A for base 10)
+imm = imem[ip];
+ip = ip + 1;
+
+// Divide AL by immediate (typically 10)
+quotient = AL / imm;
+remainder = AL - (quotient * imm);
+
+// AH = quotient, AL = remainder
+AH = quotient[7:0];
+AL = remainder[7:0];
+
+// Set flags based on AL
+flag_SF = AL[7];
+flag_ZF = AL == 8'h00 ? 1'b1 : 1'b0;
+flag_PF = AL[0];

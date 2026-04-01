@@ -1,0 +1,56 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 JG rel32 (0x66 0x0F 0x8F) - 66-prefixed near jump
+// Jump if Greater (ZF=0 and SF == OF) - near jump with 32-bit displacement
+
+isa_state eip[31:0];
+var prefix[7:0];
+var opcode1[7:0];
+var opcode2[7:0];
+isa_state imem[7:0][31:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+
+var offset_b0[7:0];
+var offset_b1[7:0];
+var offset_b2[7:0];
+var offset_b3[7:0];
+var signed_offset[31:0];
+var target_addr[31:0];
+var next_eip[31:0];
+var condition[0:0];
+
+// Fetch 0x66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch 0x0F prefix
+opcode1 = imem[eip + 1];
+assume opcode1 == 0x0F;
+
+// Fetch instruction opcode
+opcode2 = imem[eip + 2];
+assume opcode2 == 0x8F;
+
+// Read 32-bit signed displacement (little-endian)
+offset_b0 = imem[eip + 3];
+offset_b1 = imem[eip + 4];
+offset_b2 = imem[eip + 5];
+offset_b3 = imem[eip + 6];
+
+// Combine into 32-bit signed offset
+signed_offset = {offset_b3, offset_b2, offset_b1, offset_b0};
+
+// EIP after fetching the instruction
+next_eip = eip + 7;
+
+// Calculate target address
+target_addr = next_eip + signed_offset;
+
+// Condition: ZF=0 and SF == OF
+condition = ~flag_ZF & ~(flag_SF ^ flag_OF);
+
+case (condition) {
+  1'b1: eip = target_addr;
+  1'b0: eip = next_eip;
+}

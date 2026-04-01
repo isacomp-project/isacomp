@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+var disp[7:0];
+var sign_ext_disp[31:0];
+var branch_offset[31:0];
+var branch_dest[31:0];
+var take_branch[0:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:12] == 0x8;
+assume instr[11:8] == 0xD;
+disp = instr[7:0];
+
+sign_ext_disp = {{23{disp[7]}}, disp, 1'b0};
+branch_offset = sign_ext_disp + 4;
+branch_dest = pc + branch_offset;
+
+// BT/S branches if T=1
+take_branch = (t == 1'b1);
+
+// Set up delay slot if branch is taken and not already in a delay slot
+// If an exception/interrupt is being taken, don't set up delay slot - exception takes priority
+delay_slot when (take_branch & (in_delay_slot == 0) & (exc_taken == 0)) = 1;
+branch_target when (take_branch & (in_delay_slot == 0) & (exc_taken == 0)) = branch_dest;
+
+// Always advance to next instruction (delay slot always executes)
+// The aspect will override PC with branch_target after the delay slot if needed
+pc = pc + 2;

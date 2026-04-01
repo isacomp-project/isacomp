@@ -1,0 +1,122 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 ITB (Instruction TLB) Translation Aspect - CAM Version
+//
+// Uses CAM (Content-Addressable Memory) syntax for TLB lookup.
+// Replaces ~90 lines of manual unrolling with ~50 lines.
+//
+// Provides:
+//   pc_pa      - Physical address for instruction fetch
+//   itb_miss   - Set if ITB miss occurs (triggers PAL exception)
+//
+// Requires gates: pc, pal_mode, pal_base
+
+// Physical address output
+var pc_pa[63:0];
+var itb_miss[0:0];
+
+// Extract virtual page number and offset from PC
+var pc_vpn[29:0];
+var pc_offset[12:0];
+pc_vpn = pc[42:13];
+pc_offset = pc[12:0];
+
+// ============================================================================
+// ITB CAM Lookup (8 entries, fully associative)
+// ============================================================================
+// Step 1: Get VPN matches using CAM lookup
+var vpn_matches[7:0];
+vpn_matches = itb_tag@[pc_vpn];
+
+// Step 2: Filter by Valid bit and ASN matching
+// Entry matches if: VPN match AND Valid AND (ASM set OR ASN matches)
+var v_0[0:0]; var v_1[0:0]; var v_2[0:0]; var v_3[0:0];
+var v_4[0:0]; var v_5[0:0]; var v_6[0:0]; var v_7[0:0];
+
+v_0 = itb_valid[0] & (itb_pte[0][4] | (itb_asn_entry[0] == itb_asn[7:0]));
+v_1 = itb_valid[1] & (itb_pte[1][4] | (itb_asn_entry[1] == itb_asn[7:0]));
+v_2 = itb_valid[2] & (itb_pte[2][4] | (itb_asn_entry[2] == itb_asn[7:0]));
+v_3 = itb_valid[3] & (itb_pte[3][4] | (itb_asn_entry[3] == itb_asn[7:0]));
+v_4 = itb_valid[4] & (itb_pte[4][4] | (itb_asn_entry[4] == itb_asn[7:0]));
+v_5 = itb_valid[5] & (itb_pte[5][4] | (itb_asn_entry[5] == itb_asn[7:0]));
+v_6 = itb_valid[6] & (itb_pte[6][4] | (itb_asn_entry[6] == itb_asn[7:0]));
+v_7 = itb_valid[7] & (itb_pte[7][4] | (itb_asn_entry[7] == itb_asn[7:0]));
+
+var valid_mask[7:0];
+valid_mask = {v_7, v_6, v_5, v_4, v_3, v_2, v_1, v_0};
+
+// Final match: VPN match AND Valid AND ASN match
+var itb_match[7:0];
+itb_match = vpn_matches & valid_mask;
+
+// Get hit status and index using ctz
+var itb_hit[0:0];
+var itb_hit_idx[3:0];
+itb_hit = |itb_match;
+itb_hit_idx = ctz(itb_match);
+
+// ============================================================================
+// Read Matched Entry
+// ============================================================================
+// Extract 3-bit index (ctz returns 4 bits to encode "no match" as 8)
+var itb_idx3[2:0];
+itb_idx3 = itb_hit_idx[2:0];
+
+var itb_pte_sel[63:0];
+itb_pte_sel = itb_pte[itb_idx3];
+
+// Extract PFN from selected PTE
+var itb_pfn[31:0];
+itb_pfn = itb_pte_sel[63:32];
+
+// Permission checking
+var itb_foe[0:0];
+var itb_kre[0:0];
+var itb_ure[0:0];
+itb_foe = itb_pte_sel[3];
+itb_kre = itb_pte_sel[8];
+itb_ure = itb_pte_sel[9];
+var is_user_mode[0:0];
+is_user_mode = ps[3];
+var itb_perm_ok[0:0];
+itb_perm_ok = itb_foe ? 1'b0 : (is_user_mode ? itb_ure : itb_kre);
+
+// Access violation: hit but no permission
+var itb_acv[0:0];
+itb_acv = not_pal_mode ? (kseg_user_fault ? 1'b1 : (is_kseg ? 1'b0 : (itb_hit ? (~itb_perm_ok) : 1'b0))) : 1'b0;
+
+// Combined fault signal
+var itb_fault[0:0];
+itb_fault = itb_miss | itb_acv;
+
+// Compute translated address
+var pc_xlated[63:0];
+pc_xlated = {itb_pfn, pc_offset};
+
+// ============================================================================
+// Translation Control
+// ============================================================================
+// Determine if we need translation (not in PAL mode)
+var not_pal_mode[0:0];
+not_pal_mode = (pal_mode == 0);
+
+// KSEG: VA[47:42] = 111111 → bypass TLB, direct physical mapping
+var is_kseg[0:0];
+is_kseg = (pc[47:42] == 6'b111111);
+var kseg_pa[63:0];
+kseg_pa = {{22{1'b0}}, pc[41:0]};
+var kseg_user_fault[0:0];
+kseg_user_fault = is_kseg & is_user_mode;
+
+// ITB miss occurs when not in PAL mode, not KSEG, and no TLB hit
+var itb_no_hit[0:0];
+itb_no_hit = (itb_hit == 0);
+itb_miss = not_pal_mode ? (is_kseg ? 1'b0 : itb_no_hit) : 1'b0;
+
+// Physical address: PAL=pc, KSEG=direct PA, TLB hit=translated, else=pc (ITB miss)
+pc_pa = not_pal_mode ? (is_kseg ? kseg_pa : (itb_hit ? pc_xlated : pc)) : pc;
+
+// ITB miss exception entry point
+var itb_miss_entry[63:0];
+itb_miss_entry = pal_base + 64'h0280;
+var itb_acv_entry[63:0];
+itb_acv_entry = pal_base + 64'h0300;

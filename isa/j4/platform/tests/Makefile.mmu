@@ -1,0 +1,64 @@
+# J4 Linux Boot Simulation Makefile (MMU Mode)
+# Uses Verilator for simulation with SH4 MMU enabled
+
+VERILATOR = verilator
+VERILATOR_FLAGS = --binary --timing --build -j 4 --trace \
+                  -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -Wno-CASEINCOMPLETE \
+                  -Wno-UNOPTFLAT -Wno-BLKSEQ -Wno-PINCONNECTEMPTY \
+                  -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM
+
+# Source files - MMU version
+TB = linux_boot_mmu_tb.sv
+CPU = ../rtl/j4_complete.v
+FPU = ../rtl/cvfpu_simple.v
+PERIPHERALS = ../jcore_aic.sv ../jcore_pit.sv ../uartlite.sv
+
+# Outputs
+SIM = obj_dir_mmu/Vlinux_boot_mmu_tb
+
+# Boot image (needs to be built with MMU boot ROM)
+BOOT_IMAGE = ../boot/boot_mmu.bin
+
+.PHONY: all sim clean generate trace
+
+all: $(SIM)
+
+# Build MMU testbench
+$(SIM): $(TB) $(CPU) $(FPU) $(PERIPHERALS)
+	$(VERILATOR) $(VERILATOR_FLAGS) --top-module linux_boot_mmu_tb \
+		--Mdir obj_dir_mmu \
+		$(TB) $(CPU) $(FPU) $(PERIPHERALS)
+
+# Get entry point from boot ROM symbols (P2 address)
+# For MMU mode, entry point is 0xA0000000 + physical address of _start
+ENTRY_POINT_PHYS = $(shell sh-elf-nm ../boot/bootrom_mmu.elf 2>/dev/null | grep ' T _start' | cut -d' ' -f1)
+ENTRY_POINT = $(shell printf "%08x" $$((0xa0000000 + 0x$(ENTRY_POINT_PHYS))))
+
+# Run simulation with boot image
+sim: $(SIM) $(BOOT_IMAGE)
+	@echo "Starting simulation with entry point: 0x$(ENTRY_POINT)"
+	./$(SIM) +boot_image=$(BOOT_IMAGE) +entry=$(ENTRY_POINT)
+
+# Run with trace enabled
+trace: $(SIM) $(BOOT_IMAGE)
+	./$(SIM) +boot_image=$(BOOT_IMAGE) +entry=$(ENTRY_POINT) +trace
+
+# Build boot image
+$(BOOT_IMAGE):
+	$(MAKE) -C ../boot -f Makefile.mmu
+
+# Compile device tree
+../j4_sh4_mmu.dtb: ../j4_sh4_mmu.dts
+	dtc -I dts -O dtb -o $@ $<
+
+# Generate J4 processor RTL with MMU
+generate:
+	cd ../../../.. && python3 isa/j4/generators/generate_j4_mmu.py \
+		--output-dir isa/j4/platform/rtl
+
+clean:
+	rm -rf obj_dir_mmu *.vcd
+
+# Quick test - just compile, no simulation
+test: $(SIM)
+	@echo "Build successful!"

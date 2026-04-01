@@ -1,0 +1,55 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 CFC1 - Move Control Word from FP Coprocessor 1
+// Copies FP control register to GPR
+// Encoding: COP1 (010001), CF (00010), rt, fs, 00000000000
+// CFC1 rt, fs: rt = FP_control[fs]
+// Common registers: fs=0 (FIR), fs=25 (FCCR), fs=26 (FEXR), fs=28 (FENR), fs=31 (FCSR)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[31:0][4:0];
+isa_state fcsr[31:0];           // FP control/status register (reg 31)
+mem umem[12:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+var rt[4:0];
+var fs[4:0];
+var ctrl_val[31:0];
+
+instr = umem[pc];
+assume instr[31:26] == 0b010001;   // COP1 opcode
+assume instr[25:21] == 0b00010;    // CF (control from)
+assume instr[10:0] == 0b00000000000;
+
+pc = pc + 4;
+
+rt = instr[20:16];
+fs = instr[15:11];
+
+// Select control register
+// Only FCSR (reg 31) is commonly implemented
+// FIR (reg 0) returns processor ID info
+var is_fcsr[0:0];
+var is_fir[0:0];
+
+is_fcsr = (fs == 31);
+is_fir = (fs == 0);
+
+// FIR value: indicate single-precision support
+// Bit 16 (S) = 1: Single precision
+// Bit 17 (D) = 0: No double precision (for now)
+var fir_val[31:0];
+fir_val = 0x00010000;  // S=1, D=0
+
+ctrl_val = is_fcsr ? fcsr : (is_fir ? fir_val : 0);
+
+rf[rt] when (rt != 0) = ctrl_val;

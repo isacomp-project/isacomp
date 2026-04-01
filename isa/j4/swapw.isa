@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SWAP.W Rm,Rn - Swap words
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm[3:0];
+var swapw_rn_lo[2:0];
+var swapw_rm_lo[2:0];
+var Rm[31:0];
+var res[31:0];
+
+var swapw_rb[0:0];
+var swapw_rn_bk[0:0];
+var swapw_rm_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x6;
+assume instr[3:0] == 0x9;
+rn = instr[11:8];
+rm = instr[7:4];
+swapw_rn_lo = rn[2:0];
+swapw_rm_lo = rm[2:0];
+
+swapw_rb = sr[29];  // RB bit (bit 29 in SR)
+swapw_rn_bk = (rn[3] == 1'b0) & swapw_rb;
+swapw_rm_bk = (rm[3] == 1'b0) & swapw_rb;
+
+Rm = swapw_rm_bk ? rf_bank[swapw_rm_lo] : rf[rm];
+
+// Swap upper and lower 16-bit words
+res = {Rm[15:0], Rm[31:16]};
+
+rf[rn] when (swapw_rn_bk == 0) = res;
+rf_bank[swapw_rn_lo] when (swapw_rn_bk) = res;
+pc = pc + 2;

@@ -1,0 +1,99 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 JMP r/m16 (0x66 0xFF /4)
+// Near jump to address in r/m16
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var src_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var is_mem_src[0:0];
+var physical_addr_lo[19:0];
+var physical_addr_hi[19:0];
+var src_mem_val[15:0];
+var src_reg_val[15:0];
+var target_addr[15:0];
+
+// Fetch prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch instruction
+instr = imem[eip + 1];
+assume instr == 0xFF;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 2];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Check that reg field is 4 (JMP near)
+assume reg_bits == 0b100;
+
+src_reg_idx = rm_bits;
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+base_offset = xregs[addr_reg_idx][15:0];
+
+disp8 = imem[eip + 3];
+disp16_lo = imem[eip + 3];
+disp16_hi = imem[eip + 4];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+case (mod_bits) {
+  0b00: is_mem_src = 1'b1;
+  0b01: is_mem_src = 1'b1;
+  0b10: is_mem_src = 1'b1;
+  0b11: is_mem_src = 1'b0;
+}
+
+physical_addr_lo = (DS << 4) + offset;
+physical_addr_hi = (DS << 4) + offset + 16'h0001;
+
+var src_mem_val_lo[7:0];
+var src_mem_val_hi[7:0];
+src_mem_val_lo = dmem[physical_addr_lo];
+src_mem_val_hi = dmem[physical_addr_hi];
+src_mem_val = {src_mem_val_hi, src_mem_val_lo};
+src_reg_val = xregs[src_reg_idx][15:0];
+
+case (is_mem_src) {
+  1'b1: target_addr = src_mem_val;
+  1'b0: target_addr = src_reg_val;
+}
+
+// Jump to target (16-bit address)
+eip = {16'h0000, target_addr};

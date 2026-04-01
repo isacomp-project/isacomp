@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV EAX, CS (0x8C /1, mod=11, rm=000)
+// Move CS segment register (zero-extended) to EAX
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state EAX[31:0] of xregs[0];
+isa_state ESP[31:0] of xregs[4];
+
+// Segment registers
+isa_state CS[15:0];
+isa_state DS[15:0];
+isa_state ES[15:0];
+isa_state SS[15:0];
+isa_state FS[15:0];
+isa_state GS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var modrm[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is MOV r/m, Sreg (0x8C)
+assume instr == 0x8C;
+
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+
+// Check mod=11 (register mode), reg=001 (CS), rm=000 (EAX)
+assume modrm == 0b11001000;  // mod=11, reg=001 (CS), rm=000 (EAX)
+
+eip = eip + 1;
+
+// Move CS (zero-extended to 32 bits) to EAX
+EAX = {16'b0, CS};
+
+// MOV does not affect flags

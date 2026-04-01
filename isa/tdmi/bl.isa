@@ -1,0 +1,108 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// TDMI BL (branch with link) - Branch and save return address
+// Encoding: cond|101|1|offset24
+// BL{cond} label
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+
+// Banked registers for FIQ mode (R8-R14)
+isa_state rf_fiq[31:0][2:0];       // R8_fiq(0) - R14_fiq(6)
+
+// Banked SP/LR for other privileged modes
+isa_state rf_irq_sp[31:0];
+isa_state rf_irq_lr[31:0];
+isa_state rf_svc_sp[31:0];
+isa_state rf_svc_lr[31:0];
+isa_state rf_abt_sp[31:0];
+isa_state rf_abt_lr[31:0];
+isa_state rf_und_sp[31:0];
+isa_state rf_und_lr[31:0];
+
+// Saved Program Status Registers
+isa_state spsr_fiq[31:0];
+isa_state spsr_irq[31:0];
+isa_state spsr_svc[31:0];
+isa_state spsr_abt[31:0];
+isa_state spsr_und[31:0];
+mem umem[21:0];
+
+var cond[3:0];
+var offset[23:0];
+var sign_ext_offset[31:0];
+var target[31:0];
+var return_addr[31:0];
+var cond_pass[0:0];
+
+var n_flag[0:0];
+var z_flag[0:0];
+var c_flag[0:0];
+var v_flag[0:0];
+
+// Mode detection
+var mode[4:0];
+var is_fiq[0:0];
+var is_irq[0:0];
+var is_svc[0:0];
+var is_abt[0:0];
+var is_und[0:0];
+
+instr = umem[pc];
+
+// Decode - Branch with link
+assume instr[27:25] == 0b101;
+assume instr[24] == 0b1;       // Branch with link
+
+cond = instr[31:28];
+offset = instr[23:0];
+
+n_flag = cpsr[31];
+z_flag = cpsr[30];
+c_flag = cpsr[29];
+v_flag = cpsr[28];
+
+cond_pass = (cond == 0b1110) |
+            ((cond == 0b0000) & z_flag) |
+            ((cond == 0b0001) & ~z_flag) |
+            ((cond == 0b0010) & c_flag) |
+            ((cond == 0b0011) & ~c_flag) |
+            ((cond == 0b0100) & n_flag) |
+            ((cond == 0b0101) & ~n_flag) |
+            ((cond == 0b0110) & v_flag) |
+            ((cond == 0b0111) & ~v_flag) |
+            ((cond == 0b1000) & c_flag & ~z_flag) |
+            ((cond == 0b1001) & (~c_flag | z_flag)) |
+            ((cond == 0b1010) & (n_flag == v_flag)) |
+            ((cond == 0b1011) & (n_flag != v_flag)) |
+            ((cond == 0b1100) & ~z_flag & (n_flag == v_flag)) |
+            ((cond == 0b1101) & (z_flag | (n_flag != v_flag)));
+
+// Detect current processor mode
+mode = cpsr[4:0];
+is_fiq = (mode == 5'b10001);
+is_irq = (mode == 5'b10010);
+is_svc = (mode == 5'b10011);
+is_abt = (mode == 5'b10111);
+is_und = (mode == 5'b11011);
+
+// Sign-extend offset and shift left by 2
+sign_ext_offset = {{6{offset[23]}}, offset, 2'b00};
+
+// Branch target = PC + 8 + (sign_ext_offset)
+target = pc + 8 + sign_ext_offset;
+
+// Return address = address of next instruction
+return_addr = pc + 4;
+
+// Save return address in R14 (LR) if condition passes - mode-aware banking
+rf[14] when (cond_pass & ~is_fiq & ~is_irq & ~is_svc & ~is_abt & ~is_und) = return_addr;
+rf_fiq[6] when (cond_pass & is_fiq) = return_addr;
+rf_irq_lr when (cond_pass & is_irq) = return_addr;
+rf_svc_lr when (cond_pass & is_svc) = return_addr;
+rf_abt_lr when (cond_pass & is_abt) = return_addr;
+rf_und_lr when (cond_pass & is_und) = return_addr;
+
+// Update PC
+pc = cond_pass ? target : (pc + 4);

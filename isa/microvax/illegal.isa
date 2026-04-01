@@ -1,0 +1,15 @@
+// SPDX-License-Identifier: BSD-3-Clause
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][3:0];
+mem umem[12:0];
+
+var trap_vector[31:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xFF;
+
+trap_vector = 32'h00000004;
+
+pc = trap_vector;

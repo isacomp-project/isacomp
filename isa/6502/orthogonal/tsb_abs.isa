@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 65C02 TSB Absolute (0x0C) - Test and Set Bits
+// Tests bits by ANDing A with memory, then sets those bits in memory
+// Memory = Memory OR A
+// Z flag set if (A AND Memory) == 0 (before the set)
+// Does not affect N or other flags
+// Instruction format: TSB $hhll (3 bytes, little-endian address)
+// NOTE: This is a 65C02-only instruction
+
+#ifdef CPU_65C02
+#ifdef CPU_65C02_BIT
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state flag_Z[0:0];
+isa_state mainmem[7:0][15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var addr[15:0];
+var data[7:0];
+var test_result[7:0];
+var new_data[7:0];
+
+instr = mainmem[pc];
+assume instr == 0x0C;
+pc = pc + 1;
+
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+addr = {addr_hi, addr_lo};
+
+// Read memory
+data = mainmem[addr];
+
+// Test: A AND memory (for Z flag)
+test_result = A & data;
+flag_Z = test_result == 0 ? 1'b1 : 1'b0;
+
+// Set bits: memory OR A
+new_data = data | A;
+mainmem[addr] = new_data;
+
+#endif
+#endif

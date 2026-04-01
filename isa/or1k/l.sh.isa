@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rA[4:0];
+var rB[4:0];
+var imm_high[4:0];
+var imm_low[10:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var base[31:0];
+var data[31:0];
+var mem_data[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x37;
+pc = pc + 4;
+imm_high = instr[25:21];
+rA = instr[20:16];
+rB = instr[15:11];
+imm_low = instr[10:0];
+
+imm = {imm_high, imm_low};
+base = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+addr = base + sign_ext_imm;
+
+data = rf[rB];
+mem_data = dmem[addr];
+
+// Big-endian half-word position from addr[1]:
+//   0 -> upper half bits[31:16], 1 -> lower half bits[15:0]
+var half_offset[0:0];
+half_offset = addr[1];
+
+var write_data[31:0];
+write_data = half_offset ? {mem_data[31:16], data[15:0]} : {data[15:0], mem_data[15:0]};
+
+dmem[addr] = write_data;

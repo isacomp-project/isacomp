@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 NOP (0x90)
+// No Operation (actually XCHG EAX, EAX)
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x90;
+eip = eip + 1;
+
+// NOP does nothing and affects no flags

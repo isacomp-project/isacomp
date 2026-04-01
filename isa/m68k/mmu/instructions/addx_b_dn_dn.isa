@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 ADDX.B Dx,Dy - Add Extended Byte (with X flag)
+// Opcode: 1101 yyy 1 00 00 0 xxx where yyy=Dy (dest), xxx=Dx (src)
+// Operation: Dx + Dy + X -> Dy (byte only, preserves upper bits)
+// Special: Z flag is only cleared if result is non-zero (not set if zero)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+// Byte sub-registers using 'of' keyword
+isa_state dregs_addxb[7:0][2:0] of dregs[0b***][7:0];
+
+var addxb_src_reg[2:0];
+var addxb_dst_reg[2:0];
+var addxb_src_val[7:0];
+var addxb_dst_val[7:0];
+var addxb_x_val[0:0];
+var addxb_result[8:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b1101;  // ADDX opcode
+assume instr[8] == 0b1;          // Fixed bit
+assume instr[7:6] == 0b00;       // Size: byte
+assume instr[5:4] == 0b00;       // Fixed bits
+assume instr[3] == 0b0;          // Register to register mode
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+addxb_dst_reg = instr[11:9];
+addxb_src_reg = instr[2:0];
+
+// Execute: Dx + Dy + X (byte)
+addxb_src_val = dregs_addxb[addxb_src_reg];
+addxb_dst_val = dregs_addxb[addxb_dst_reg];
+addxb_x_val = flag_X;
+addxb_result = addxb_dst_val + addxb_src_val + addxb_x_val;
+
+// Write result (byte only, upper bits preserved via 'of')
+dregs_addxb[addxb_dst_reg] when (~m68k_exc_taken) = addxb_result[7:0];
+
+// Update CCR
+flag_X when (~m68k_exc_taken) = addxb_result[8];
+flag_C when (~m68k_exc_taken) = addxb_result[8];
+flag_V when (~m68k_exc_taken) = (~addxb_dst_val[7] & ~addxb_src_val[7] & addxb_result[7]) | (addxb_dst_val[7] & addxb_src_val[7] & ~addxb_result[7]);
+flag_N when (~m68k_exc_taken) = addxb_result[7];
+// Z flag special: only cleared if result is non-zero, unchanged otherwise
+flag_Z when (~m68k_exc_taken) = flag_Z & (addxb_result[7:0] == 0);

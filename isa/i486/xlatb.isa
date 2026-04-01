@@ -1,0 +1,36 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 XLATB (0xD7)
+// Table lookup translation: AL = [EBX + AL]
+// Translates a byte in AL using a table pointed to by EBX
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state EBX[31:0] of xregs[3];
+isa_state AL[7:0] of xregs[0][7:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var table_addr[31:0];
+var new_al[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xD7;
+eip = eip + 1;
+
+// Calculate table address: EBX + zero-extended AL
+table_addr = EBX + {24'h000000, AL};
+
+// Load byte from table
+new_al = dmem[table_addr];
+
+// Store result in AL
+AL = new_al;
+
+// XLATB does not affect flags

@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 BSET Dn,(d16,An) - Test and set bit in memory byte (dynamic, displacement)
+// Opcode: 0000 SSS 111 101 AAA followed by 16-bit displacement
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var addr_reg[2:0];
+var bsad_bit_num[31:0];
+var bsad_disp16[15:0];
+var bsad_disp_ext[31:0];
+var bsad_byte_addr[31:0];
+var bsad_bit_pos[2:0];
+var bsad_dst_word[15:0];
+var bsad_dst_byte[7:0];
+var bsad_bit_val[0:0];
+var bsad_mask[7:0];
+var bsad_new_byte[7:0];
+var bsad_new_word[15:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0000;       // Bit manipulation
+assume instr[8:6] == 0b111;          // BSET dynamic opcode
+assume instr[5:3] == 0b101;          // EA mode: d(An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+src_reg = instr[11:9];  // Register containing bit number
+addr_reg = instr[2:0];
+
+bsad_bit_num = dregs[src_reg];
+
+// Fetch displacement
+bsad_disp16 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+bsad_disp_ext = bsad_disp16[15] ? {16'hFFFF, bsad_disp16} : {16'h0000, bsad_disp16};
+
+// Calculate byte address
+bsad_byte_addr = aregs[addr_reg] + bsad_disp_ext;
+bsad_bit_pos = bsad_bit_num[2:0];  // Modulo 8 for byte operation
+
+// MMU translate for write
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = bsad_byte_addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+// Read-modify-write byte
+#ifdef MMU
+bsad_dst_word = dmem[{ea_pa[31:1], 1'b0}];
+#else
+bsad_dst_word = dmem[{bsad_byte_addr[31:1], 1'b0}];
+#endif
+bsad_dst_byte = bsad_byte_addr[0] ? bsad_dst_word[7:0] : bsad_dst_word[15:8];
+
+bsad_bit_val = (bsad_dst_byte >> bsad_bit_pos) & 1;
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = ~bsad_bit_val;
+
+// Set the bit using OR
+bsad_mask = 1 << bsad_bit_pos;
+bsad_new_byte = bsad_dst_byte | bsad_mask;
+
+// Write back
+bsad_new_word = bsad_byte_addr[0] ? {bsad_dst_word[15:8], bsad_new_byte} : {bsad_new_byte, bsad_dst_word[7:0]};
+#ifdef MMU
+dmem[{ea_pa[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = bsad_new_word;
+#else
+dmem[{bsad_byte_addr[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = bsad_new_word;
+#endif

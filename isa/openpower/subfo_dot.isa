@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER subfo. - Subtract From with Overflow and Record (XO-Form)
+// subfo. RT,RA,RB
+// Primary opcode 31, XO=40, OE=1, Rc=1
+// RT <- (RB) - (RA), updates XER[OV,SO] and CR0
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state xer[63:0];
+isa_state cr[31:0];
+// XER bits:
+// XER[32] = SO (Summary Overflow) - sticky
+// XER[33] = OV (Overflow)
+// XER[34] = CA (Carry)
+// CR0 field (bits 31:28):
+// CR0[0] = LT (Less Than) - result[63]
+// CR0[1] = GT (Greater Than) - ~result[63] & (result != 0)
+// CR0[2] = EQ (Equal) - result == 0
+// CR0[3] = SO (Summary Overflow) - copy of XER[SO]
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var rb[4:0];
+var ra_val[63:0];
+var rb_val[63:0];
+var result[63:0];
+var overflow[0:0];
+var lt[0:0];
+var gt[0:0];
+var eq[0:0];
+var so[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 40
+assume instr[9:1] == 40;
+// OE bit = 1 (overflow enable)
+assume instr[10] == 1;
+// Rc bit = 1 (record form)
+assume instr[0] == 1;
+
+// Extract register fields
+rt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+ra_val = rf[ra];
+rb_val = rf[rb];
+
+// Subtract: RB - RA
+result = rb_val - ra_val;
+
+// Signed overflow: operands different sign, result has wrong sign
+// For subtraction RB - RA, overflow when signs differ and result sign != RB sign
+overflow = (rb_val[63] != ra_val[63]) & (result[63] != rb_val[63]);
+
+// Update XER overflow bits
+xer[33] = overflow;           // OV
+xer[32] = xer[32] | overflow; // SO (sticky)
+
+// Update CR0 based on result
+lt = result[63];
+gt = ~result[63] & (result != 0);
+eq = (result == 0);
+so = xer[32];  // SO from XER
+cr = {lt, gt, eq, so, cr[27:0]};
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

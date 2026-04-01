@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 MTCTL instruction (64-bit)
+// MTCTL r,cr - Move To Control Register
+// Opcode: 0x00 (bits 31:26), function=0xC2 (bits 12:5)
+//
+// CR18 (IAOQ) special: uses queue rotation semantics.
+//   MTCTL r, CR18 rotates: old back -> front, value -> back.
+
+// === ISA State ===
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state sar[5:0];
+isa_state priv_level[1:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// Control registers (64-bit)
+isa_state cr0[63:0];        // Recovery Counter (RCTR)
+isa_state cr8[63:0];        // Protection ID 1
+isa_state cr9[63:0];        // Protection ID 2
+isa_state cr10[63:0];       // CCR
+isa_state cr14[63:0];       // IVA
+isa_state cr15[63:0];       // EIEM
+ext isa_state cr16[63:0];   // ITMR (free-running, driven by testbench)
+isa_state cr17[63:0];       // IIASQ front
+isa_state cr17_back[63:0];  // IIASQ back
+isa_state cr18[63:0];       // IIAOQ front
+isa_state cr18_back[63:0];  // IIAOQ back
+isa_state cr19[63:0];       // IIR
+isa_state cr20[63:0];       // ISR
+isa_state cr21[63:0];       // IOR
+isa_state cr22[63:0];       // IPSW
+ext isa_state cr23[63:0];   // EIRR (managed by testbench/SoC)
+isa_state cr24[63:0];       // TR0
+isa_state cr25[63:0];       // TR1
+isa_state cr26[63:0];       // TR2
+isa_state cr27[63:0];       // TR3
+isa_state cr28[63:0];       // TR4
+isa_state cr29[63:0];       // TR5
+isa_state cr30[63:0];       // TR6
+isa_state cr31[63:0];       // TR7
+
+// External state for interruption aspect
+ext isa_state timer_irq_pending[0:0];
+ext isa_state ext_irq_lines[63:0];
+
+// Push output: value written by MTCTL CR16 (CPU -> SoC for timer compare)
+ext push isa_state cr16_write[63:0];
+
+// Push output: EIRR clear mask (CPU -> SoC for write-one-to-clear)
+ext push isa_state cr23_clear[63:0];
+
+mem umem[25:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+// === Instruction decode ===
+var instr[31:0];
+var r[4:0];
+var cr[4:0];
+var value[63:0];
+var no_trap[0:0];
+
+instr = umem[pc_pa];
+
+// MTCTL encoding: bits[12:5]=0xC2
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b11000010;
+
+r = instr[20:16];
+cr = instr[25:21];
+
+value = (r == 0) ? 64'h0 : rf[r];
+no_trap = ~instr_trap_taken & ~in_nullified;
+
+// Write to control register based on PA-RISC 2.0 CR number
+cr0  when (cr == 0  & no_trap) = value;
+cr8  when (cr == 8  & no_trap) = value;
+cr9  when (cr == 9  & no_trap) = value;
+cr10 when (cr == 10 & no_trap) = value;
+sar  when (cr == 11 & no_trap) = value[5:0];
+cr14 when (cr == 14 & no_trap) = value;
+cr15 when (cr == 15 & no_trap) = value;
+// CR16: push the written value to SoC for timer compare programming.
+cr16_write when (cr == 16 & no_trap) = value;
+// CR17 (IASQ) queue rotation: old back -> new front, value -> new back
+var cr17_old_back[63:0];
+cr17_old_back = cr17_back;
+cr17      when (cr == 17 & no_trap) = cr17_old_back;
+cr17_back when (cr == 17 & no_trap) = value;
+
+// CR18 (IAOQ) queue rotation: old back -> new front, value -> new back
+var cr18_old_back[63:0];
+cr18_old_back = cr18_back;
+cr18      when (cr == 18 & no_trap) = cr18_old_back;
+cr18_back when (cr == 18 & no_trap) = value;
+
+cr19 when (cr == 19 & no_trap) = value;
+cr20 when (cr == 20 & no_trap) = value;
+cr21 when (cr == 21 & no_trap) = value;
+cr22 when (cr == 22 & no_trap) = value;
+// CR23 (EIRR) write-one-to-clear: push clear mask to testbench/SoC
+cr23_clear when (cr == 23 & no_trap) = value;
+cr24 when (cr == 24 & no_trap) = value;
+cr25 when (cr == 25 & no_trap) = value;
+cr26 when (cr == 26 & no_trap) = value;
+cr27 when (cr == 27 & no_trap) = value;
+cr28 when (cr == 28 & no_trap) = value;
+cr29 when (cr == 29 & no_trap) = value;
+cr30 when (cr == 30 & no_trap) = value;
+cr31 when (cr == 31 & no_trap) = value;
+
+pc = pc + 4;

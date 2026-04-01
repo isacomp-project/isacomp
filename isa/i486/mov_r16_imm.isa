@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV r16, imm16 - Parameterized with wildcard ** syntax
+// Opcodes: 0xB8-0xBF (MOV AX/CX/DX/BX/SP/BP/SI/DI, imm16)
+// Replaces multiple files: mov_ax_imm, mov_bx_imm, mov_cx_imm, etc.
+// Opcode encoding: 0xB8 + register_index (bits [2:0] of opcode = register index)
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+// Using wildcard ** syntax to parameterize over all 8 registers
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var reg_idx[2:0];
+var imm_lo[7:0];
+var imm_hi[7:0];
+var imm_word[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is a MOV r16, imm16 instruction (0xB8-0xBF)
+assume instr[7:3] == 0b10111;  // Upper 5 bits must be 10111
+
+eip = eip + 1;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read immediate word (little-endian: low byte first)
+imm_lo = imem[eip];
+eip = eip + 1;
+imm_hi = imem[eip];
+eip = eip + 1;
+
+// Combine bytes into 16-bit immediate
+imm_word = {imm_hi, imm_lo};
+
+// Move immediate to 16-bit register (preserve upper 16 bits of 32-bit register)
+xregs[reg_idx][15:0] = imm_word;

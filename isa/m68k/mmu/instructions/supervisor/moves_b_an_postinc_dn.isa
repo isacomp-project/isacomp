@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68010+ MOVES.B (An)+,Dn - Move byte from address space with post-increment
+// Opcode: 0000 1110 00 011 AAA followed by extension word
+// Extension: 0RRR 0 000 0000 0000 where RRR=data reg, bit 11=0 (read from EA)
+// Supervisor instruction - moves data from address space using SFC
+// Without MMU, acts as normal MOVE.B (An)+,Dn
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+isa_state sfc[2:0];
+#endif
+isa_state sr[15:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var mvsrb_ext[15:0];
+var mvsrb_dst_reg[2:0];
+var mvsrb_addr_reg[2:0];
+var mvsrb_addr[31:0];
+var mvsrb_word[15:0];
+var mvsrb_data[7:0];
+var mvsrb_result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b0000111000;  // MOVES.B
+assume instr[5:3] == 0b011;            // EA mode: (An)+
+pc when (~m68k_exc_taken) = pc + 2;
+
+mvsrb_addr_reg = instr[2:0];
+
+// Fetch extension word
+mvsrb_ext = dmem[pc + pc_pa_delta];
+assume mvsrb_ext[15] == 0b0;     // D/A = 0 (data register)
+assume mvsrb_ext[11] == 0b0;     // Direction: read from EA (EA -> Rn)
+assume mvsrb_ext[10:0] == 11'b00000000000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+mvsrb_dst_reg = mvsrb_ext[14:12];
+
+// Supervisor check
+assume sr[13] == 1'b1;
+
+// Get address and read byte (with MMU translation)
+mvsrb_addr = aregs[mvsrb_addr_reg];
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = mvsrb_addr;
+var is_write[0:0];
+is_write = 1'b0;
+var fc_is_super[0:0];
+fc_is_super = sfc[2];
+aspect mmu/atc_translate_data_fc.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+// Read word-aligned, then extract byte (use per-instruction addr[0], NOT ea_pa[0])
+#ifdef MMU
+mvsrb_word = dmem[{ea_pa[31:1], 1'b0}];
+#else
+mvsrb_word = dmem[{mvsrb_addr[31:1], 1'b0}];
+#endif
+mvsrb_data = mvsrb_addr[0] ? mvsrb_word[7:0] : mvsrb_word[15:8];
+
+// Store in low 8 bits of data register, preserve high 24
+mvsrb_result = {dregs[mvsrb_dst_reg][31:8], mvsrb_data};
+dregs[mvsrb_dst_reg] when (~m68k_exc_taken & ~data_exc_taken) = mvsrb_result;
+
+// Post-increment by 1 (byte)
+aregs[mvsrb_addr_reg] when (~m68k_exc_taken & ~data_exc_taken) = mvsrb_addr + 1;
+
+// MOVES does not affect CCR

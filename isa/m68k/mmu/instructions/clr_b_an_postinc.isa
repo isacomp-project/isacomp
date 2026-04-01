@@ -1,0 +1,75 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 CLR.B (An)+ - Clear byte with post-increment
+// Opcode: 0100 0010 00 011 AAA
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var cbpi_reg[2:0];
+var cbpi_addr[31:0];
+var cbpi_word[15:0];
+var cbpi_new[15:0];
+
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+instr = dmem[pc_pa];
+assume instr[15:8] == 0b01000010;
+assume instr[7:6] == 0b00;
+assume instr[5:3] == 0b011;
+pc when (~m68k_exc_taken) = pc + 2;
+
+cbpi_reg = instr[2:0];
+cbpi_addr = aregs[cbpi_reg];
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = {cbpi_addr[31:1], 1'b0};
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+cbpi_word = dmem[ea_pa];
+#else
+cbpi_word = dmem[{cbpi_addr[31:1], 1'b0}];
+#endif
+cbpi_new = cbpi_addr[0] ? {cbpi_word[15:8], 8'h00} : {8'h00, cbpi_word[7:0]};
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = cbpi_new;
+#else
+dmem[{cbpi_addr[31:1], 1'b0}] when (~m68k_exc_taken & ~data_exc_taken) = cbpi_new;
+#endif
+aregs[cbpi_reg] when (~m68k_exc_taken & ~data_exc_taken) = aregs[cbpi_reg] + 1;
+
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = 1'b1;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

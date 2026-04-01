@@ -1,0 +1,23 @@
+# Compiled test binaries
+*.elf
+*.hex
+*.addrs
+*.o
+*.a
+
+# Build artifacts
+*.map
+*.lst
+*.dump
+
+# Simulation files
+sim/j2_sim
+sim/test_*
+sim/*.vcd
+sim/umem.hex
+sim/rf.hex
+
+# Temporary files
+*.tmp
+*~
+.DS_Store

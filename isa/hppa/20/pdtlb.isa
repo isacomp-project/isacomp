@@ -1,0 +1,115 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 PDTLB instruction (64-bit)
+// PDTLB x(s,b) - Purge Data TLB
+// Opcode: 0x01 (bits 31:26), sub=0x42 (bits 12:5)
+//
+// Invalidates any DTLB entry matching the virtual address and space.
+// Privileged instruction.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// Space registers (64-bit)
+isa_state sr0[63:0];
+isa_state sr1[63:0];
+isa_state sr2[63:0];
+isa_state sr3[63:0];
+
+// DTLB CAM state (64-bit widened)
+isa_state cam dtlb_vpn[51:0]@[3:0][];
+isa_state dtlb_space[63:0][3:0];
+isa_state dtlb_valid[0:0][3:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var b[4:0];
+var x[4:0];
+
+instr = umem[pc_pa];
+
+// PDTLB encoding: opcode=0x01, sub=0x42
+// bit[10] is the L (local) bit: 0=global, 1=local. Accept both.
+// Linux alternatives patches pdtlb to pdtlb,l on PA2.0 uniprocessor.
+assume instr[31:26] == 0b000001;
+assume instr[11] == 1'b0;
+assume instr[9:5] == 5'b10000;
+assume instr[12] == 1'b1;
+assume instr[13] == 1'b0;
+
+b = instr[25:21];
+x = instr[20:16];
+
+// Compute virtual address to purge (64-bit)
+var base[63:0];
+var index[63:0];
+var vaddr[63:0];
+base = (b == 0) ? 64'h0 : rf[b];
+index = (x == 0) ? 64'h0 : rf[x];
+vaddr = base + index;
+
+var purge_vpn[51:0];
+purge_vpn = vaddr[63:12];
+
+// Space register selection from bits[15:14]
+var sr_sel[1:0];
+sr_sel = instr[15:14];
+var purge_space[63:0];
+purge_space = (sr_sel == 2'b00) ? sr0 :
+              (sr_sel == 2'b01) ? sr1 :
+              (sr_sel == 2'b10) ? sr2 : sr3;
+
+// CAM lookup to find matching entries
+var purge_matches[15:0];
+purge_matches = dtlb_vpn@[purge_vpn];
+
+// Filter by valid + space match
+var pv_0[0:0];  pv_0  = purge_matches[0]  & dtlb_valid[0]  & (dtlb_space[0]  == purge_space);
+var pv_1[0:0];  pv_1  = purge_matches[1]  & dtlb_valid[1]  & (dtlb_space[1]  == purge_space);
+var pv_2[0:0];  pv_2  = purge_matches[2]  & dtlb_valid[2]  & (dtlb_space[2]  == purge_space);
+var pv_3[0:0];  pv_3  = purge_matches[3]  & dtlb_valid[3]  & (dtlb_space[3]  == purge_space);
+var pv_4[0:0];  pv_4  = purge_matches[4]  & dtlb_valid[4]  & (dtlb_space[4]  == purge_space);
+var pv_5[0:0];  pv_5  = purge_matches[5]  & dtlb_valid[5]  & (dtlb_space[5]  == purge_space);
+var pv_6[0:0];  pv_6  = purge_matches[6]  & dtlb_valid[6]  & (dtlb_space[6]  == purge_space);
+var pv_7[0:0];  pv_7  = purge_matches[7]  & dtlb_valid[7]  & (dtlb_space[7]  == purge_space);
+var pv_8[0:0];  pv_8  = purge_matches[8]  & dtlb_valid[8]  & (dtlb_space[8]  == purge_space);
+var pv_9[0:0];  pv_9  = purge_matches[9]  & dtlb_valid[9]  & (dtlb_space[9]  == purge_space);
+var pv_10[0:0]; pv_10 = purge_matches[10] & dtlb_valid[10] & (dtlb_space[10] == purge_space);
+var pv_11[0:0]; pv_11 = purge_matches[11] & dtlb_valid[11] & (dtlb_space[11] == purge_space);
+var pv_12[0:0]; pv_12 = purge_matches[12] & dtlb_valid[12] & (dtlb_space[12] == purge_space);
+var pv_13[0:0]; pv_13 = purge_matches[13] & dtlb_valid[13] & (dtlb_space[13] == purge_space);
+var pv_14[0:0]; pv_14 = purge_matches[14] & dtlb_valid[14] & (dtlb_space[14] == purge_space);
+var pv_15[0:0]; pv_15 = purge_matches[15] & dtlb_valid[15] & (dtlb_space[15] == purge_space);
+
+// Invalidate all matching entries
+var active[0:0];
+active = ~instr_trap_taken & ~in_nullified;
+
+dtlb_valid[0]  when (active & pv_0)  = 1'b0;
+dtlb_valid[1]  when (active & pv_1)  = 1'b0;
+dtlb_valid[2]  when (active & pv_2)  = 1'b0;
+dtlb_valid[3]  when (active & pv_3)  = 1'b0;
+dtlb_valid[4]  when (active & pv_4)  = 1'b0;
+dtlb_valid[5]  when (active & pv_5)  = 1'b0;
+dtlb_valid[6]  when (active & pv_6)  = 1'b0;
+dtlb_valid[7]  when (active & pv_7)  = 1'b0;
+dtlb_valid[8]  when (active & pv_8)  = 1'b0;
+dtlb_valid[9]  when (active & pv_9)  = 1'b0;
+dtlb_valid[10] when (active & pv_10) = 1'b0;
+dtlb_valid[11] when (active & pv_11) = 1'b0;
+dtlb_valid[12] when (active & pv_12) = 1'b0;
+dtlb_valid[13] when (active & pv_13) = 1'b0;
+dtlb_valid[14] when (active & pv_14) = 1'b0;
+dtlb_valid[15] when (active & pv_15) = 1'b0;
+
+pc = pc + 4;

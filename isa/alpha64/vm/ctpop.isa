@@ -1,0 +1,70 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// CTPOP with Virtual Memory Support
+// Uses ITB/DTB aspects for address translation
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[13:0];
+
+// PAL/MMU state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+isa_state mm_stat[63:0];
+
+// ITB arrays (8 entries)
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+isa_state ipl[5:0];
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+isa_state lock_flag[0:0];
+
+
+var rb[4:0];
+var rc[4:0];
+var Rb[63:0];
+var Rc[63:0];
+
+// ITB translation for instruction fetch
+aspect aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+instr = umem[pc_pa];
+assume instr[31:26] == 28;
+assume instr[11:5] == 48;
+rb = instr[20:16];
+Rb = rf[rb];
+rc = instr[4:0];
+Rc = rf[rc];
+
+var b0[3:0]; var b1[3:0]; var b2[3:0]; var b3[3:0];
+var b4[3:0]; var b5[3:0]; var b6[3:0]; var b7[3:0];
+b0 = {3'b0, Rb[0]} + {3'b0, Rb[1]} + {3'b0, Rb[2]} + {3'b0, Rb[3]} + {3'b0, Rb[4]} + {3'b0, Rb[5]} + {3'b0, Rb[6]} + {3'b0, Rb[7]};
+b1 = {3'b0, Rb[8]} + {3'b0, Rb[9]} + {3'b0, Rb[10]} + {3'b0, Rb[11]} + {3'b0, Rb[12]} + {3'b0, Rb[13]} + {3'b0, Rb[14]} + {3'b0, Rb[15]};
+b2 = {3'b0, Rb[16]} + {3'b0, Rb[17]} + {3'b0, Rb[18]} + {3'b0, Rb[19]} + {3'b0, Rb[20]} + {3'b0, Rb[21]} + {3'b0, Rb[22]} + {3'b0, Rb[23]};
+b3 = {3'b0, Rb[24]} + {3'b0, Rb[25]} + {3'b0, Rb[26]} + {3'b0, Rb[27]} + {3'b0, Rb[28]} + {3'b0, Rb[29]} + {3'b0, Rb[30]} + {3'b0, Rb[31]};
+b4 = {3'b0, Rb[32]} + {3'b0, Rb[33]} + {3'b0, Rb[34]} + {3'b0, Rb[35]} + {3'b0, Rb[36]} + {3'b0, Rb[37]} + {3'b0, Rb[38]} + {3'b0, Rb[39]};
+b5 = {3'b0, Rb[40]} + {3'b0, Rb[41]} + {3'b0, Rb[42]} + {3'b0, Rb[43]} + {3'b0, Rb[44]} + {3'b0, Rb[45]} + {3'b0, Rb[46]} + {3'b0, Rb[47]};
+b6 = {3'b0, Rb[48]} + {3'b0, Rb[49]} + {3'b0, Rb[50]} + {3'b0, Rb[51]} + {3'b0, Rb[52]} + {3'b0, Rb[53]} + {3'b0, Rb[54]} + {3'b0, Rb[55]};
+b7 = {3'b0, Rb[56]} + {3'b0, Rb[57]} + {3'b0, Rb[58]} + {3'b0, Rb[59]} + {3'b0, Rb[60]} + {3'b0, Rb[61]} + {3'b0, Rb[62]} + {3'b0, Rb[63]};
+var total[6:0];
+total = {3'b0, b0} + {3'b0, b1} + {3'b0, b2} + {3'b0, b3} + {3'b0, b4} + {3'b0, b5} + {3'b0, b6} + {3'b0, b7};
+rf[rc] when (rc != 31 && take_interrupt == 0 && itb_fault == 0) = {57'b0, total};
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+va when (itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+pc when (take_interrupt == 0 && itb_fault == 0) = pc + 4;

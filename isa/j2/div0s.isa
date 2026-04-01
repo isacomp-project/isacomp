@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+isa_state t[0:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+var div0s_rb[0:0];
+var div0s_rn_lo[2:0];
+var div0s_rm_lo[2:0];
+var div0s_rn_bk[0:0];
+var div0s_rm_bk[0:0];
+var old_sr[31:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception aspect - handles stack push, SR update, PC redirect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr;
+
+instr = umem[pc];
+assume instr[15:12] == 0x2;
+assume instr[3:0] == 0x7;
+rn = instr[11:8];
+rm = instr[7:4];
+
+div0s_rn_lo = rn[2:0];
+div0s_rm_lo = rm[2:0];
+div0s_rb = sr[28];
+div0s_rn_bk = (rn[3] == 1'b0) & div0s_rb;
+div0s_rm_bk = (rm[3] == 1'b0) & div0s_rb;
+
+Rn = div0s_rn_bk ? rf_bank[div0s_rn_lo] : rf[rn];
+Rm = div0s_rm_bk ? rf_bank[div0s_rm_lo] : rf[rm];
+
+// DIV0S - initialize for signed division
+// M = Rn[31] (sign of dividend)
+// Q = Rm[31] (sign of divisor)
+// T = 1 if signs are different, 0 if same
+// Write full SR with M and Q set from sign bits
+old_sr = sr;
+sr = {old_sr[31:10], Rn[31], Rm[31], old_sr[7:1], (Rn[31] ^ Rm[31])};
+t when (exc_taken == 0) = Rn[31] ^ Rm[31];
+pc = pc + 2;

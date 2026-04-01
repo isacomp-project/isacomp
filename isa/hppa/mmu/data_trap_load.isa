@@ -1,0 +1,360 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// HPPA Data TLB Miss / Protection Fault Aspect for Load Instructions
+// =============================================================================
+//
+// This aspect provides DTLB lookup for load instructions using a 16-entry
+// fully-associative CAM. It provides:
+//   da_pa            - physical address for data memory access
+//   data_trap_taken  - gate signal for load instructions
+//
+// On DTLB miss (trap 15) or protection violation (trap 18), this aspect:
+//   - Saves interrupted state to CRs (IPSW, IIAOQ, IIR, ISR, IOR)
+//   - Clears PSW (enters real mode)
+//   - Saves shadow registers
+//   - Redirects PC to trap vector
+//
+// USAGE: Each memory-load instruction includes:
+//   aspect mmu/data_trap_load.isa gates pc, psw, cr17, cr17_back, cr18, cr18_back,
+//     cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9,
+//     shadow_r16, shadow_r17, shadow_r24, shadow_r25;
+//
+// =============================================================================
+
+// =========================================================================
+// ISA STATE: DTLB - 16 entries, fully associative CAM
+// =========================================================================
+isa_state cam dtlb_vpn[19:0]@[3:0][];    // 16-entry CAM on VPN[31:12]
+isa_state dtlb_space[31:0][3:0];          // Space ID per entry
+isa_state dtlb_valid[0:0][3:0];           // Valid bit per entry
+isa_state dtlb_ppn[19:0][3:0];            // Physical Page Number
+isa_state dtlb_prot[31:0][3:0];           // Protection word (Linux PTE format)
+
+// =========================================================================
+// ISA STATE: Block TLB (BTLB) - 8 entries, variable page size
+// =========================================================================
+isa_state btlb_valid[0:0][2:0];
+isa_state btlb_va_base[31:0][2:0];
+isa_state btlb_pa_base[31:0][2:0];
+isa_state btlb_page_mask[31:0][2:0];
+isa_state btlb_space[31:0][2:0];
+isa_state btlb_type_i[0:0][2:0];
+isa_state btlb_type_d[0:0][2:0];
+
+// =========================================================================
+// ISA STATE: Space registers for data access
+// =========================================================================
+isa_state sr0[31:0];   // SR0 - kernel data space (always 0)
+isa_state sr1[31:0];   // SR1 - scratch / copy_from_user source
+isa_state sr2[31:0];   // SR2 - scratch / copy_to_user dest
+isa_state sr3[31:0];   // SR3 - user data space
+
+// =========================================================================
+// ISA STATE: Written on trap (must be in gates clause)
+// =========================================================================
+isa_state psw[31:0];
+isa_state pc[31:0];
+isa_state cr14[31:0];       // IVA (read-only, for trap vector base)
+isa_state cr17[31:0];       // IIASQ front
+isa_state cr17_back[31:0];  // IIASQ back
+isa_state cr18[31:0];       // IIAOQ front
+isa_state cr18_back[31:0];  // IIAOQ back
+isa_state cr19[31:0];       // IIR
+isa_state cr20[31:0];       // ISR
+isa_state cr21[31:0];       // IOR
+isa_state cr22[31:0];       // IPSW
+isa_state priv_level[1:0];
+isa_state shadow_r1[31:0];
+isa_state shadow_r8[31:0];
+isa_state shadow_r9[31:0];
+isa_state shadow_r16[31:0];
+isa_state shadow_r17[31:0];
+isa_state shadow_r24[31:0];
+isa_state shadow_r25[31:0];
+
+// =========================================================================
+// Data translation control
+// =========================================================================
+var psw_D[0:0];
+psw_D = psw[1];   // PSW.D = data address translation enable
+
+// =========================================================================
+// DTLB CAM Lookup
+// =========================================================================
+// addr is computed in the instruction body before this aspect is merged
+var dvpn[19:0];
+var doffset[11:0];
+dvpn = addr[31:12];
+doffset = addr[11:0];
+
+// Data space: extract from instruction encoding
+// Opcodes 0x03 (short/indexed), 0x09 (FP load), 0x0B (FP store/load)
+// have explicit space register at instr[15:14]. All others use SR0.
+var major_op[5:0];
+major_op = instr[31:26];
+var has_space_field[0:0];
+has_space_field = (major_op == 6'b000011) | (major_op == 6'b001001) | (major_op == 6'b001011);
+var space_sel[1:0];
+space_sel = instr[15:14];
+var sel_space[31:0];
+sel_space = (space_sel == 2'd0) ? sr0 :
+            (space_sel == 2'd1) ? sr1 :
+            (space_sel == 2'd2) ? sr2 : sr3;
+var dspace[31:0];
+dspace = has_space_field ? sel_space : sr0;
+
+// Step 1: CAM lookup — get per-entry VPN match vector
+var dtlb_vpn_matches[15:0];
+dtlb_vpn_matches = dtlb_vpn@[dvpn];
+
+// Step 2: Filter by valid AND space match (16 entries)
+var dv_0[0:0];  dv_0  = dtlb_valid[0]  & (dtlb_space[0]  == dspace);
+var dv_1[0:0];  dv_1  = dtlb_valid[1]  & (dtlb_space[1]  == dspace);
+var dv_2[0:0];  dv_2  = dtlb_valid[2]  & (dtlb_space[2]  == dspace);
+var dv_3[0:0];  dv_3  = dtlb_valid[3]  & (dtlb_space[3]  == dspace);
+var dv_4[0:0];  dv_4  = dtlb_valid[4]  & (dtlb_space[4]  == dspace);
+var dv_5[0:0];  dv_5  = dtlb_valid[5]  & (dtlb_space[5]  == dspace);
+var dv_6[0:0];  dv_6  = dtlb_valid[6]  & (dtlb_space[6]  == dspace);
+var dv_7[0:0];  dv_7  = dtlb_valid[7]  & (dtlb_space[7]  == dspace);
+var dv_8[0:0];  dv_8  = dtlb_valid[8]  & (dtlb_space[8]  == dspace);
+var dv_9[0:0];  dv_9  = dtlb_valid[9]  & (dtlb_space[9]  == dspace);
+var dv_10[0:0]; dv_10 = dtlb_valid[10] & (dtlb_space[10] == dspace);
+var dv_11[0:0]; dv_11 = dtlb_valid[11] & (dtlb_space[11] == dspace);
+var dv_12[0:0]; dv_12 = dtlb_valid[12] & (dtlb_space[12] == dspace);
+var dv_13[0:0]; dv_13 = dtlb_valid[13] & (dtlb_space[13] == dspace);
+var dv_14[0:0]; dv_14 = dtlb_valid[14] & (dtlb_space[14] == dspace);
+var dv_15[0:0]; dv_15 = dtlb_valid[15] & (dtlb_space[15] == dspace);
+
+// Step 3: Per-entry match = VPN match AND valid+space match
+var dm_0[0:0];  dm_0  = dtlb_vpn_matches[0]  & dv_0;
+var dm_1[0:0];  dm_1  = dtlb_vpn_matches[1]  & dv_1;
+var dm_2[0:0];  dm_2  = dtlb_vpn_matches[2]  & dv_2;
+var dm_3[0:0];  dm_3  = dtlb_vpn_matches[3]  & dv_3;
+var dm_4[0:0];  dm_4  = dtlb_vpn_matches[4]  & dv_4;
+var dm_5[0:0];  dm_5  = dtlb_vpn_matches[5]  & dv_5;
+var dm_6[0:0];  dm_6  = dtlb_vpn_matches[6]  & dv_6;
+var dm_7[0:0];  dm_7  = dtlb_vpn_matches[7]  & dv_7;
+var dm_8[0:0];  dm_8  = dtlb_vpn_matches[8]  & dv_8;
+var dm_9[0:0];  dm_9  = dtlb_vpn_matches[9]  & dv_9;
+var dm_10[0:0]; dm_10 = dtlb_vpn_matches[10] & dv_10;
+var dm_11[0:0]; dm_11 = dtlb_vpn_matches[11] & dv_11;
+var dm_12[0:0]; dm_12 = dtlb_vpn_matches[12] & dv_12;
+var dm_13[0:0]; dm_13 = dtlb_vpn_matches[13] & dv_13;
+var dm_14[0:0]; dm_14 = dtlb_vpn_matches[14] & dv_14;
+var dm_15[0:0]; dm_15 = dtlb_vpn_matches[15] & dv_15;
+
+// Step 4: Hit detection
+var dtlb_hit[0:0];
+dtlb_hit = dm_0 | dm_1 | dm_2 | dm_3 | dm_4 | dm_5 | dm_6 | dm_7 |
+           dm_8 | dm_9 | dm_10 | dm_11 | dm_12 | dm_13 | dm_14 | dm_15;
+
+// Step 5: Priority-encoded PPN and protection from matched entry
+var dtlb_ppn_result[19:0];
+dtlb_ppn_result = dm_0 ? dtlb_ppn[0] :
+                  dm_1 ? dtlb_ppn[1] :
+                  dm_2 ? dtlb_ppn[2] :
+                  dm_3 ? dtlb_ppn[3] :
+                  dm_4 ? dtlb_ppn[4] :
+                  dm_5 ? dtlb_ppn[5] :
+                  dm_6 ? dtlb_ppn[6] :
+                  dm_7 ? dtlb_ppn[7] :
+                  dm_8 ? dtlb_ppn[8] :
+                  dm_9 ? dtlb_ppn[9] :
+                  dm_10 ? dtlb_ppn[10] :
+                  dm_11 ? dtlb_ppn[11] :
+                  dm_12 ? dtlb_ppn[12] :
+                  dm_13 ? dtlb_ppn[13] :
+                  dm_14 ? dtlb_ppn[14] : dtlb_ppn[15];
+var dtlb_prot_result[31:0];
+dtlb_prot_result = dm_0 ? dtlb_prot[0] :
+                   dm_1 ? dtlb_prot[1] :
+                   dm_2 ? dtlb_prot[2] :
+                   dm_3 ? dtlb_prot[3] :
+                   dm_4 ? dtlb_prot[4] :
+                   dm_5 ? dtlb_prot[5] :
+                   dm_6 ? dtlb_prot[6] :
+                   dm_7 ? dtlb_prot[7] :
+                   dm_8 ? dtlb_prot[8] :
+                   dm_9 ? dtlb_prot[9] :
+                   dm_10 ? dtlb_prot[10] :
+                   dm_11 ? dtlb_prot[11] :
+                   dm_12 ? dtlb_prot[12] :
+                   dm_13 ? dtlb_prot[13] :
+                   dm_14 ? dtlb_prot[14] : dtlb_prot[15];
+
+// =========================================================================
+// BLOCK TLB (BTLB) LOOKUP — D-BTLB for loads
+// =========================================================================
+// Check 8 BTLB entries for data access matches.
+
+// Entry 0
+var dbp_mask_0[31:0]; dbp_mask_0 = btlb_page_mask[0];
+var dbp_masked_addr_0[31:0]; dbp_masked_addr_0 = addr & dbp_mask_0;
+var dbp_va_0[31:0]; dbp_va_0 = btlb_va_base[0];
+var dbp_sp_0[31:0]; dbp_sp_0 = btlb_space[0];
+var dbm_0[0:0]; dbm_0 = btlb_valid[0] & btlb_type_d[0] & (dbp_masked_addr_0 == dbp_va_0) & (dspace == dbp_sp_0);
+var dbp_pa_0[31:0]; dbp_pa_0 = btlb_pa_base[0] | (addr & (dbp_mask_0 ^ 32'hFFFFFFFF));
+
+// Entry 1
+var dbp_mask_1[31:0]; dbp_mask_1 = btlb_page_mask[1];
+var dbp_masked_addr_1[31:0]; dbp_masked_addr_1 = addr & dbp_mask_1;
+var dbp_va_1[31:0]; dbp_va_1 = btlb_va_base[1];
+var dbp_sp_1[31:0]; dbp_sp_1 = btlb_space[1];
+var dbm_1[0:0]; dbm_1 = btlb_valid[1] & btlb_type_d[1] & (dbp_masked_addr_1 == dbp_va_1) & (dspace == dbp_sp_1);
+var dbp_pa_1[31:0]; dbp_pa_1 = btlb_pa_base[1] | (addr & (dbp_mask_1 ^ 32'hFFFFFFFF));
+
+// Entry 2
+var dbp_mask_2[31:0]; dbp_mask_2 = btlb_page_mask[2];
+var dbp_masked_addr_2[31:0]; dbp_masked_addr_2 = addr & dbp_mask_2;
+var dbp_va_2[31:0]; dbp_va_2 = btlb_va_base[2];
+var dbp_sp_2[31:0]; dbp_sp_2 = btlb_space[2];
+var dbm_2[0:0]; dbm_2 = btlb_valid[2] & btlb_type_d[2] & (dbp_masked_addr_2 == dbp_va_2) & (dspace == dbp_sp_2);
+var dbp_pa_2[31:0]; dbp_pa_2 = btlb_pa_base[2] | (addr & (dbp_mask_2 ^ 32'hFFFFFFFF));
+
+// Entry 3
+var dbp_mask_3[31:0]; dbp_mask_3 = btlb_page_mask[3];
+var dbp_masked_addr_3[31:0]; dbp_masked_addr_3 = addr & dbp_mask_3;
+var dbp_va_3[31:0]; dbp_va_3 = btlb_va_base[3];
+var dbp_sp_3[31:0]; dbp_sp_3 = btlb_space[3];
+var dbm_3[0:0]; dbm_3 = btlb_valid[3] & btlb_type_d[3] & (dbp_masked_addr_3 == dbp_va_3) & (dspace == dbp_sp_3);
+var dbp_pa_3[31:0]; dbp_pa_3 = btlb_pa_base[3] | (addr & (dbp_mask_3 ^ 32'hFFFFFFFF));
+
+// Entry 4
+var dbp_mask_4[31:0]; dbp_mask_4 = btlb_page_mask[4];
+var dbp_masked_addr_4[31:0]; dbp_masked_addr_4 = addr & dbp_mask_4;
+var dbp_va_4[31:0]; dbp_va_4 = btlb_va_base[4];
+var dbp_sp_4[31:0]; dbp_sp_4 = btlb_space[4];
+var dbm_4[0:0]; dbm_4 = btlb_valid[4] & btlb_type_d[4] & (dbp_masked_addr_4 == dbp_va_4) & (dspace == dbp_sp_4);
+var dbp_pa_4[31:0]; dbp_pa_4 = btlb_pa_base[4] | (addr & (dbp_mask_4 ^ 32'hFFFFFFFF));
+
+// Entry 5
+var dbp_mask_5[31:0]; dbp_mask_5 = btlb_page_mask[5];
+var dbp_masked_addr_5[31:0]; dbp_masked_addr_5 = addr & dbp_mask_5;
+var dbp_va_5[31:0]; dbp_va_5 = btlb_va_base[5];
+var dbp_sp_5[31:0]; dbp_sp_5 = btlb_space[5];
+var dbm_5[0:0]; dbm_5 = btlb_valid[5] & btlb_type_d[5] & (dbp_masked_addr_5 == dbp_va_5) & (dspace == dbp_sp_5);
+var dbp_pa_5[31:0]; dbp_pa_5 = btlb_pa_base[5] | (addr & (dbp_mask_5 ^ 32'hFFFFFFFF));
+
+// Entry 6
+var dbp_mask_6[31:0]; dbp_mask_6 = btlb_page_mask[6];
+var dbp_masked_addr_6[31:0]; dbp_masked_addr_6 = addr & dbp_mask_6;
+var dbp_va_6[31:0]; dbp_va_6 = btlb_va_base[6];
+var dbp_sp_6[31:0]; dbp_sp_6 = btlb_space[6];
+var dbm_6[0:0]; dbm_6 = btlb_valid[6] & btlb_type_d[6] & (dbp_masked_addr_6 == dbp_va_6) & (dspace == dbp_sp_6);
+var dbp_pa_6[31:0]; dbp_pa_6 = btlb_pa_base[6] | (addr & (dbp_mask_6 ^ 32'hFFFFFFFF));
+
+// Entry 7
+var dbp_mask_7[31:0]; dbp_mask_7 = btlb_page_mask[7];
+var dbp_masked_addr_7[31:0]; dbp_masked_addr_7 = addr & dbp_mask_7;
+var dbp_va_7[31:0]; dbp_va_7 = btlb_va_base[7];
+var dbp_sp_7[31:0]; dbp_sp_7 = btlb_space[7];
+var dbm_7[0:0]; dbm_7 = btlb_valid[7] & btlb_type_d[7] & (dbp_masked_addr_7 == dbp_va_7) & (dspace == dbp_sp_7);
+var dbp_pa_7[31:0]; dbp_pa_7 = btlb_pa_base[7] | (addr & (dbp_mask_7 ^ 32'hFFFFFFFF));
+
+// D-BTLB hit detection
+var btlb_d_hit[0:0];
+btlb_d_hit = dbm_0 | dbm_1 | dbm_2 | dbm_3 | dbm_4 | dbm_5 | dbm_6 | dbm_7;
+
+// Priority-encoded PA from D-BTLB
+var btlb_d_pa[31:0];
+btlb_d_pa = dbm_0 ? dbp_pa_0 :
+            dbm_1 ? dbp_pa_1 :
+            dbm_2 ? dbp_pa_2 :
+            dbm_3 ? dbp_pa_3 :
+            dbm_4 ? dbp_pa_4 :
+            dbm_5 ? dbp_pa_5 :
+            dbm_6 ? dbp_pa_6 : dbp_pa_7;
+
+// =========================================================================
+// Physical address computation
+// =========================================================================
+var da_pa[31:0];
+var da_translated[31:0];
+da_translated = {dtlb_ppn_result, doffset};
+da_pa = psw_D ? (dtlb_hit ? da_translated : (btlb_d_hit ? btlb_d_pa : addr)) : addr;
+
+// =========================================================================
+// Trap detection
+// =========================================================================
+// DTLB miss: translation enabled AND no TLB hit AND no BTLB hit
+var dtlb_miss[0:0];
+dtlb_miss = psw_D & ~dtlb_hit & ~btlb_d_hit;
+
+// Read protection violation: PA-RISC uses PL-based access control.
+// In the PA 1.1 prot word (constructed by make_insert_tlb_11 in entry.S):
+//   PL1 MSB at PA bit 11 = Verilog bit 20 (set to 1 for _PAGE_USER pages)
+//   _PAGE_READ (PTE C-bit 0) at PA bit 2 = Verilog bit 29
+// Read access: priv_level <= PL1. Kernel (PL=0) can always read.
+// For user (PL!=0), need PL1 bit set (prot[20]=1).
+var non_kernel[0:0];
+non_kernel = (priv_level != 2'b00);
+var load_prot_viol[0:0];
+load_prot_viol = psw_D & dtlb_hit & non_kernel & ~dtlb_prot_result[20];
+
+// Combined data trap signal — suppressed if instruction trap or nullified
+var data_trap_taken[0:0];
+data_trap_taken = (dtlb_miss | load_prot_viol) & ~instr_trap_taken & ~in_nullified;
+
+// =========================================================================
+// Trap dispatch
+// =========================================================================
+// Trap number: 15=DTLB miss, 18=data memory protection
+var load_trap_number[4:0];
+load_trap_number = dtlb_miss ? 5'd15 : 5'd18;
+
+var load_trap_offset[31:0];
+load_trap_offset = {22'b0, load_trap_number, 5'b0};  // trap_number << 5
+
+var load_trap_target[31:0];
+load_trap_target = cr14 + load_trap_offset;
+
+// =========================================================================
+// State save on data trap (same pattern as interruption.isa)
+// =========================================================================
+cr22 when (data_trap_taken) = psw;                  // IPSW
+// PA-RISC IAOQ entries include privilege level in bits [1:0].
+// Embed priv_level so RFI correctly restores privilege after data trap.
+var load_pc_with_priv[31:0];
+var load_pc_p4[31:0];
+var load_pc_p4_with_priv[31:0];
+load_pc_with_priv = {pc[31:2], priv_level};
+load_pc_p4 = pc + 4;
+load_pc_p4_with_priv = {load_pc_p4[31:2], priv_level};
+cr18 when (data_trap_taken) = load_pc_with_priv;    // IIAOQ front
+cr18_back when (data_trap_taken) = load_pc_p4_with_priv; // IIAOQ back
+cr17 when (data_trap_taken) = code_iasq;             // IIASQ front
+cr17_back when (data_trap_taken) = code_iasq;        // IIASQ back
+cr19 when (data_trap_taken) = instr;                // IIR
+cr20 when (data_trap_taken) = dspace;               // ISR (data fault space)
+cr21 when (data_trap_taken) = addr;                 // IOR (data fault address)
+
+// Clear PSW — enter real mode (keep only PSW.M bit 16)
+psw when (data_trap_taken) = psw & 32'h00010000;
+
+// Privilege escalation to kernel
+priv_level when (data_trap_taken) = 2'b00;
+
+// Reset code address space to kernel (space 0) — trap handler runs in kernel space
+isa_state code_iasq[31:0];
+code_iasq when (data_trap_taken) = 32'h0;
+
+// Redirect PC to trap vector
+pc when (data_trap_taken) = load_trap_target;
+
+// =========================================================================
+// Preserve delay_slot register when data trap fires
+// (so the delay slot is re-entered after TLB miss handler returns via RFI)
+// =========================================================================
+isa_state delay_slot[0:0];
+delay_slot when (data_trap_taken) = delay_slot;
+
+// =========================================================================
+// Shadow register save
+// =========================================================================
+shadow_r1 when (data_trap_taken) = rf[1];
+shadow_r8 when (data_trap_taken) = rf[8];
+shadow_r9 when (data_trap_taken) = rf[9];
+shadow_r16 when (data_trap_taken) = rf[16];
+shadow_r17 when (data_trap_taken) = rf[17];
+shadow_r24 when (data_trap_taken) = rf[24];
+shadow_r25 when (data_trap_taken) = rf[25];

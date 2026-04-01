@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// ATT92010 Hobbit: FLUSHP (flush prefetch buffer cache)
+// One-parcel encoding: opcode 0x0B, subcode 0x4, 2 bytes
+// All prefetch buffer entries marked invalid
+
+isa_state pc[31:0];
+mem umem[31:0];
+
+var instr[15:0];
+
+instr = umem[pc];
+assume instr[15] == 0;
+assume instr[14:10] == 0x0B;
+assume instr[9:7] == 0b100;
+
+// Cache flush is a microarchitectural operation; no architectural state change
+pc = pc + 2;

@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 JECXZ rel8 (0xE3)
+// Jump if ECX = 0
+// Uses signed byte displacement relative to EIP
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register alias
+isa_state ECX[31:0] of xregs[1];
+
+isa_state imem[7:0][31:0];
+
+var offset[7:0];
+var signed_offset[31:0];
+var target_addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xE3;
+
+// Read signed byte displacement
+offset = imem[eip + 1];
+
+// Sign-extend 8-bit offset to 32 bits
+signed_offset = {{24{offset[7]}}, offset};
+
+// Next PC after 2-byte instruction
+var next_eip[31:0];
+next_eip = eip + 2;
+
+// Calculate target address (next_eip + signed offset)
+target_addr = next_eip + signed_offset;
+
+// Jump if ECX = 0
+eip = ECX == 0 ? target_addr : next_eip;

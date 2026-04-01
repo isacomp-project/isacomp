@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 XCHG r8_low, r8_high - Exchange low and high byte registers
+// Opcode: 0x86 + ModR/M byte
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[15:0][2:0];
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];
+isa_state hregs[7:0][1:0] of xregs[0b1**][15:8];
+
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state DS[15:0];            // Data segment register
+
+var reg_idx[2:0];
+var rm_idx[2:0];
+var mod_bits[1:0];
+
+// Fetch instruction
+instr = imem[ip];
+assume instr == 0x86;
+ip = ip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[ip];
+ip = ip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_idx = modrm[2:0];
+
+// Register-to-register mode only
+assume mod_bits == 0b11;
+assume reg_idx[2] == 1'b1;
+assume rm_idx[2] == 1'b0;
+
+var reg1_idx[1:0];
+var reg2_idx[1:0];
+var temp[7:0];
+
+reg1_idx = reg_idx[1:0];
+reg2_idx = rm_idx[1:0];
+
+temp = hregs[reg1_idx];
+hregs[reg1_idx] = lregs[reg2_idx];
+lregs[reg2_idx] = temp;

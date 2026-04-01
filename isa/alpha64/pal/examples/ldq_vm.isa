@@ -1,0 +1,153 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// LDQ with Virtual Memory Support
+//
+// This example shows how to integrate the DTB aspect for
+// address translation in load instructions.
+//
+// LDQ: Ra = Mem[Rb + SEXT(disp)]
+// Opcode: 0x29
+
+// ============================================================================
+// State Declarations
+// ============================================================================
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state imem[31:0][63:0];
+mem dmem[63:0];
+
+// PAL/MMU state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state va[63:0];
+isa_state mm_stat[63:0];
+
+// DTB arrays
+isa_state dtb_pte[63:0][4:0];
+isa_state dtb_tag[63:0][4:0];
+isa_state dtb_valid[0:0][4:0];
+
+// ============================================================================
+// Instruction Decode
+// ============================================================================
+
+var ra[4:0];
+var rb[4:0];
+var Ra[63:0];
+var Rb[63:0];
+var disp[63:0];
+var addr[63:0];
+var ldq_data[63:0];
+
+instr = imem[pc];
+assume instr[31:26] == 41;  // LDQ opcode
+
+ra = instr[25:21];
+Ra = rf[ra];
+rb = instr[20:16];
+Rb = rf[rb];
+disp = {{48{instr[15]}}, instr[15:0]};
+
+// Calculate virtual address
+addr = Rb + disp;
+
+// ============================================================================
+// DTB Translation (inline version of dtb_load.isa aspect)
+// ============================================================================
+
+var addr_pa[63:0];
+var dtb_load_exception[0:0];
+var dtb_load_miss[0:0];
+var dtb_load_fault[0:0];
+
+// Extract address components
+var addr_vpn[29:0];
+var addr_offset[12:0];
+addr_vpn = addr[42:13];
+addr_offset = addr[12:0];
+
+// TLB lookup
+var dtb_hit_any[0:0];
+var dtb_hit_pte[63:0];
+
+var dhit0[0:0];
+var dhit1[0:0];
+var dhit2[0:0];
+var dhit3[0:0];
+
+dhit0 = dtb_valid[0] & (dtb_tag[0][29:0] == addr_vpn);
+dhit1 = dtb_valid[1] & (dtb_tag[1][29:0] == addr_vpn);
+dhit2 = dtb_valid[2] & (dtb_tag[2][29:0] == addr_vpn);
+dhit3 = dtb_valid[3] & (dtb_tag[3][29:0] == addr_vpn);
+
+dtb_hit_any = dhit0 | dhit1 | dhit2 | dhit3;
+
+var dsel_pte[63:0];
+dsel_pte = dhit0 ? dtb_pte[0] :
+           dhit1 ? dtb_pte[1] :
+           dhit2 ? dtb_pte[2] :
+           dhit3 ? dtb_pte[3] : 64'b0;
+
+dtb_hit_pte = dsel_pte;
+
+// Extract PTE fields
+var dpte_pfn[31:0];
+var dpte_valid[0:0];
+var dpte_kre[0:0];
+var dpte_ure[0:0];
+
+dpte_pfn = dtb_hit_pte[63:32];
+dpte_valid = dtb_hit_pte[0];
+dpte_kre = dtb_hit_pte[10];
+dpte_ure = dtb_hit_pte[14];
+
+// Check permissions
+var load_is_user_mode[0:0];
+var has_read_permission[0:0];
+var load_vm_enabled[0:0];
+
+load_is_user_mode = ps[3];
+has_read_permission = load_is_user_mode ? dpte_ure : dpte_kre;
+load_vm_enabled = (pal_mode == 0);
+
+dtb_load_miss = load_vm_enabled & (dtb_hit_any == 0);
+dtb_load_fault = load_vm_enabled & dtb_hit_any & ((dpte_valid == 0) | (has_read_permission == 0));
+dtb_load_exception = dtb_load_miss | dtb_load_fault;
+
+// PAL entry points
+var dtb_miss_entry[63:0];
+var dtb_fault_entry[63:0];
+dtb_miss_entry = pal_base + 64'h200;
+dtb_fault_entry = pal_base + 64'h280;
+
+// Exception handling
+exc_addr when (dtb_load_exception) = pc;
+va when (dtb_load_exception) = addr;
+mm_stat when (dtb_load_exception) = 64'h0;
+pal_mode when (dtb_load_exception) = 1;
+
+// Compute physical address
+var addr_translated[63:0];
+addr_translated = {dpte_pfn, addr_offset};
+
+addr_pa = pal_mode ? addr :
+          dtb_hit_any ? addr_translated :
+          addr;
+
+// ============================================================================
+// Memory Access and Writeback
+// ============================================================================
+
+// Load from physical address (only if no exception)
+ldq_data = dmem[addr_pa];
+
+// Write to register (only if no exception and ra != 31)
+rf[ra] when ((ra != 31) & (dtb_load_exception == 0)) = ldq_data;
+
+// PC update
+pc when (dtb_load_miss) = dtb_miss_entry;
+pc when (dtb_load_fault & (dtb_load_miss == 0)) = dtb_fault_entry;
+pc when (dtb_load_exception == 0) = pc + 4;

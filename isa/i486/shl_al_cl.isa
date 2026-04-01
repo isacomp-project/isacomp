@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SHL AL, CL (0xD2 with modrm 0xE0)
+// Shift AL left by CL bits
+// CF = last bit shifted out, OF = MSB changed on single-bit shift
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state AH[7:0] of xregs[0][15:8];
+isa_state CX[15:0];
+isa_state CL[7:0] of CX[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var result[8:0];
+
+instr = imem[eip];
+assume instr == 0xD2;
+eip = eip + 1;
+
+modrm = imem[eip];
+assume modrm == 0xE0;
+eip = eip + 1;
+
+// SHL: shift left by CL count (mask to 5 bits for i486)
+result = AL << (CL & 0x1F);
+
+AL = result[7:0];
+
+// Update flags
+flag_SF = result[7];
+flag_ZF = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_PF = result[0];
+// CF gets the last bit shifted out (simplified - would need shift count logic)
+// OF is undefined for multi-bit shifts, only defined for count=1

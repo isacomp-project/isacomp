@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 HLT (0xF4)
+// Opcode: 0xF4
+// Halt processor - stops instruction execution until interrupt or reset
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state ESP[31:0] of xregs[4];
+
+// Segment registers
+isa_state CS[15:0];
+isa_state SS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+// Flags
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_DF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_IF[0:0];
+isa_state flag_TF[0:0];
+
+// Halted state flag
+isa_state halted[0:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is HLT instruction
+assume instr == 0xF4;
+
+// Move to next instruction (though execution stops here)
+eip = eip + 1;
+
+// Set halted state
+halted = 1;
+
+// HLT does not affect flags

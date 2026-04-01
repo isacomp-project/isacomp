@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V SLLW (Shift Left Logical Word) instruction - RV64I only
+// Performs 32-bit left shift and sign-extends result to 64 bits
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var r1[63:0];
+var r2[63:0];
+var sllw_r1_word[31:0];
+var sllw_shamt[4:0];
+var sllw_res_word[31:0];
+var sllw_res[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0111011;
+assume instr[14:12] == 0x1;
+assume instr[31:25] == 0x00;
+pc = pc + 4;
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+
+sllw_r1_word = r1[31:0];
+sllw_shamt = r2[4:0];
+
+sllw_res_word = sllw_r1_word << sllw_shamt;
+
+// Sign-extend 32-bit result to 64 bits
+sllw_res = {{32{sllw_res_word[31]}}, sllw_res_word};
+
+rf[rd] when (rd != 0) = sllw_res;

@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV32D - FSD (Store double-precision float)
+// Encoding: imm[11:5], rs2, rs1, funct3=011, imm[4:0], opcode=0100111
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state frf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var imm_hi[6:0];
+var imm_lo[4:0];
+var imm[11:0];
+var base[31:0];
+var offset[31:0];
+var addr[31:0];
+var fsd_data[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0100111;   // STORE-FP opcode
+assume instr[14:12] == 0b011;     // FSD funct3
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+imm_hi = instr[31:25];
+imm_lo = instr[11:7];
+imm = {imm_hi, imm_lo};
+
+base = rf[rs1];
+offset = {{20{imm[11]}}, imm};  // Sign-extend to 32 bits
+addr = base + offset;
+
+// Read from FP register
+fsd_data = frf[rs2];
+
+// Store doubleword to memory
+umem[addr] = fsd_data;

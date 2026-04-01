@@ -1,0 +1,49 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha Interrupt Check Aspect
+//
+// Checks for pending unmasked interrupts at instruction boundaries.
+// When an interrupt is taken, saves PC to exc_addr, enters PAL mode,
+// and jumps to pal_base + 0x180.
+//
+// Provides:
+//   take_interrupt   - Set when an unmasked interrupt is pending
+//   interrupt_entry  - PAL entry point for interrupt handler
+//
+// Requires gates: pal_mode, pal_base, ipl, isr, hier
+
+// Combine all interrupt sources (only enabled ones)
+var combined_interrupts[63:0];
+combined_interrupts = isr & hier;
+
+// Check if any interrupt is pending
+var interrupt_pending[0:0];
+interrupt_pending = (combined_interrupts != 0);
+
+// Determine highest pending interrupt priority level
+// ISR bits 14-15: IPL 6 (performance counter, correctable error)
+// ISR bits 4-11:  IPL 3 (device/timer/IPI interrupts)
+// ISR bits 0-1:   IPL 1 (software interrupts)
+var has_high_priority[0:0];
+var has_device_interrupt[0:0];
+var has_software_interrupt[0:0];
+var highest_pending_ipl[5:0];
+
+has_high_priority = (combined_interrupts[15:14] != 0);
+has_device_interrupt = (combined_interrupts[11:4] != 0);
+has_software_interrupt = (combined_interrupts[1:0] != 0);
+
+highest_pending_ipl = has_high_priority ? 6'd6 :
+                      has_device_interrupt ? 6'd3 :
+                      has_software_interrupt ? 6'd1 : 6'd0;
+
+// Check if interrupt is masked by current IPL
+var interrupt_masked[0:0];
+interrupt_masked = (highest_pending_ipl <= ipl);
+
+// Take interrupt if pending, not masked, and not in PAL mode
+var take_interrupt[0:0];
+take_interrupt = interrupt_pending & (interrupt_masked == 0) & (pal_mode == 0);
+
+// PAL interrupt entry point (offset 0x180 for interrupts, EV5 0x80 spacing)
+var interrupt_entry[63:0];
+interrupt_entry = pal_base + 64'h0180;

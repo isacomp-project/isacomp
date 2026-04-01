@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 LEA (bd32,PC),An - Load effective address with PC-relative 32-bit displacement
+// Opcode: 0100 AAA1 11111 011 followed by full extension word and 32-bit displacement
+// This is the full extension word format with index suppressed
+// Used extensively in position-independent code
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var dst_reg[2:0];
+var ext_word[15:0];
+var disp_hi[15:0];
+var disp_lo[15:0];
+var disp32[31:0];
+var base_pc[31:0];
+var eff_addr[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0100;  // LEA opcode
+assume instr[8:6] == 0b111;     // LEA encoding
+assume instr[5:3] == 0b111;     // Mode 7 (PC-relative)
+assume instr[2:0] == 0b011;     // Register 3 = (d8,PC,Xn) or full extension
+base_pc = pc + 2;               // PC for address calculation
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode destination register
+dst_reg = instr[11:9];
+
+// Fetch extension word
+ext_word = dmem[pc + pc_pa_delta];
+assume ext_word[8] == 0b1;      // Full format indicator
+assume ext_word[5:4] == 0b11;   // BD size = long (32-bit displacement)
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Fetch 32-bit displacement (high word first)
+disp_hi = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+disp_lo = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+disp32 = {disp_hi, disp_lo};
+
+// Calculate effective address: PC + displacement
+eff_addr = base_pc + disp32;
+
+// Store effective address in destination register
+aregs[dst_reg] when (~m68k_exc_taken) = eff_addr;
+
+// LEA does not affect flags

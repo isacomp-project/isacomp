@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// PDP-11 MOV instruction - Autoincrement to Register Deferred
+// Source: mode 2, Dest: mode 1
+
+isa_state pc[15:0];
+var instr[15:0];
+isa_state rf[15:0][2:0];  // 8 registers, R7 is PC
+isa_state umem[7:0][15:0];      // Byte-addressable memory
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_val[15:0];
+var dst_val[15:0];
+var result[15:0];
+var src_addr[15:0];
+var src_lo[7:0];
+var src_hi[7:0];
+var dst_addr[15:0];
+var dst_lo[7:0];
+var dst_hi[7:0];
+
+
+// Fetch instruction (little-endian)
+var instr_lo[7:0];
+var instr_hi[7:0];
+instr_lo = umem[pc];
+instr_hi = umem[pc + 1];
+instr = {instr_hi, instr_lo};
+
+
+assume instr[15:12] == 0b0001;  // MOV opcode
+assume instr[11:9] == 0b010;    // Source mode 2 (autoincrement)
+assume instr[8:6] != 0b111;     // Source reg != 7 (not immediate)
+assume instr[5:3] == 0b001;     // Dest mode 1 (register deferred)
+
+src_reg = instr[8:6];
+dst_reg = instr[2:0];
+
+pc = pc + 2;
+
+// Fetch source operand
+src_addr = rf[src_reg];
+rf[src_reg] = rf[src_reg] + 2;
+src_lo = umem[src_addr];
+src_hi = umem[src_addr + 1];
+src_val = {src_hi, src_lo};
+
+// Fetch destination operand
+dst_addr = dst_reg == 7 ? pc : rf[dst_reg];
+dst_lo = umem[dst_addr];
+dst_hi = umem[dst_addr + 1];
+dst_val = {dst_hi, dst_lo};
+
+result = src_val;
+
+// Write result
+umem[dst_addr] = result[7:0];
+umem[dst_addr + 1] = result[15:8];
+
+flag_N = result[15];
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+flag_V = 0;

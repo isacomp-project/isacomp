@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD 6E d - LD L,(IX+d)
+// Does not affect flags
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+isa_state IXH[7:0];
+isa_state IXL[7:0];
+isa_state L[7:0];
+mem mainmem[15:0];
+var d[7:0];
+var d_sext[15:0];
+var dd_ld_l_ix_d_addr[15:0];
+
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'h6EDD;
+
+d = mainmem[pc_plus_2];
+d_sext = {{8{d[7]}}, d};
+dd_ld_l_ix_d_addr = {IXH, IXL} + d_sext;
+L = mainmem[dd_ld_l_ix_d_addr];
+
+pc = pc_plus_2 + 1;

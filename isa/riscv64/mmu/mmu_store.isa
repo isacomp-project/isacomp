@@ -1,0 +1,187 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Sv39 Virtual Memory Translation Aspect for Store Operations
+// This aspect provides address translation for data stores (addr -> addr_pa)
+// Checks write permission and raises store page fault on violation
+// Requires: addr variable must be defined before including this aspect
+
+// Physical address for data access (output of this aspect)
+var addr_pa[63:0];
+
+// Exception handling for stores
+var store_exception_taken[0:0];
+var store_exception_cause[63:0];
+var store_exception_vaddr[63:0];
+
+// Page table walk variables for data translation
+var addr_vpn2[8:0];
+var addr_vpn1[8:0];
+var addr_vpn0[8:0];
+var addr_offset[11:0];
+var addr_satp_mode[3:0];
+var addr_satp_ppn[43:0];
+
+// Level 2 page table walk
+var addr_pte2_addr[63:0];
+var addr_pte2[63:0];
+var addr_pte2_v[0:0];
+var addr_pte2_r[0:0];
+var addr_pte2_w[0:0];
+var addr_pte2_x[0:0];
+var addr_pte2_u[0:0];
+var addr_pte2_ppn[43:0];
+
+// Level 1 page table walk
+var addr_pte1_addr[63:0];
+var addr_pte1[63:0];
+var addr_pte1_v[0:0];
+var addr_pte1_r[0:0];
+var addr_pte1_w[0:0];
+var addr_pte1_x[0:0];
+var addr_pte1_u[0:0];
+var addr_pte1_ppn[43:0];
+
+// Level 0 page table walk
+var addr_pte0_addr[63:0];
+var addr_pte0[63:0];
+var addr_pte0_v[0:0];
+var addr_pte0_w[0:0];
+var addr_pte0_u[0:0];
+var addr_pte0_ppn[43:0];
+
+var addr_is_leaf_pte2[0:0];
+var addr_is_leaf_pte1[0:0];
+var addr_vm_enabled[0:0];
+
+// Final PTE permission bits
+var addr_final_pte_v[0:0];
+var addr_final_pte_w[0:0];
+var addr_final_pte_u[0:0];
+
+// Exception CSR handling
+var addr_mtvec_base[63:0];
+var addr_stvec_base[63:0];
+
+// Exception delegation variables
+var store_delegate_to_smode[0:0];
+var store_delegate_to_mmode[0:0];
+var store_medeleg_bit[0:0];
+var store_trap_target[63:0];
+
+// Read satp register directly
+addr_satp_mode = satp[63:60];
+addr_satp_ppn = satp[43:0];
+var addr_is_m_mode[0:0];
+addr_is_m_mode = priv_mode[1] & priv_mode[0];
+var addr_satp_is_sv39[0:0];
+addr_satp_is_sv39 = (addr_satp_mode == 4'h8);
+addr_vm_enabled = addr_satp_is_sv39 & ~addr_is_m_mode;
+
+// Read trap vector registers
+addr_mtvec_base = {mtvec[63:2], 2'b00};
+addr_stvec_base = {stvec[63:2], 2'b00};
+
+// Extract virtual address components
+addr_vpn2 = addr[38:30];
+addr_vpn1 = addr[29:21];
+addr_vpn0 = addr[20:12];
+addr_offset = addr[11:0];
+
+// Level 2 page table walk
+addr_pte2_addr = (addr_satp_ppn << 12) | (addr_vpn2 << 3);
+addr_pte2 = addr_vm_enabled ? umem[addr_pte2_addr] : 0;
+addr_pte2_v = addr_pte2[0];
+addr_pte2_r = addr_pte2[1];
+addr_pte2_w = addr_pte2[2];
+addr_pte2_x = addr_pte2[3];
+addr_pte2_u = addr_pte2[4];
+addr_pte2_ppn = addr_pte2[53:10];
+addr_is_leaf_pte2 = addr_pte2_r | addr_pte2_w | addr_pte2_x;
+
+// Level 1 page table walk
+addr_pte1_addr = addr_is_leaf_pte2 ? 0 : ((addr_pte2_ppn << 12) | (addr_vpn1 << 3));
+addr_pte1 = (addr_vm_enabled & (addr_is_leaf_pte2 == 0)) ? umem[addr_pte1_addr] : 0;
+addr_pte1_v = addr_pte1[0];
+addr_pte1_r = addr_pte1[1];
+addr_pte1_w = addr_pte1[2];
+addr_pte1_x = addr_pte1[3];
+addr_pte1_u = addr_pte1[4];
+addr_pte1_ppn = addr_pte1[53:10];
+addr_is_leaf_pte1 = addr_pte1_r | addr_pte1_w | addr_pte1_x;
+
+// Level 0 page table walk
+var addr_need_pte0[0:0];
+addr_need_pte0 = (addr_is_leaf_pte2 == 0) & (addr_is_leaf_pte1 == 0);
+addr_pte0_addr = addr_need_pte0 ? ((addr_pte1_ppn << 12) | (addr_vpn0 << 3)) : 0;
+addr_pte0 = (addr_vm_enabled & addr_need_pte0) ? umem[addr_pte0_addr] : 0;
+addr_pte0_v = addr_pte0[0];
+addr_pte0_w = addr_pte0[2];
+addr_pte0_u = addr_pte0[4];
+addr_pte0_ppn = addr_pte0[53:10];
+
+// Determine final PTE permission bits
+addr_final_pte_v = addr_is_leaf_pte2 ? addr_pte2_v :
+                   (addr_is_leaf_pte1 ? (addr_pte2_v & addr_pte1_v) :
+                   (addr_pte2_v & addr_pte1_v & addr_pte0_v));
+addr_final_pte_w = addr_is_leaf_pte2 ? (addr_pte2_v & addr_pte2_w) :
+                   (addr_is_leaf_pte1 ? (addr_pte2_v & addr_pte1_v & addr_pte1_w) :
+                   (addr_pte2_v & addr_pte1_v & addr_pte0_w));
+addr_final_pte_u = addr_is_leaf_pte2 ? (addr_pte2_v & addr_pte2_u) :
+                   (addr_is_leaf_pte1 ? (addr_pte2_v & addr_pte1_v & addr_pte1_u) :
+                   (addr_pte2_v & addr_pte1_v & addr_pte0_u));
+
+// Permission checking for store operation
+store_exception_taken = addr_vm_enabled & ((addr_final_pte_v == 0) | (addr_final_pte_w == 0));
+store_exception_cause = 15;  // Store/AMO page fault (RISC-V cause code 15)
+store_exception_vaddr = addr;
+
+// Check if exception should be delegated to S-mode
+store_medeleg_bit = medeleg[15];
+store_delegate_to_smode = store_medeleg_bit & ~addr_is_m_mode;
+store_delegate_to_mmode = (store_delegate_to_smode == 0);
+
+// Choose trap target based on delegation
+store_trap_target = store_delegate_to_smode ? addr_stvec_base : addr_mtvec_base;
+
+// Use intermediate variable to prevent ISA compiler value-merge bug
+var store_saved_pc[63:0];
+store_saved_pc = pc;
+
+// Write exception information to M-mode CSRs (when NOT delegating)
+mepc when (store_exception_taken & store_delegate_to_mmode) = store_saved_pc;
+mcause when (store_exception_taken & store_delegate_to_mmode) = store_exception_cause;
+mtval when (store_exception_taken & store_delegate_to_mmode) = store_exception_vaddr;
+
+// Save mstatus when trapping to M-mode
+var store_exc_new_mstatus[63:0];
+store_exc_new_mstatus = (mstatus & 64'hFFFFFFFFFFFFE677) |
+                        ({63'b0, mstatus[3]} << 7) |
+                        ({62'b0, priv_mode} << 11);
+mstatus when (store_exception_taken & store_delegate_to_mmode) = store_exc_new_mstatus;
+
+// Write exception information to S-mode CSRs (when delegating)
+sepc when (store_exception_taken & store_delegate_to_smode) = store_saved_pc;
+scause when (store_exception_taken & store_delegate_to_smode) = store_exception_cause;
+stval when (store_exception_taken & store_delegate_to_smode) = store_exception_vaddr;
+
+// Save sstatus when trapping to S-mode
+var store_exc_new_sstatus[63:0];
+store_exc_new_sstatus = (sstatus & 64'hFFFFFFFFFFFFFEDD) |
+                        ({63'b0, sstatus[1]} << 5) |
+                        ({63'b0, priv_mode[0]} << 8);
+sstatus when (store_exception_taken & store_delegate_to_smode) = store_exc_new_sstatus;
+
+// Redirect PC to trap handler
+pc when (store_exception_taken) = store_trap_target;
+
+// Set privilege mode based on delegation
+priv_mode when (store_exception_taken & store_delegate_to_mmode) = 3;
+priv_mode when (store_exception_taken & store_delegate_to_smode) = 1;
+
+// Compute physical address
+addr_pa = addr_vm_enabled ?
+              (addr_is_leaf_pte2 ?
+                  {10'b0, addr_pte2_ppn[43:18], addr_vpn1, addr_vpn0, addr_offset} :
+                  (addr_is_leaf_pte1 ?
+                      {10'b0, addr_pte1_ppn[43:9], addr_vpn0, addr_offset} :
+                      {10'b0, addr_pte0_ppn, addr_offset})) :
+              addr;

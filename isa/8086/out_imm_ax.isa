@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 OUT imm8, AX (0xE7)
+// Output word to port
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+isa_state AX[15:0];
+isa_state io_ports[7:0][7:0];
+
+var port_num[7:0];
+
+instr = imem[ip];
+assume instr == 0xE7;
+ip = ip + 1;
+
+// Read port number
+port_num = imem[ip];
+ip = ip + 1;
+
+// Write word to I/O port (little-endian)
+io_ports[port_num] = AX[7:0];
+io_ports[port_num + 1] = AX[15:8];

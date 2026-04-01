@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Thumb B (unconditional branch) - Unconditional branch
+// Encoding: 11100|offset11 (Format 18)
+// B label
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state cpsr[31:0];
+mem umem[13:0];
+
+var offset[10:0];
+var sign_ext_offset[31:0];
+var target[31:0];
+
+instr = umem[pc];
+
+assume instr[15:11] == 0b11100;
+
+offset = instr[10:0];
+
+// Sign-extend offset and shift left by 1
+sign_ext_offset = {{20{offset[10]}}, offset, 1'b0};
+
+// Target = PC + 4 + sign_ext_offset
+target = pc + 4 + sign_ext_offset;
+
+pc = target;

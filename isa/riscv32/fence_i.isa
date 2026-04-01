@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// FENCE.I instruction - instruction fence (Zifencei extension)
+// Invalidates the instruction cache to ensure instruction memory coherence.
+// FENCE.I: opcode=0001111, funct3=001
+//
+// Encoding: imm[11:0]=0 | rs1=0 | funct3=001 | rd=0 | opcode=0001111
+//
+// When an icache is present, this instruction triggers a full cache invalidation.
+// For single-cycle processors without icache, this is effectively a NOP.
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0001111;   // MISC-MEM opcode
+assume instr[14:12] == 0b001;     // FENCE.I funct3
+
+// Flush instruction cache (if present)
+// The cache optimization will wire this to the icache's flush input
+flush icache;
+
+// Advance PC
+pc = pc + 4;

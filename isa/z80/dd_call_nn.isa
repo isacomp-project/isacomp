@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD CD - DD prefix passthrough CALL nn
+// DD prefix consumed, CALL nn executes unchanged
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state sp[15:0];
+mem mainmem[15:0];
+
+var addr_lo[7:0];
+var addr_hi[7:0];
+var target[15:0];
+var return_addr[15:0];
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'hCDDD;
+pc = pc + 2;
+
+addr_lo = mainmem[pc];
+pc = pc + 1;
+addr_hi = mainmem[pc];
+pc = pc + 1;
+
+target = {addr_hi, addr_lo};
+return_addr = pc;  // Return address is instruction after CALL
+
+// Push return address to stack (high byte first)
+sp_minus_1 = sp - 1;
+mainmem[sp_minus_1] = return_addr[15:8];
+
+sp_minus_2 = sp_minus_1 - 1;
+mainmem[sp_minus_2] = return_addr[7:0];
+
+sp = sp_minus_2;
+pc = target;

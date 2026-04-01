@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 PHA (0x48) - Push Accumulator
+// Pushes the Accumulator (A) onto the stack
+// Stack pointer (S) is decremented
+// Does not affect any flags
+// Instruction format: PHA (1 byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state S[7:0];  // Stack pointer
+isa_state mainmem[7:0][15:0];
+
+var stack_addr[15:0];
+var new_S[7:0];
+
+instr = mainmem[pc];
+assume instr == 0x48;
+pc = pc + 1;
+
+// Push A to stack (stack is at 0x0100-0x01FF)
+stack_addr = {8'h01, S};
+mainmem[stack_addr] = A;
+
+// Decrement stack pointer
+new_S = S - 1;
+S = new_S;

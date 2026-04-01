@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ARPL r/m16, r16 (0x63)
+// Adjust RPL field of segment selector
+// Adjusts RPL (bits 1:0) of destination if source RPL is greater
+// Sets ZF=1 if adjustment made, ZF=0 otherwise
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+isa_state flag_ZF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var old_dst_selector[15:0];
+var src_selector[15:0];
+var dst_rpl[1:0];
+var src_rpl[1:0];
+var adjusted[0:0];
+var new_rpl[1:0];
+var new_dst_selector[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x63;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];   // Source register
+rm_bits = modrm[2:0];   // Destination register
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Update EIP after instruction
+eip = eip + 32'h00000002;
+
+// Read selectors (low 16 bits)
+old_dst_selector = xregs[rm_bits][15:0];
+src_selector = xregs[reg_idx][15:0];
+
+// Extract RPL fields (bits 1:0)
+dst_rpl = old_dst_selector[1:0];
+src_rpl = src_selector[1:0];
+
+// Check if adjustment needed
+adjusted = (src_rpl > dst_rpl) ? 1'b1 : 1'b0;
+
+// If source RPL > dest RPL, adjust destination RPL
+new_rpl = adjusted ? src_rpl : dst_rpl;
+new_dst_selector = {old_dst_selector[15:2], new_rpl};
+
+// Write back adjusted selector
+xregs[rm_bits] = {16'h0000, new_dst_selector};
+
+// Set ZF if adjustment was made
+flag_ZF = adjusted;

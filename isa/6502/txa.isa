@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 TXA (0x8A) - Transfer X to Accumulator
+// Copies the value in X register to the Accumulator (A)
+// Sets N flag if bit 7 of result is set (negative)
+// Sets Z flag if result is zero
+// Instruction format: TXA (1 byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+isa_state X[7:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state mainmem[7:0][15:0];
+
+instr = mainmem[pc];
+assume instr == 0x8A;
+pc = pc + 1;
+
+A = X;
+flag_N = X[7];
+flag_Z = X == 0 ? 1'b1 : 1'b0;

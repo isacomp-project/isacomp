@@ -1,0 +1,177 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030/68851 PTESTR - Test a Logical Address for Read
+// Opcode: 1111 000 000 mmm rrr followed by extension word
+// Extension: 100 LLL A RRR 0 FFF R/W 00
+//   LLL = level to search (0-7, 7 = all levels)
+//   A = 1 if result register specified
+//   RRR = result register (An)
+//   FFF = function code
+//   R/W = 0 for read
+// Tests address translation and reports result in MMUSR
+// Privileged instruction
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+mem dmem[23:0];
+
+isa_state sr[15:0];
+isa_state tc[31:0];
+isa_state mmusr[15:0];
+
+// ATC entries
+isa_state cam atc_va[19:0]@[4:0][];
+isa_state atc_v[0:0][4:0];
+isa_state atc_fc[2:0][4:0];
+isa_state atc_pa[19:0][4:0];
+isa_state atc_wp[0:0][4:0];
+isa_state atc_m[0:0][4:0];
+isa_state atc_s[0:0][4:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_mode[2:0];
+var ea_reg[2:0];
+var level[2:0];
+var has_areg[0:0];
+var fc[2:0];
+var areg[2:0];
+var addr[31:0];
+var vpn[19:0];
+
+var atc_matches[21:0];
+var atc_hit[0:0];
+var hit_idx[4:0];
+var new_mmusr[15:0];
+
+var mmu_enabled[0:0];
+var matched_wp[0:0];
+var matched_m[0:0];
+var matched_s[0:0];
+var supervisor[0:0];
+var invalid[0:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+
+instr = imem[pc_pa];
+assume instr[15:6] == 10'b1111000000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_mode = instr[5:3];
+ea_reg = instr[2:0];
+
+extw = imem[pc_pa];
+assume extw[15:13] == 3'b100;  // PTEST read
+assume extw[2:0] == 3'b000;    // R/W=0 (read), reserved=00
+pc when (~m68k_exc_taken) = pc + 2;
+
+level = extw[12:10];
+has_areg = extw[9];
+areg = extw[8:6];
+fc = extw[5:3];
+
+assume sr[13] == 1'b1;
+
+// Get address to test
+assume instr[5:3] == 3'b010;
+addr = aregs[ea_reg];
+vpn = addr[31:12];
+
+// Check if MMU is enabled
+mmu_enabled = tc[31];
+
+// Search ATC using CAM lookup
+atc_matches = atc_va@[vpn];
+
+// Filter by valid bit and function code
+var cv_0[0:0]; var cv_1[0:0]; var cv_2[0:0]; var cv_3[0:0];
+var cv_4[0:0]; var cv_5[0:0]; var cv_6[0:0]; var cv_7[0:0];
+var cv_8[0:0]; var cv_9[0:0]; var cv_10[0:0]; var cv_11[0:0];
+var cv_12[0:0]; var cv_13[0:0]; var cv_14[0:0]; var cv_15[0:0];
+var cv_16[0:0]; var cv_17[0:0]; var cv_18[0:0]; var cv_19[0:0];
+var cv_20[0:0]; var cv_21[0:0];
+
+cv_0 = atc_v[0] & (atc_fc[0] == fc);
+cv_1 = atc_v[1] & (atc_fc[1] == fc);
+cv_2 = atc_v[2] & (atc_fc[2] == fc);
+cv_3 = atc_v[3] & (atc_fc[3] == fc);
+cv_4 = atc_v[4] & (atc_fc[4] == fc);
+cv_5 = atc_v[5] & (atc_fc[5] == fc);
+cv_6 = atc_v[6] & (atc_fc[6] == fc);
+cv_7 = atc_v[7] & (atc_fc[7] == fc);
+cv_8 = atc_v[8] & (atc_fc[8] == fc);
+cv_9 = atc_v[9] & (atc_fc[9] == fc);
+cv_10 = atc_v[10] & (atc_fc[10] == fc);
+cv_11 = atc_v[11] & (atc_fc[11] == fc);
+cv_12 = atc_v[12] & (atc_fc[12] == fc);
+cv_13 = atc_v[13] & (atc_fc[13] == fc);
+cv_14 = atc_v[14] & (atc_fc[14] == fc);
+cv_15 = atc_v[15] & (atc_fc[15] == fc);
+cv_16 = atc_v[16] & (atc_fc[16] == fc);
+cv_17 = atc_v[17] & (atc_fc[17] == fc);
+cv_18 = atc_v[18] & (atc_fc[18] == fc);
+cv_19 = atc_v[19] & (atc_fc[19] == fc);
+cv_20 = atc_v[20] & (atc_fc[20] == fc);
+cv_21 = atc_v[21] & (atc_fc[21] == fc);
+
+var fc_valid_mask[21:0];
+fc_valid_mask = {cv_21, cv_20, cv_19, cv_18, cv_17, cv_16, cv_15, cv_14,
+                 cv_13, cv_12, cv_11, cv_10, cv_9, cv_8, cv_7, cv_6,
+                 cv_5, cv_4, cv_3, cv_2, cv_1, cv_0};
+
+var atc_filtered[21:0];
+atc_filtered = atc_matches & fc_valid_mask;
+
+// Check for hit (valid entry with matching FC)
+atc_hit = |atc_filtered;
+hit_idx = ctz(atc_filtered);
+
+// Get attributes from matched entry
+matched_wp = atc_wp[hit_idx];
+matched_m = atc_m[hit_idx];
+matched_s = atc_s[hit_idx];
+
+// Check supervisor violation
+supervisor = sr[13];
+invalid = ~mmu_enabled ? 1'b0 : (~atc_hit);
+
+// Build MMUSR
+//   [15] B = Bus Error (0 for now)
+//   [14] L = Limit violation (0)
+//   [13] S = Supervisor only
+//   [12] A = ATC entry exists
+//   [9]  W = Write Protected
+//   [8]  I = Invalid
+//   [7]  M = Modified
+//   [5:3] N = Levels searched
+//   [2]  T = Transparent translation
+//   [1]  R = Resident
+new_mmusr = {
+    1'b0,           // [15] B
+    1'b0,           // [14] L
+    matched_s,      // [13] S
+    atc_hit,        // [12] A
+    2'b00,          // [11:10]
+    matched_wp,     // [9] W
+    invalid,        // [8] I
+    matched_m,      // [7] M
+    1'b0,           // [6]
+    level,          // [5:3] N
+    1'b0,           // [2] T
+    atc_hit,        // [1] R
+    1'b0            // [0]
+};
+
+mmusr when (~m68k_exc_taken) = new_mmusr;
+
+// If has_areg, store physical address in result register
+aregs[areg] when (has_areg & atc_hit & ~m68k_exc_taken) = {atc_pa[hit_idx], addr[11:0]};

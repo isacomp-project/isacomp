@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Floating-Point CSR Aspect
+// Provides fcsr (floating-point control and status register) support for F extension
+//
+// CSR addresses:
+//   0x001 - fflags: Floating-point accrued exception flags (bits 4:0 of fcsr)
+//   0x002 - frm:    Floating-point dynamic rounding mode (bits 7:5 of fcsr)
+//   0x003 - fcsr:   Full floating-point control and status register
+//
+// This aspect is gated by F instructions to access the rounding mode
+
+// Declare fcsr as isa_state (gated by instructions that use this aspect)
+// Bits: [7:5] = frm (rounding mode), [4:0] = fflags (exception flags)
+// isa_state fcsr[31:0];  -- This is declared by the instruction that gates it
+
+// Extract rounding mode from fcsr
+// F instructions can use this for dynamic rounding mode (rm=0b111)
+var frm[2:0];
+frm = fcsr[7:5];
+
+// Extract exception flags from fcsr
+var fflags[4:0];
+fflags = fcsr[4:0];
+
+// Rounding mode constants for reference:
+// 000 = RNE (Round to Nearest, ties to Even)
+// 001 = RTZ (Round towards Zero)
+// 010 = RDN (Round Down, towards -infinity)
+// 011 = RUP (Round Up, towards +infinity)
+// 100 = RMM (Round to Nearest, ties to Max Magnitude)
+// 101 = Reserved
+// 110 = Reserved
+// 111 = DYN (In rm field, use frm from fcsr; in frm, invalid)
+
+// For accumulating exception flags, F instructions should do:
+//   fcsr = {fcsr[31:5], fcsr[4:0] | new_flags};
+// where new_flags comes from the FP operation result

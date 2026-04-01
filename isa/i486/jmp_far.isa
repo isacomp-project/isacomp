@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 JMP FAR ptr16:16 (0xEA)
+// Direct far jump with immediate segment:offset
+// Format: EA offset[0:1] segment[2:3]
+
+isa_state eip[31:0];
+var instr[7:0];
+
+isa_state imem[7:0][31:0];
+isa_state CS[15:0];
+
+var offset_lo[7:0];
+var offset_hi[7:0];
+var segment_lo[7:0];
+var segment_hi[7:0];
+var target_offset[15:0];
+var target_segment[15:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xEA;
+
+// Read offset (little-endian)
+offset_lo = imem[eip + 1];
+offset_hi = imem[eip + 2];
+target_offset = {offset_hi, offset_lo};
+
+// Read segment (little-endian)
+segment_lo = imem[eip + 3];
+segment_hi = imem[eip + 4];
+target_segment = {segment_hi, segment_lo};
+
+// Jump to target
+CS = target_segment;
+eip = {16'h0000, target_offset};

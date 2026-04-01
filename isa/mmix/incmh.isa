@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX INCMH - Increase by Medium High Wyde
+// INCMH $X,YZ: $X = $X + (YZ << 32)
+// Opcode: 0xE5
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var yz[15:0];
+var x_val[63:0];
+var inc[63:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xE5;
+
+x = instr[23:16];
+yz = instr[15:0];
+
+x_val = rf[x];
+inc = {16'h0, yz, 32'h0};
+
+result = x_val + inc;
+
+rf[x] = result;
+pc = pc + 4;

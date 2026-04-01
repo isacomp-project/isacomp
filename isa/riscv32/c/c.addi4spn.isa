@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var c_instr[15:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+var rd_prime[2:0];
+var rd[4:0];
+var sp[31:0];
+var uimm[9:0];
+var zero_ext_imm[31:0];
+var res[31:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.ADDI4SPN format: CIW-type
+// Encoding: 000 imm[5:4|9:6|2|3] rd' 00
+assume c_instr[1:0] == 0b00;
+assume c_instr[15:13] == 0b000;
+
+pc = pc + 2;
+
+// Compressed register encoding: x8-x15
+rd_prime = c_instr[4:2];
+rd = {2'b01, rd_prime};
+
+// Unsigned immediate: uimm[9:2] = {c_instr[10:7], c_instr[12:11], c_instr[5], c_instr[6]}
+uimm = {c_instr[10:7], c_instr[12:11], c_instr[5], c_instr[6], 2'b00};
+zero_ext_imm = {22'b0, uimm};
+
+// SP is x2
+sp = rf[5'b00010];
+
+res = sp + zero_ext_imm;
+
+// No guard needed - rd is always 8-15, never 0
+rf[rd] = res;

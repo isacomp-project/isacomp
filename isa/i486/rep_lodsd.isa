@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REP LODSD (0xF3 0xAD) - WITH PROPER SEGMENTATION
+// Repeat while ECX != 0: Load dword from DS:[ESI] into EAX
+// IP stays constant until ECX reaches 0
+// Uses DS segment for source
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state xregs[31:0][2:0];
+isa_state EAX[31:0] of xregs[0];
+isa_state ESI[31:0] of xregs[6];
+isa_state ECX[31:0] of xregs[1];
+isa_state flag_DF[0:0];
+
+var physical_addr[31:0];
+var dword_value[31:0];
+var ecx_is_zero[0:0];
+var ecx_not_zero[0:0];
+var new_esi_inc[31:0];
+var new_esi_dec[31:0];
+var new_ip[31:0];
+
+// Fetch REP prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+
+// Fetch LODSD instruction (at IP+1)
+instr = imem[eip + 1];
+assume instr == 0xAD;
+
+// Check counter
+ecx_is_zero = ECX == 32'h00000000;
+ecx_not_zero = ECX != 32'h00000000;
+
+// Calculate physical address using DS segment (protected mode uses flat addressing)
+physical_addr = ESI;
+
+// Load dword from DS:[ESI]
+dword_value = {dmem[physical_addr + 3], dmem[physical_addr + 2], dmem[physical_addr + 1], dmem[physical_addr]};
+
+// Calculate new ESI (increment or decrement by 4)
+new_esi_inc = ESI + 32'h00000004;
+new_esi_dec = ESI - 32'h00000004;
+
+// Calculate new IP (advance past instruction)
+new_ip = eip + 32'h0002;
+
+// When ECX != 0: Execute one iteration
+EAX when(ecx_not_zero) = dword_value;
+ESI when(ecx_not_zero) = flag_DF == 1'b0 ? new_esi_inc : new_esi_dec;
+ECX when(ecx_not_zero) = ECX - 32'h00000001;
+eip when(ecx_not_zero) = eip;  // Stay at same IP (loop continues)
+
+// When ECX == 0: Advance IP and exit
+eip when(ecx_is_zero) = new_ip;

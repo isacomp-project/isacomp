@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 BSET Dn,Dm - Test and set bit in data register (dynamic)
+// Opcode: 0000 SSS1 11000 DDD where SSS=bit number reg, DDD=dest reg
+// Tests bit, sets Z flag, then SETS the bit
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var bsdn_bit_num[31:0];
+var bsdn_src_val[31:0];
+var bsdn_bit_pos[4:0];
+var bsdn_bit_val[0:0];
+var bsdn_mask[31:0];
+var bsdn_result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0000;       // Bit manipulation
+assume instr[8:6] == 0b111;          // BSET dynamic opcode
+assume instr[5:3] == 0b000;          // EA mode: Data Register Direct
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode
+src_reg = instr[11:9];  // Register containing bit number
+dst_reg = instr[2:0];   // Destination register
+
+// Get bit number from source register and destination value
+bsdn_bit_num = dregs[src_reg];
+bsdn_src_val = dregs[dst_reg];
+bsdn_bit_pos = bsdn_bit_num[4:0];  // Modulo 32 for long
+bsdn_bit_val = (bsdn_src_val >> bsdn_bit_pos) & 1;
+
+// Update Z flag (set if bit was zero before setting)
+flag_Z when (~m68k_exc_taken) = ~bsdn_bit_val;
+
+// Set the bit using OR
+bsdn_mask = 1 << bsdn_bit_pos;
+bsdn_result = bsdn_src_val | bsdn_mask;
+dregs[dst_reg] when (~m68k_exc_taken) = bsdn_result;
+
+// Other flags not affected

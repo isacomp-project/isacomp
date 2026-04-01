@@ -1,0 +1,80 @@
+# Git
+.git/
+.gitignore
+.gitmodules
+
+# GitHub
+.github/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Generated files
+*.rgraph
+*.vcd
+*.vvp
+*.o
+*.a
+*.so
+*.elf
+*.bin
+*.hex
+*.mem
+*.json.gz
+
+# Build outputs
+_build/
+build/
+dist/
+verilog/generated/
+test_output/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Documentation (already in image, no need to copy twice)
+*.md
+
+# Large test files
+*.tar.gz
+*.zip
+*.bz2
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# FuseSoC cache
+build/
+bld*/
+
+# OCaml build artifacts (will be rebuilt)
+frontends/sail/ocaml_sail_extractor/_build/
+frontends/sail/ocaml_sail_extractor/*.exe
+frontends/sail/ocaml_sail_extractor/*.o
+frontends/sail/ocaml_sail_extractor/*.cm*
+
+# Docker files themselves (avoid recursion)
+Dockerfile*
+.dockerignore
+docker-compose.yml

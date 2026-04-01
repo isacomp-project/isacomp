@@ -1,0 +1,139 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 ILLEGAL - Illegal Instruction
+// Opcode: 0100 1010 1111 1100 (4AFC)
+// Forces illegal instruction exception (vector 4)
+// Used for breakpoints and software debugging
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[23:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+// Full Status Register
+isa_state sr[15:0];
+isa_state usp[31:0];
+isa_state ssp[31:0];
+isa_state vbr[31:0];
+
+// CCR flags
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var vector_addr[31:0];
+var handler_hi[15:0];
+var handler_lo[15:0];
+var handler[31:0];
+var sp_after_format[31:0];
+var sp_after_pc[31:0];
+var sp_after_sr[31:0];
+var old_sr[15:0];
+var new_sr[15:0];
+var fault_pc[31:0];
+var was_user[0:0];
+var format_vector[15:0];
+var illegal_frame_lo[31:0];
+var illegal_frame_hi[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr == 16'h4AFC;  // ILLEGAL opcode
+
+// Save PC pointing to the ILLEGAL instruction (not next instruction)
+fault_pc = pc;
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Save old SR (reconstruct from live flags to get correct CCR bits)
+old_sr = {sr[15:5], flag_X, flag_N, flag_Z, flag_V, flag_C};
+
+// Check if we're coming from user mode
+was_user = ~sr[13];
+
+// If in user mode, save USP
+usp when (was_user & ~m68k_exc_taken) = aregs[7];
+
+// Vector 4 = Illegal Instruction
+// Vector address = VBR + (4 * 4) = VBR + 16
+vector_addr = vbr + 32'h10;
+
+// Read exception handler address
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = vector_addr;
+var is_write[0:0];
+is_write = 1'b0;  // Vector table READ, not write
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+handler_hi = dmem[ea_pa];
+#else
+handler_hi = dmem[vector_addr];
+#endif
+#ifdef MMU
+handler_lo = dmem[ea_pa + 2];
+#else
+handler_lo = dmem[vector_addr + 2];
+#endif
+handler = {handler_hi, handler_lo};
+
+// Calculate stack positions (68010+ format 0: 8 bytes)
+// Use aregs[7] when already in supervisor mode (ssp may be stale)
+var base_sp[31:0];
+base_sp = was_user ? ssp : aregs[7];
+sp_after_format = base_sp - 2;
+sp_after_pc = sp_after_format - 4;
+sp_after_sr = sp_after_pc - 2;
+
+// Format/vector word: format 0, vector 4, offset = 4 * 4 = 16
+format_vector = {4'b0000, 12'h010};
+
+// Push exception frame as two 32-bit writes to avoid dual-half collision
+illegal_frame_lo = {old_sr, fault_pc[31:16]};
+illegal_frame_hi = {fault_pc[15:0], format_vector};
+dmem[sp_after_sr] when (~m68k_exc_taken & ~data_exc_taken) = illegal_frame_lo;
+dmem[sp_after_sr + 4] when (~m68k_exc_taken & ~data_exc_taken) = illegal_frame_hi;
+
+// Update SSP
+ssp when (~m68k_exc_taken & ~data_exc_taken) = sp_after_sr;
+aregs[7] when (~m68k_exc_taken & ~data_exc_taken) = sp_after_sr;
+
+// Enter supervisor mode, clear trace bits
+new_sr = {2'b00, 1'b1, old_sr[12:0]};
+sr when (~m68k_exc_taken & ~data_exc_taken) = new_sr;
+
+// Update CCR flags
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = new_sr[0];
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = new_sr[1];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = new_sr[2];
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = new_sr[3];
+flag_X when (~m68k_exc_taken & ~data_exc_taken) = new_sr[4];
+
+// Jump to exception handler
+pc when (~m68k_exc_taken) = handler;

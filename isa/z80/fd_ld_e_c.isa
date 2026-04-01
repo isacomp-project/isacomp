@@ -1,0 +1,18 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD 59 - FD prefix passthrough
+// FD prefix consumed, base opcode 59 executes unchanged
+
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state E[7:0];
+isa_state C[7:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'h59FD;
+pc = pc + 2;
+
+E = C;

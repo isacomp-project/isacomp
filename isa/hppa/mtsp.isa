@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA MTSP instruction
+// MTSP r,sr - Move To Space Register
+// Opcode: 0x00 (bits 31:26), function=0xC1 (bits 12:5)
+//
+// PA-RISC 1.1 encoding (verified from cross-assembler output):
+//   000000 | 00000 | rrrrr | s3[2:0] | 11000001 | 00000
+//   bits[31:26] = 000000 (opcode)
+//   bits[25:21] = 00000 (fixed zeros)
+//   bits[20:16] = r (source general register)
+//   bits[15:13] = s3 (3-bit SCRAMBLED space register field)
+//   bits[12:5]  = 0xC1 (function code)
+//   bits[4:0]   = 00000
+//
+// Space register decode: SR = {s3[0], s3[2], s3[1]} = {instr[13], instr[15], instr[14]}
+// Verified: mtsp ret0,sr3 (0x001cd820) → bits[15:13]=110, decode={0,1,1}=3 ✓
+//           mtsp r19,sr1  (0x00135820) → bits[15:13]=010, decode={0,0,1}=1 ✓
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+isa_state sr0[31:0];
+isa_state sr1[31:0];
+isa_state sr2[31:0];
+isa_state sr3[31:0];
+isa_state sr4[31:0];
+isa_state sr5[31:0];
+isa_state sr6[31:0];
+isa_state sr7[31:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var sr[2:0];
+var value[31:0];
+
+instr = umem[pc_pa];
+
+// MTSP encoding: bits[31:26]=0x00, bits[25:21]=00000, bits[12:5]=0xC1
+assume instr[31:26] == 0b000000;
+assume instr[25:21] == 0b00000;
+assume instr[12:5] == 0b11000001;
+
+// Source register at bits[20:16]
+r = instr[20:16];
+
+// Space register: 3-bit SCRAMBLED field at bits[15:13]
+// SR = {s3[0], s3[2], s3[1]} = {instr[13], instr[15], instr[14]}
+sr = {instr[13], instr[15], instr[14]};
+
+value = (r == 0) ? 32'h0 : rf[r];
+
+var no_trap[0:0];
+no_trap = ~instr_trap_taken & ~in_nullified;
+
+// Write to space register (gated on not trapped/nullified)
+sr0 when (sr == 0 & no_trap) = value;
+sr1 when (sr == 1 & no_trap) = value;
+sr2 when (sr == 2 & no_trap) = value;
+sr3 when (sr == 3 & no_trap) = value;
+sr4 when (sr == 4 & no_trap) = value;
+sr5 when (sr == 5 & no_trap) = value;
+sr6 when (sr == 6 & no_trap) = value;
+sr7 when (sr == 7 & no_trap) = value;
+
+pc = pc + 4;

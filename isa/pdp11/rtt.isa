@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// PDP-11 RTT instruction
+
+isa_state pc[15:0];
+var instr[15:0];
+isa_state rf[15:0][2:0];  // 8 registers, R7 is PC
+isa_state umem[7:0][15:0];      // Byte-addressable memory
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var sp[15:0];
+var new_pc[15:0];
+var new_psw[15:0];
+var pc_lo[7:0];
+var pc_hi[7:0];
+var psw_lo[7:0];
+var psw_hi[7:0];
+
+
+// Fetch instruction (little-endian)
+var instr_lo[7:0];
+var instr_hi[7:0];
+instr_lo = umem[pc];
+instr_hi = umem[pc + 1];
+instr = {instr_hi, instr_lo};
+
+
+assume instr[15:0] == 16'b0000000000000110;  // RTT = 000006
+
+sp = rf[6];
+pc_lo = umem[sp];
+pc_hi = umem[sp + 1];
+new_pc = {pc_hi, pc_lo};
+rf[6] = sp + 2;
+
+sp = rf[6];
+psw_lo = umem[sp];
+psw_hi = umem[sp + 1];
+new_psw = {psw_hi, psw_lo};
+rf[6] = sp + 2;
+
+pc = new_pc;
+flag_N = new_psw[3];
+flag_Z = new_psw[2];
+flag_V = new_psw[1];
+flag_C = new_psw[0];

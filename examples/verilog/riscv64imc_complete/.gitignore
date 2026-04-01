@@ -1,0 +1,6 @@
+sim
+*.vcd
+tests/
+umem.hex
+rf.hex
+obj_dir/

@@ -1,0 +1,94 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 VDEPDI instruction (64-bit deposit doubleword immediate, SAR, preserve)
+// DEPDI,* im5,len,t - Variable Deposit Doubleword Immediate: deposits 'len' low-order
+// bits of sign-extended immediate into t at SAR-specified position, preserves rest.
+// 64-bit doubleword variant of VDEP (immediate).
+// Opcode: 0x35 (bits 31:26), sub: bits[12:10]=101, bit[9]=1 (doubleword mode)
+// t=instr[25:21], im5=instr[20:16] (low_sign_ext), clen5=instr[4:0]
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state sar[5:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var vdi_t[4:0];
+var vdi_im5[4:0];
+var vdi_clen[4:0];
+var vdi_sign_ext_imm[63:0];
+var vdi_dst[63:0];
+var vdi_len[6:0];
+var vdi_pos[5:0];
+var vdi_shift_amt[5:0];
+var vdi_mask[63:0];
+var vdi_field_mask[63:0];
+var vdi_deposited[63:0];
+var vdi_preserved[63:0];
+var vdi_res[63:0];
+var vdi_cond_eq[0:0];
+var vdi_cond_lt[0:0];
+var vdi_cond_od[0:0];
+var vdi_cond_base[0:0];
+var vdi_cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// VDEPDI encoding: opcode=0x35, bits[12:10]=101, bit[9]=1 (64-bit doubleword)
+assume instr[31:26] == 0b110101;
+assume instr[12:10] == 0b101;
+assume instr[9] == 1;
+
+// Extract fields
+vdi_t = instr[25:21];
+vdi_im5 = instr[20:16];
+vdi_clen = instr[4:0];
+
+// Low-sign-extend 5-bit immediate: sign bit is im5[0], value is im5[4:1]
+vdi_sign_ext_imm = vdi_im5[0] ? {60'hFFFFFFFFFFFFFFF, vdi_im5[4:1]} : {60'h0, vdi_im5[4:1]};
+
+// Read destination register (for merging non-deposited bits)
+vdi_dst = (vdi_t == 0) ? 64'h0 : rf[vdi_t];
+
+// len = 64 - {~instr[8], clen5} (6-bit clen for 64-bit SAR deposits, full range 1-64)
+// Equivalent: len = 1 + {1'b0, instr[8], ~clen5}
+vdi_len = 7'b0000001 + {1'b0, instr[8], ~vdi_clen};
+
+// Position from SAR (full 6 bits for 64-bit operation)
+vdi_pos = sar[5:0];
+
+// shift_amt = 63 - pos
+vdi_shift_amt = 6'b111111 - vdi_pos;
+
+// Create field mask: 'len' bits shifted to position
+vdi_mask = (64'h1 << vdi_len) - 64'h1;
+vdi_field_mask = vdi_mask << vdi_shift_amt;
+
+// Deposit: place low 'len' bits of immediate at position, preserve rest from dst
+vdi_deposited = (vdi_sign_ext_imm & vdi_mask) << vdi_shift_amt;
+vdi_preserved = vdi_dst & ~vdi_field_mask;
+vdi_res = vdi_deposited | vdi_preserved;
+
+// 3-bit conditional nullification (c=instr[15:13])
+vdi_cond_eq = (vdi_res == 0);
+vdi_cond_lt = vdi_res[63];
+vdi_cond_od = vdi_res[0];
+vdi_cond_base = (instr[13] & ~instr[14] & vdi_cond_eq) | (~instr[13] & instr[14] & vdi_cond_lt) | (instr[13] & instr[14] & vdi_cond_od);
+vdi_cond_met = vdi_cond_base ^ instr[15];
+psw when (vdi_cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target
+rf[vdi_t] when (vdi_t != 0 & ~instr_trap_taken & ~in_nullified) = vdi_res;
+
+// Advance PC
+pc = pc + 4;

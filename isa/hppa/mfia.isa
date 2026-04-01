@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA MFIA instruction
+// MFIA t - Move From Instruction Address
+// Copies the address of the current instruction to t
+// Opcode: 0x00 (bits 31:26)
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var t[4:0];
+
+instr = umem[pc_pa];
+
+assume instr[31:26] == 0b000000;
+assume instr[25:21] == 0b00000;
+assume instr[15:13] == 0b101;  // MFIA encoding
+assume instr[12:0] == 0b0000000000000;
+
+t = instr[20:16];
+
+rf[t] when (t != 0 & ~instr_trap_taken & ~in_nullified) = pc;
+pc = pc + 4;

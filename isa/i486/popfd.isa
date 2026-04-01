@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 POPFD (0x9D)
+// Pop EFLAGS register from stack
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Stack pointer alias
+isa_state ESP[31:0] of xregs[4];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+// Individual flags
+isa_state flag_CF[0:0];  // Bit 0
+isa_state flag_PF[0:0];  // Bit 2
+isa_state flag_AF[0:0];  // Bit 4
+isa_state flag_ZF[0:0];  // Bit 6
+isa_state flag_SF[0:0];  // Bit 7
+isa_state flag_DF[0:0];  // Bit 10
+isa_state flag_OF[0:0];  // Bit 11
+
+var eflags_b0[7:0];
+var eflags_b1[7:0];
+var eflags_b2[7:0];
+var eflags_b3[7:0];
+var eflags[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x9D;
+eip = eip + 1;
+
+// Pop EFLAGS from stack (little-endian)
+eflags_b0 = dmem[ESP];
+eflags_b1 = dmem[ESP + 1];
+eflags_b2 = dmem[ESP + 2];
+eflags_b3 = dmem[ESP + 3];
+eflags = {eflags_b3, eflags_b2, eflags_b1, eflags_b0};
+
+// Increment ESP by 4
+ESP = ESP + 4;
+
+// Extract individual flags from EFLAGS value
+flag_CF = eflags[0];
+flag_PF = eflags[2];
+flag_AF = eflags[4];
+flag_ZF = eflags[6];
+flag_SF = eflags[7];
+flag_DF = eflags[10];
+flag_OF = eflags[11];

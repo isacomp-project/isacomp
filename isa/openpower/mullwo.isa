@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER mullwo - Multiply Low Word with Overflow (XO-Form)
+// mullwo RT,RA,RB
+// Primary opcode 31, XO=235, OE=1
+// RT <- (RA)[32:63] * (RB)[32:63] (low 32 bits, sign-extended)
+// Overflow if result doesn't fit in signed 32 bits
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state xer[63:0];
+// XER bits:
+// XER[32] = SO (Summary Overflow) - sticky
+// XER[33] = OV (Overflow)
+mem umem[14:0];
+
+var rt[4:0];
+var ra[4:0];
+var rb[4:0];
+var ra_val[31:0];
+var rb_val[31:0];
+var product_full[63:0];
+var result[63:0];
+var overflow[0:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 235
+assume instr[9:1] == 235;
+// OE bit = 1 (overflow enable)
+assume instr[10] == 1;
+// Rc bit = 0
+assume instr[0] == 0;
+
+// Extract register fields
+rt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+
+// Get low 32 bits of each register (signed)
+ra_val = rf[ra][31:0];
+rb_val = rf[rb][31:0];
+
+// Full 64-bit product of signed 32-bit values
+product_full = ra_val * rb_val;
+
+// Result is low 32 bits sign-extended to 64 bits
+result = {{32{product_full[31]}}, product_full[31:0]};
+
+// Overflow if the full product doesn't equal the sign-extended low 32 bits
+// i.e., if high 32 bits are not all sign extension of bit 31
+overflow = (product_full != result);
+
+// Update XER overflow bits
+xer[33] = overflow;           // OV
+xer[32] = xer[32] | overflow; // SO (sticky)
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

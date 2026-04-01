@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// HPPA PA-RISC 2.0 Nullification Aspect (64-bit)
+// =============================================================================
+//
+// This aspect handles the PA-RISC nullification mechanism (PSW.N bit).
+// 64-bit version: all state widened to 64 bits for PA-RISC 2.0.
+//
+// NULLIFICATION SEMANTICS:
+// When PSW.N=1, the current instruction is nullified:
+//   - The instruction is fetched but NOT executed (no side effects)
+//   - PSW.N is cleared to 0
+//   - PC advances by 4 (to the next instruction)
+//
+// Nullification is used for:
+//   1. Branch delay slot annulment (branch,n variants)
+//   2. Conditional execution patterns (skip-if-taken, skip-if-not-taken)
+//
+// USAGE: Every instruction file includes this aspect:
+//   aspect nullify.isa gates pc, psw;
+//
+// PROVIDES:
+//   in_nullified[0:0] - 1 if this instruction is nullified (gate all effects)
+//
+// =============================================================================
+
+// Capture nullification state at instruction start
+var in_nullified[0:0];
+in_nullified = psw[21];  // PSW.N = bit 21 (PSW_N = 0x00200000)
+
+// Clear N bit if it was set
+var psw_n_cleared[63:0];
+psw_n_cleared = psw & 64'hFFFFFFFFFFDFFFFF;  // Clear bit 21 (N)
+psw when (in_nullified == 1) = psw_n_cleared;
+
+// Override PC to advance past the nullified instruction.
+// But NOT when in a delay slot: the branch must still be taken.
+// (The delay_slot aspect at priority 2 will redirect PC to branch_target.)
+pc when (in_nullified == 1 & delay_slot != 1) = pc + 4;

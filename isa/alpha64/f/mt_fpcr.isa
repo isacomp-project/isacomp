@@ -1,0 +1,23 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 - MT_FPCR (Move to FPCR)
+// Opcode: 0x17, Function: 0x024
+// Format: MT_FPCR Fa, Fb, Fc (Fa=Fb=Fc)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit)
+isa_state fpcr[63:0];          // FP control register
+mem umem[13:0];
+
+var fa[4:0];
+
+instr = umem[pc];
+assume instr[31:26] == 23;     // Opcode 0x17 = FP operate
+assume instr[15:5] == 11'h024; // MT_FPCR function code
+
+fa = instr[25:21];
+
+// Copy FP register to FPCR
+fpcr = frf[fa];
+pc = pc + 4;

@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+var rs[4:0];
+var rt[4:0];
+var rd[4:0];
+var r1[31:0];
+var r2[31:0];
+var res[31:0];
+
+instr = umem[pc];
+assume instr[31:26] == 0;
+assume instr[5:0] == 0x3f;
+pc = pc + 4;
+rs = instr[25:21];
+rt = instr[20:16];
+rd = instr[15:11];
+
+r1 = rf[rs];
+r2 = rf[rt];
+
+// BUG: This should be r1 + r2, but we're doing XOR instead!
+res = r1 ^ r2;
+
+rf[rd] = res;

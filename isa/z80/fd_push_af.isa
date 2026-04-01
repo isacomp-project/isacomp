@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD F5 - FD prefix passthrough
+// FD prefix consumed, base opcode F5 executes unchanged
+
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state sp[15:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_S[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_H[0:0];
+isa_state flag_PV[0:0];
+isa_state flag_N[0:0];
+isa_state flag_C[0:0];
+
+var sp_minus_1[15:0];
+var sp_minus_2[15:0];
+var F[7:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'hF5FD;
+pc = pc + 2;
+
+// Construct F register from individual flags
+// F: S(7) Z(6) 0(5) H(4) 0(3) P/V(2) N(1) C(0)
+F = {flag_S, flag_Z, 1'b0, flag_H, 1'b0, flag_PV, flag_N, flag_C};
+
+sp_minus_1 = sp - 1;
+mainmem[sp_minus_1] = A;  // High byte first
+
+sp_minus_2 = sp_minus_1 - 1;
+mainmem[sp_minus_2] = F;
+
+sp = sp_minus_2;

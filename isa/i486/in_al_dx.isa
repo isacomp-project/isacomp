@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 IN AL, DX (0xEC)
+// Input byte from port in DX
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state DX[15:0] of xregs[2][15:0];
+isa_state io_ports[7:0][7:0];
+
+var port_num[7:0];
+
+instr = imem[eip];
+assume instr == 0xEC;
+eip = eip + 1;
+
+// Use DX as port number (only lower 8 bits for simplified model)
+port_num = DX[7:0];
+
+// Read byte from I/O port
+AL = io_ports[port_num];

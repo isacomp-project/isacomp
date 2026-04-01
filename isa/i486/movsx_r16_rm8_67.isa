@@ -1,0 +1,107 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOVSX r16, r/m8 with 67 prefix (0x67 0x0F 0xBE) - 32-bit addressing
+// Sign-extend byte to word (8-bit to 16-bit)
+
+isa_state lregs[7:0][1:0] of xregs[0b0**][7:0];
+isa_state hregs[7:0][1:0] of xregs[0b0**][15:8];
+isa_state xregs[31:0][2:0];
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state DS[15:0];
+
+var dst_idx[2:0];
+var src_reg_idx[1:0];
+var base_val[31:0];
+var disp8[7:0];
+var disp32_b0[7:0];
+var disp32_b1[7:0];
+var disp32_b2[7:0];
+var disp32_b3[7:0];
+var disp32[31:0];
+var signed_disp8[31:0];
+var offset[31:0];
+var physical_addr[31:0];
+var src_mem_val[7:0];
+var src_reg_val_low[7:0];
+var src_reg_val_high[7:0];
+var src_reg_val[7:0];
+var src_val[7:0];
+var result[15:0];
+var is_mem_src[0:0];
+
+prefix = imem[eip];
+assume prefix == 0x67;
+
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+instr2 = imem[eip + 2];
+assume instr2 == 0xBE;
+
+modrm = imem[eip + 3];
+
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+dst_idx = reg_idx;
+src_reg_idx = rm_bits[1:0];
+
+base_val = xregs[rm_bits];
+
+disp8 = imem[eip + 4];
+disp32_b0 = imem[eip + 4];
+disp32_b1 = imem[eip + 5];
+disp32_b2 = imem[eip + 6];
+disp32_b3 = imem[eip + 7];
+disp32 = {disp32_b3, disp32_b2, disp32_b1, disp32_b0};
+signed_disp8 = {{24{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  2'b00: offset = base_val;
+  2'b01: offset = base_val + signed_disp8;
+  2'b10: offset = base_val + disp32;
+  2'b11: offset = 32'h00000000;
+}
+
+case (mod_bits) {
+  2'b00: is_mem_src = 1'b1;
+  2'b01: is_mem_src = 1'b1;
+  2'b10: is_mem_src = 1'b1;
+  2'b11: is_mem_src = 1'b0;
+}
+
+case (mod_bits) {
+  2'b00: eip = eip + 4;
+  2'b01: eip = eip + 5;
+  2'b10: eip = eip + 8;
+  2'b11: eip = eip + 4;
+}
+
+physical_addr = ({16'h0000, DS} << 4) + offset;
+
+src_mem_val = dmem[physical_addr];
+src_reg_val_low = lregs[src_reg_idx];
+src_reg_val_high = hregs[src_reg_idx];
+
+case (rm_bits[2]) {
+  1'b1: src_reg_val = src_reg_val_high;
+  1'b0: src_reg_val = src_reg_val_low;
+}
+
+case (is_mem_src) {
+  1'b1: src_val = src_mem_val;
+  1'b0: src_val = src_reg_val;
+}
+
+// Sign-extend: replicate sign bit
+result = {{8{src_val[7]}}, src_val};
+xregs[dst_idx][15:0] = result;

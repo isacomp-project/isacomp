@@ -1,0 +1,86 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+mem umem[23:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rm[31:0];
+var r0[31:0];
+var load_addr[31:0];
+var load_size[1:0];
+var data16[15:0];
+var sign_ext_data[31:0];
+var movw_indexed_no_error[0:0];
+var movw_indexed_ok[0:0];  // Combined no_error and no exception
+
+// Register banking variables (unique to movw_indexed)
+var movw_indexed_rn_lo[2:0];
+var movw_indexed_rm_lo[2:0];
+var movw_indexed_r0_lo[2:0];
+var movw_indexed_rb[0:0];
+var movw_indexed_rn_bk[0:0];
+var movw_indexed_rm_bk[0:0];
+var movw_indexed_r0_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for external interrupts
+aspect interrupt.isa gates sr, exc_taken:1, exc_vector:1;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem;
+
+// Include address error detection for loads
+aspect addr_error_load.isa gates pc, sr, vbr, rf, umem, exc_taken:2, exc_vector:2;
+
+instr = umem[pc];
+assume instr[15:12] == 0x0;
+assume instr[3:0] == 0xD;
+rn = instr[11:8];
+rm = instr[7:4];
+
+// Register banking setup
+movw_indexed_rn_lo = rn[2:0];
+movw_indexed_rm_lo = rm[2:0];
+movw_indexed_r0_lo = 3'b000;
+movw_indexed_rb = sr[28];
+movw_indexed_rn_bk = (rn[3] == 1'b0) & movw_indexed_rb;
+movw_indexed_rm_bk = (rm[3] == 1'b0) & movw_indexed_rb;
+movw_indexed_r0_bk = movw_indexed_rb;  // R0[3] is 0
+
+// MOV.W @(R0, Rm), Rn: load word from address (R0 + Rm) to Rn
+Rm = movw_indexed_rm_bk ? rf_bank[movw_indexed_rm_lo] : rf[rm];
+r0 = movw_indexed_r0_bk ? rf_bank[movw_indexed_r0_lo] : rf[0];
+load_addr = Rm + r0;
+
+// Set up address error checking
+load_size = 2'b10;  // Word access (16-bit)
+
+// Compute the no-error condition
+movw_indexed_no_error = (load_addr[0] == 1'b0);
+
+// Combine no_error with no exception for rf writes
+movw_indexed_ok = movw_indexed_no_error & (exc_taken == 0);
+
+data16 = umem[load_addr];
+sign_ext_data = {{16{data16[15]}}, data16};
+
+// Only update register if no address error and no exception (combined with banking)
+rf[rn] when ((movw_indexed_rn_bk == 0) & movw_indexed_ok) = sign_ext_data;
+rf_bank[movw_indexed_rn_lo] when (movw_indexed_rn_bk & movw_indexed_ok) = sign_ext_data;
+
+// Only advance PC if no address error
+pc when (movw_indexed_no_error) = pc + 2;

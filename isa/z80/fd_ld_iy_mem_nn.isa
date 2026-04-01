@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD 2A - LD IY,(nn) (Load IY from memory address nn)
+// Does not affect flags
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var pc_plus_3[15:0];
+isa_state IYH[7:0];
+isa_state IYL[7:0];
+mem mainmem[15:0];
+var ld_iy_addr[15:0];
+var ld_iy_addr_plus_1[15:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'h2AFD;
+
+pc_plus_2 = pc_plus_1 + 1;
+pc_plus_3 = pc_plus_2 + 1;
+
+ld_iy_addr = {mainmem[pc_plus_3], mainmem[pc_plus_2]};
+ld_iy_addr_plus_1 = ld_iy_addr + 1;
+
+IYL = mainmem[ld_iy_addr];
+IYH = mainmem[ld_iy_addr_plus_1];
+
+pc = pc_plus_3 + 1;

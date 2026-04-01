@@ -1,0 +1,401 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 TLBWI - TLB Write Indexed
+// Writes EntryHi, EntryLo0, EntryLo1 to TLB entry at Index
+// Encoding: 010000 1 0000000000000000000 000010
+//           COP0   CO                    TLBWI
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0/TLB state
+#ifdef MMU
+aspect ../tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// TLBWI encoding
+assume instr[31:26] == 6'b010000;  // COP0 opcode
+assume instr[25] == 1'b1;          // CO bit
+assume instr[5:0] == 6'b000010;    // TLBWI function
+
+// Get TLB index from Index register
+var tlb_idx[4:0];
+tlb_idx = cp0_index[4:0];
+
+// Generate write enable signals for each TLB entry
+var wr_0[0:0]; var wr_1[0:0]; var wr_2[0:0]; var wr_3[0:0];
+var wr_4[0:0]; var wr_5[0:0]; var wr_6[0:0]; var wr_7[0:0];
+var wr_8[0:0]; var wr_9[0:0]; var wr_10[0:0]; var wr_11[0:0];
+var wr_12[0:0]; var wr_13[0:0]; var wr_14[0:0]; var wr_15[0:0];
+var wr_16[0:0]; var wr_17[0:0]; var wr_18[0:0]; var wr_19[0:0];
+var wr_20[0:0]; var wr_21[0:0]; var wr_22[0:0]; var wr_23[0:0];
+var wr_24[0:0]; var wr_25[0:0]; var wr_26[0:0]; var wr_27[0:0];
+var wr_28[0:0]; var wr_29[0:0]; var wr_30[0:0]; var wr_31[0:0];
+
+wr_0 = (tlb_idx == 0);
+wr_1 = (tlb_idx == 1);
+wr_2 = (tlb_idx == 2);
+wr_3 = (tlb_idx == 3);
+wr_4 = (tlb_idx == 4);
+wr_5 = (tlb_idx == 5);
+wr_6 = (tlb_idx == 6);
+wr_7 = (tlb_idx == 7);
+wr_8 = (tlb_idx == 8);
+wr_9 = (tlb_idx == 9);
+wr_10 = (tlb_idx == 10);
+wr_11 = (tlb_idx == 11);
+wr_12 = (tlb_idx == 12);
+wr_13 = (tlb_idx == 13);
+wr_14 = (tlb_idx == 14);
+wr_15 = (tlb_idx == 15);
+wr_16 = (tlb_idx == 16);
+wr_17 = (tlb_idx == 17);
+wr_18 = (tlb_idx == 18);
+wr_19 = (tlb_idx == 19);
+wr_20 = (tlb_idx == 20);
+wr_21 = (tlb_idx == 21);
+wr_22 = (tlb_idx == 22);
+wr_23 = (tlb_idx == 23);
+wr_24 = (tlb_idx == 24);
+wr_25 = (tlb_idx == 25);
+wr_26 = (tlb_idx == 26);
+wr_27 = (tlb_idx == 27);
+wr_28 = (tlb_idx == 28);
+wr_29 = (tlb_idx == 29);
+wr_30 = (tlb_idx == 30);
+wr_31 = (tlb_idx == 31);
+
+// Write EntryHi to selected TLB entry
+tlb_hi[0] when (wr_0) = cp0_entryhi;
+tlb_hi[1] when (wr_1) = cp0_entryhi;
+tlb_hi[2] when (wr_2) = cp0_entryhi;
+tlb_hi[3] when (wr_3) = cp0_entryhi;
+tlb_hi[4] when (wr_4) = cp0_entryhi;
+tlb_hi[5] when (wr_5) = cp0_entryhi;
+tlb_hi[6] when (wr_6) = cp0_entryhi;
+tlb_hi[7] when (wr_7) = cp0_entryhi;
+tlb_hi[8] when (wr_8) = cp0_entryhi;
+tlb_hi[9] when (wr_9) = cp0_entryhi;
+tlb_hi[10] when (wr_10) = cp0_entryhi;
+tlb_hi[11] when (wr_11) = cp0_entryhi;
+tlb_hi[12] when (wr_12) = cp0_entryhi;
+tlb_hi[13] when (wr_13) = cp0_entryhi;
+tlb_hi[14] when (wr_14) = cp0_entryhi;
+tlb_hi[15] when (wr_15) = cp0_entryhi;
+tlb_hi[16] when (wr_16) = cp0_entryhi;
+tlb_hi[17] when (wr_17) = cp0_entryhi;
+tlb_hi[18] when (wr_18) = cp0_entryhi;
+tlb_hi[19] when (wr_19) = cp0_entryhi;
+tlb_hi[20] when (wr_20) = cp0_entryhi;
+tlb_hi[21] when (wr_21) = cp0_entryhi;
+tlb_hi[22] when (wr_22) = cp0_entryhi;
+tlb_hi[23] when (wr_23) = cp0_entryhi;
+tlb_hi[24] when (wr_24) = cp0_entryhi;
+tlb_hi[25] when (wr_25) = cp0_entryhi;
+tlb_hi[26] when (wr_26) = cp0_entryhi;
+tlb_hi[27] when (wr_27) = cp0_entryhi;
+tlb_hi[28] when (wr_28) = cp0_entryhi;
+tlb_hi[29] when (wr_29) = cp0_entryhi;
+tlb_hi[30] when (wr_30) = cp0_entryhi;
+tlb_hi[31] when (wr_31) = cp0_entryhi;
+
+// Write EntryLo0 to selected TLB entry
+tlb_lo0[0] when (wr_0) = cp0_entrylo0;
+tlb_lo0[1] when (wr_1) = cp0_entrylo0;
+tlb_lo0[2] when (wr_2) = cp0_entrylo0;
+tlb_lo0[3] when (wr_3) = cp0_entrylo0;
+tlb_lo0[4] when (wr_4) = cp0_entrylo0;
+tlb_lo0[5] when (wr_5) = cp0_entrylo0;
+tlb_lo0[6] when (wr_6) = cp0_entrylo0;
+tlb_lo0[7] when (wr_7) = cp0_entrylo0;
+tlb_lo0[8] when (wr_8) = cp0_entrylo0;
+tlb_lo0[9] when (wr_9) = cp0_entrylo0;
+tlb_lo0[10] when (wr_10) = cp0_entrylo0;
+tlb_lo0[11] when (wr_11) = cp0_entrylo0;
+tlb_lo0[12] when (wr_12) = cp0_entrylo0;
+tlb_lo0[13] when (wr_13) = cp0_entrylo0;
+tlb_lo0[14] when (wr_14) = cp0_entrylo0;
+tlb_lo0[15] when (wr_15) = cp0_entrylo0;
+tlb_lo0[16] when (wr_16) = cp0_entrylo0;
+tlb_lo0[17] when (wr_17) = cp0_entrylo0;
+tlb_lo0[18] when (wr_18) = cp0_entrylo0;
+tlb_lo0[19] when (wr_19) = cp0_entrylo0;
+tlb_lo0[20] when (wr_20) = cp0_entrylo0;
+tlb_lo0[21] when (wr_21) = cp0_entrylo0;
+tlb_lo0[22] when (wr_22) = cp0_entrylo0;
+tlb_lo0[23] when (wr_23) = cp0_entrylo0;
+tlb_lo0[24] when (wr_24) = cp0_entrylo0;
+tlb_lo0[25] when (wr_25) = cp0_entrylo0;
+tlb_lo0[26] when (wr_26) = cp0_entrylo0;
+tlb_lo0[27] when (wr_27) = cp0_entrylo0;
+tlb_lo0[28] when (wr_28) = cp0_entrylo0;
+tlb_lo0[29] when (wr_29) = cp0_entrylo0;
+tlb_lo0[30] when (wr_30) = cp0_entrylo0;
+tlb_lo0[31] when (wr_31) = cp0_entrylo0;
+
+// Write EntryLo1 to selected TLB entry
+tlb_lo1[0] when (wr_0) = cp0_entrylo1;
+tlb_lo1[1] when (wr_1) = cp0_entrylo1;
+tlb_lo1[2] when (wr_2) = cp0_entrylo1;
+tlb_lo1[3] when (wr_3) = cp0_entrylo1;
+tlb_lo1[4] when (wr_4) = cp0_entrylo1;
+tlb_lo1[5] when (wr_5) = cp0_entrylo1;
+tlb_lo1[6] when (wr_6) = cp0_entrylo1;
+tlb_lo1[7] when (wr_7) = cp0_entrylo1;
+tlb_lo1[8] when (wr_8) = cp0_entrylo1;
+tlb_lo1[9] when (wr_9) = cp0_entrylo1;
+tlb_lo1[10] when (wr_10) = cp0_entrylo1;
+tlb_lo1[11] when (wr_11) = cp0_entrylo1;
+tlb_lo1[12] when (wr_12) = cp0_entrylo1;
+tlb_lo1[13] when (wr_13) = cp0_entrylo1;
+tlb_lo1[14] when (wr_14) = cp0_entrylo1;
+tlb_lo1[15] when (wr_15) = cp0_entrylo1;
+tlb_lo1[16] when (wr_16) = cp0_entrylo1;
+tlb_lo1[17] when (wr_17) = cp0_entrylo1;
+tlb_lo1[18] when (wr_18) = cp0_entrylo1;
+tlb_lo1[19] when (wr_19) = cp0_entrylo1;
+tlb_lo1[20] when (wr_20) = cp0_entrylo1;
+tlb_lo1[21] when (wr_21) = cp0_entrylo1;
+tlb_lo1[22] when (wr_22) = cp0_entrylo1;
+tlb_lo1[23] when (wr_23) = cp0_entrylo1;
+tlb_lo1[24] when (wr_24) = cp0_entrylo1;
+tlb_lo1[25] when (wr_25) = cp0_entrylo1;
+tlb_lo1[26] when (wr_26) = cp0_entrylo1;
+tlb_lo1[27] when (wr_27) = cp0_entrylo1;
+tlb_lo1[28] when (wr_28) = cp0_entrylo1;
+tlb_lo1[29] when (wr_29) = cp0_entrylo1;
+tlb_lo1[30] when (wr_30) = cp0_entrylo1;
+tlb_lo1[31] when (wr_31) = cp0_entrylo1;
+
+// Write VPN2 to CAM array (for CAM-based lookup)
+var wr_vpn2[18:0];
+wr_vpn2 = cp0_entryhi[31:13];
+
+tlb_vpn2[0] when (wr_0) = wr_vpn2;
+tlb_vpn2[1] when (wr_1) = wr_vpn2;
+tlb_vpn2[2] when (wr_2) = wr_vpn2;
+tlb_vpn2[3] when (wr_3) = wr_vpn2;
+tlb_vpn2[4] when (wr_4) = wr_vpn2;
+tlb_vpn2[5] when (wr_5) = wr_vpn2;
+tlb_vpn2[6] when (wr_6) = wr_vpn2;
+tlb_vpn2[7] when (wr_7) = wr_vpn2;
+tlb_vpn2[8] when (wr_8) = wr_vpn2;
+tlb_vpn2[9] when (wr_9) = wr_vpn2;
+tlb_vpn2[10] when (wr_10) = wr_vpn2;
+tlb_vpn2[11] when (wr_11) = wr_vpn2;
+tlb_vpn2[12] when (wr_12) = wr_vpn2;
+tlb_vpn2[13] when (wr_13) = wr_vpn2;
+tlb_vpn2[14] when (wr_14) = wr_vpn2;
+tlb_vpn2[15] when (wr_15) = wr_vpn2;
+tlb_vpn2[16] when (wr_16) = wr_vpn2;
+tlb_vpn2[17] when (wr_17) = wr_vpn2;
+tlb_vpn2[18] when (wr_18) = wr_vpn2;
+tlb_vpn2[19] when (wr_19) = wr_vpn2;
+tlb_vpn2[20] when (wr_20) = wr_vpn2;
+tlb_vpn2[21] when (wr_21) = wr_vpn2;
+tlb_vpn2[22] when (wr_22) = wr_vpn2;
+tlb_vpn2[23] when (wr_23) = wr_vpn2;
+tlb_vpn2[24] when (wr_24) = wr_vpn2;
+tlb_vpn2[25] when (wr_25) = wr_vpn2;
+tlb_vpn2[26] when (wr_26) = wr_vpn2;
+tlb_vpn2[27] when (wr_27) = wr_vpn2;
+tlb_vpn2[28] when (wr_28) = wr_vpn2;
+tlb_vpn2[29] when (wr_29) = wr_vpn2;
+tlb_vpn2[30] when (wr_30) = wr_vpn2;
+tlb_vpn2[31] when (wr_31) = wr_vpn2;
+
+// Write ASID to parallel array (for ASID matching)
+var wr_asid[7:0];
+wr_asid = cp0_entryhi[7:0];
+
+tlb_asid[0] when (wr_0) = wr_asid;
+tlb_asid[1] when (wr_1) = wr_asid;
+tlb_asid[2] when (wr_2) = wr_asid;
+tlb_asid[3] when (wr_3) = wr_asid;
+tlb_asid[4] when (wr_4) = wr_asid;
+tlb_asid[5] when (wr_5) = wr_asid;
+tlb_asid[6] when (wr_6) = wr_asid;
+tlb_asid[7] when (wr_7) = wr_asid;
+tlb_asid[8] when (wr_8) = wr_asid;
+tlb_asid[9] when (wr_9) = wr_asid;
+tlb_asid[10] when (wr_10) = wr_asid;
+tlb_asid[11] when (wr_11) = wr_asid;
+tlb_asid[12] when (wr_12) = wr_asid;
+tlb_asid[13] when (wr_13) = wr_asid;
+tlb_asid[14] when (wr_14) = wr_asid;
+tlb_asid[15] when (wr_15) = wr_asid;
+tlb_asid[16] when (wr_16) = wr_asid;
+tlb_asid[17] when (wr_17) = wr_asid;
+tlb_asid[18] when (wr_18) = wr_asid;
+tlb_asid[19] when (wr_19) = wr_asid;
+tlb_asid[20] when (wr_20) = wr_asid;
+tlb_asid[21] when (wr_21) = wr_asid;
+tlb_asid[22] when (wr_22) = wr_asid;
+tlb_asid[23] when (wr_23) = wr_asid;
+tlb_asid[24] when (wr_24) = wr_asid;
+tlb_asid[25] when (wr_25) = wr_asid;
+tlb_asid[26] when (wr_26) = wr_asid;
+tlb_asid[27] when (wr_27) = wr_asid;
+tlb_asid[28] when (wr_28) = wr_asid;
+tlb_asid[29] when (wr_29) = wr_asid;
+tlb_asid[30] when (wr_30) = wr_asid;
+tlb_asid[31] when (wr_31) = wr_asid;
+
+// Write to separate lookup arrays (G, PFN, V, D)
+var wr_g[0:0];
+var wr_pfn0[19:0];
+var wr_pfn1[19:0];
+var wr_v0[0:0];
+var wr_v1[0:0];
+var wr_d0[0:0];
+var wr_d1[0:0];
+
+wr_g = cp0_entrylo0[0] & cp0_entrylo1[0];
+wr_pfn0 = cp0_entrylo0[25:6];
+wr_pfn1 = cp0_entrylo1[25:6];
+wr_v0 = cp0_entrylo0[1];
+wr_v1 = cp0_entrylo1[1];
+wr_d0 = cp0_entrylo0[2];
+wr_d1 = cp0_entrylo1[2];
+
+// Write Global bit
+tlb_g[0] when (wr_0) = wr_g; tlb_g[1] when (wr_1) = wr_g;
+tlb_g[2] when (wr_2) = wr_g; tlb_g[3] when (wr_3) = wr_g;
+tlb_g[4] when (wr_4) = wr_g; tlb_g[5] when (wr_5) = wr_g;
+tlb_g[6] when (wr_6) = wr_g; tlb_g[7] when (wr_7) = wr_g;
+tlb_g[8] when (wr_8) = wr_g; tlb_g[9] when (wr_9) = wr_g;
+tlb_g[10] when (wr_10) = wr_g; tlb_g[11] when (wr_11) = wr_g;
+tlb_g[12] when (wr_12) = wr_g; tlb_g[13] when (wr_13) = wr_g;
+tlb_g[14] when (wr_14) = wr_g; tlb_g[15] when (wr_15) = wr_g;
+tlb_g[16] when (wr_16) = wr_g; tlb_g[17] when (wr_17) = wr_g;
+tlb_g[18] when (wr_18) = wr_g; tlb_g[19] when (wr_19) = wr_g;
+tlb_g[20] when (wr_20) = wr_g; tlb_g[21] when (wr_21) = wr_g;
+tlb_g[22] when (wr_22) = wr_g; tlb_g[23] when (wr_23) = wr_g;
+tlb_g[24] when (wr_24) = wr_g; tlb_g[25] when (wr_25) = wr_g;
+tlb_g[26] when (wr_26) = wr_g; tlb_g[27] when (wr_27) = wr_g;
+tlb_g[28] when (wr_28) = wr_g; tlb_g[29] when (wr_29) = wr_g;
+tlb_g[30] when (wr_30) = wr_g; tlb_g[31] when (wr_31) = wr_g;
+
+// Write PFN0
+tlb_pfn0[0] when (wr_0) = wr_pfn0; tlb_pfn0[1] when (wr_1) = wr_pfn0;
+tlb_pfn0[2] when (wr_2) = wr_pfn0; tlb_pfn0[3] when (wr_3) = wr_pfn0;
+tlb_pfn0[4] when (wr_4) = wr_pfn0; tlb_pfn0[5] when (wr_5) = wr_pfn0;
+tlb_pfn0[6] when (wr_6) = wr_pfn0; tlb_pfn0[7] when (wr_7) = wr_pfn0;
+tlb_pfn0[8] when (wr_8) = wr_pfn0; tlb_pfn0[9] when (wr_9) = wr_pfn0;
+tlb_pfn0[10] when (wr_10) = wr_pfn0; tlb_pfn0[11] when (wr_11) = wr_pfn0;
+tlb_pfn0[12] when (wr_12) = wr_pfn0; tlb_pfn0[13] when (wr_13) = wr_pfn0;
+tlb_pfn0[14] when (wr_14) = wr_pfn0; tlb_pfn0[15] when (wr_15) = wr_pfn0;
+tlb_pfn0[16] when (wr_16) = wr_pfn0; tlb_pfn0[17] when (wr_17) = wr_pfn0;
+tlb_pfn0[18] when (wr_18) = wr_pfn0; tlb_pfn0[19] when (wr_19) = wr_pfn0;
+tlb_pfn0[20] when (wr_20) = wr_pfn0; tlb_pfn0[21] when (wr_21) = wr_pfn0;
+tlb_pfn0[22] when (wr_22) = wr_pfn0; tlb_pfn0[23] when (wr_23) = wr_pfn0;
+tlb_pfn0[24] when (wr_24) = wr_pfn0; tlb_pfn0[25] when (wr_25) = wr_pfn0;
+tlb_pfn0[26] when (wr_26) = wr_pfn0; tlb_pfn0[27] when (wr_27) = wr_pfn0;
+tlb_pfn0[28] when (wr_28) = wr_pfn0; tlb_pfn0[29] when (wr_29) = wr_pfn0;
+tlb_pfn0[30] when (wr_30) = wr_pfn0; tlb_pfn0[31] when (wr_31) = wr_pfn0;
+
+// Write PFN1
+tlb_pfn1[0] when (wr_0) = wr_pfn1; tlb_pfn1[1] when (wr_1) = wr_pfn1;
+tlb_pfn1[2] when (wr_2) = wr_pfn1; tlb_pfn1[3] when (wr_3) = wr_pfn1;
+tlb_pfn1[4] when (wr_4) = wr_pfn1; tlb_pfn1[5] when (wr_5) = wr_pfn1;
+tlb_pfn1[6] when (wr_6) = wr_pfn1; tlb_pfn1[7] when (wr_7) = wr_pfn1;
+tlb_pfn1[8] when (wr_8) = wr_pfn1; tlb_pfn1[9] when (wr_9) = wr_pfn1;
+tlb_pfn1[10] when (wr_10) = wr_pfn1; tlb_pfn1[11] when (wr_11) = wr_pfn1;
+tlb_pfn1[12] when (wr_12) = wr_pfn1; tlb_pfn1[13] when (wr_13) = wr_pfn1;
+tlb_pfn1[14] when (wr_14) = wr_pfn1; tlb_pfn1[15] when (wr_15) = wr_pfn1;
+tlb_pfn1[16] when (wr_16) = wr_pfn1; tlb_pfn1[17] when (wr_17) = wr_pfn1;
+tlb_pfn1[18] when (wr_18) = wr_pfn1; tlb_pfn1[19] when (wr_19) = wr_pfn1;
+tlb_pfn1[20] when (wr_20) = wr_pfn1; tlb_pfn1[21] when (wr_21) = wr_pfn1;
+tlb_pfn1[22] when (wr_22) = wr_pfn1; tlb_pfn1[23] when (wr_23) = wr_pfn1;
+tlb_pfn1[24] when (wr_24) = wr_pfn1; tlb_pfn1[25] when (wr_25) = wr_pfn1;
+tlb_pfn1[26] when (wr_26) = wr_pfn1; tlb_pfn1[27] when (wr_27) = wr_pfn1;
+tlb_pfn1[28] when (wr_28) = wr_pfn1; tlb_pfn1[29] when (wr_29) = wr_pfn1;
+tlb_pfn1[30] when (wr_30) = wr_pfn1; tlb_pfn1[31] when (wr_31) = wr_pfn1;
+
+// Write V0
+tlb_v0[0] when (wr_0) = wr_v0; tlb_v0[1] when (wr_1) = wr_v0;
+tlb_v0[2] when (wr_2) = wr_v0; tlb_v0[3] when (wr_3) = wr_v0;
+tlb_v0[4] when (wr_4) = wr_v0; tlb_v0[5] when (wr_5) = wr_v0;
+tlb_v0[6] when (wr_6) = wr_v0; tlb_v0[7] when (wr_7) = wr_v0;
+tlb_v0[8] when (wr_8) = wr_v0; tlb_v0[9] when (wr_9) = wr_v0;
+tlb_v0[10] when (wr_10) = wr_v0; tlb_v0[11] when (wr_11) = wr_v0;
+tlb_v0[12] when (wr_12) = wr_v0; tlb_v0[13] when (wr_13) = wr_v0;
+tlb_v0[14] when (wr_14) = wr_v0; tlb_v0[15] when (wr_15) = wr_v0;
+tlb_v0[16] when (wr_16) = wr_v0; tlb_v0[17] when (wr_17) = wr_v0;
+tlb_v0[18] when (wr_18) = wr_v0; tlb_v0[19] when (wr_19) = wr_v0;
+tlb_v0[20] when (wr_20) = wr_v0; tlb_v0[21] when (wr_21) = wr_v0;
+tlb_v0[22] when (wr_22) = wr_v0; tlb_v0[23] when (wr_23) = wr_v0;
+tlb_v0[24] when (wr_24) = wr_v0; tlb_v0[25] when (wr_25) = wr_v0;
+tlb_v0[26] when (wr_26) = wr_v0; tlb_v0[27] when (wr_27) = wr_v0;
+tlb_v0[28] when (wr_28) = wr_v0; tlb_v0[29] when (wr_29) = wr_v0;
+tlb_v0[30] when (wr_30) = wr_v0; tlb_v0[31] when (wr_31) = wr_v0;
+
+// Write V1
+tlb_v1[0] when (wr_0) = wr_v1; tlb_v1[1] when (wr_1) = wr_v1;
+tlb_v1[2] when (wr_2) = wr_v1; tlb_v1[3] when (wr_3) = wr_v1;
+tlb_v1[4] when (wr_4) = wr_v1; tlb_v1[5] when (wr_5) = wr_v1;
+tlb_v1[6] when (wr_6) = wr_v1; tlb_v1[7] when (wr_7) = wr_v1;
+tlb_v1[8] when (wr_8) = wr_v1; tlb_v1[9] when (wr_9) = wr_v1;
+tlb_v1[10] when (wr_10) = wr_v1; tlb_v1[11] when (wr_11) = wr_v1;
+tlb_v1[12] when (wr_12) = wr_v1; tlb_v1[13] when (wr_13) = wr_v1;
+tlb_v1[14] when (wr_14) = wr_v1; tlb_v1[15] when (wr_15) = wr_v1;
+tlb_v1[16] when (wr_16) = wr_v1; tlb_v1[17] when (wr_17) = wr_v1;
+tlb_v1[18] when (wr_18) = wr_v1; tlb_v1[19] when (wr_19) = wr_v1;
+tlb_v1[20] when (wr_20) = wr_v1; tlb_v1[21] when (wr_21) = wr_v1;
+tlb_v1[22] when (wr_22) = wr_v1; tlb_v1[23] when (wr_23) = wr_v1;
+tlb_v1[24] when (wr_24) = wr_v1; tlb_v1[25] when (wr_25) = wr_v1;
+tlb_v1[26] when (wr_26) = wr_v1; tlb_v1[27] when (wr_27) = wr_v1;
+tlb_v1[28] when (wr_28) = wr_v1; tlb_v1[29] when (wr_29) = wr_v1;
+tlb_v1[30] when (wr_30) = wr_v1; tlb_v1[31] when (wr_31) = wr_v1;
+
+// Write D0
+tlb_d0[0] when (wr_0) = wr_d0; tlb_d0[1] when (wr_1) = wr_d0;
+tlb_d0[2] when (wr_2) = wr_d0; tlb_d0[3] when (wr_3) = wr_d0;
+tlb_d0[4] when (wr_4) = wr_d0; tlb_d0[5] when (wr_5) = wr_d0;
+tlb_d0[6] when (wr_6) = wr_d0; tlb_d0[7] when (wr_7) = wr_d0;
+tlb_d0[8] when (wr_8) = wr_d0; tlb_d0[9] when (wr_9) = wr_d0;
+tlb_d0[10] when (wr_10) = wr_d0; tlb_d0[11] when (wr_11) = wr_d0;
+tlb_d0[12] when (wr_12) = wr_d0; tlb_d0[13] when (wr_13) = wr_d0;
+tlb_d0[14] when (wr_14) = wr_d0; tlb_d0[15] when (wr_15) = wr_d0;
+tlb_d0[16] when (wr_16) = wr_d0; tlb_d0[17] when (wr_17) = wr_d0;
+tlb_d0[18] when (wr_18) = wr_d0; tlb_d0[19] when (wr_19) = wr_d0;
+tlb_d0[20] when (wr_20) = wr_d0; tlb_d0[21] when (wr_21) = wr_d0;
+tlb_d0[22] when (wr_22) = wr_d0; tlb_d0[23] when (wr_23) = wr_d0;
+tlb_d0[24] when (wr_24) = wr_d0; tlb_d0[25] when (wr_25) = wr_d0;
+tlb_d0[26] when (wr_26) = wr_d0; tlb_d0[27] when (wr_27) = wr_d0;
+tlb_d0[28] when (wr_28) = wr_d0; tlb_d0[29] when (wr_29) = wr_d0;
+tlb_d0[30] when (wr_30) = wr_d0; tlb_d0[31] when (wr_31) = wr_d0;
+
+// Write D1
+tlb_d1[0] when (wr_0) = wr_d1; tlb_d1[1] when (wr_1) = wr_d1;
+tlb_d1[2] when (wr_2) = wr_d1; tlb_d1[3] when (wr_3) = wr_d1;
+tlb_d1[4] when (wr_4) = wr_d1; tlb_d1[5] when (wr_5) = wr_d1;
+tlb_d1[6] when (wr_6) = wr_d1; tlb_d1[7] when (wr_7) = wr_d1;
+tlb_d1[8] when (wr_8) = wr_d1; tlb_d1[9] when (wr_9) = wr_d1;
+tlb_d1[10] when (wr_10) = wr_d1; tlb_d1[11] when (wr_11) = wr_d1;
+tlb_d1[12] when (wr_12) = wr_d1; tlb_d1[13] when (wr_13) = wr_d1;
+tlb_d1[14] when (wr_14) = wr_d1; tlb_d1[15] when (wr_15) = wr_d1;
+tlb_d1[16] when (wr_16) = wr_d1; tlb_d1[17] when (wr_17) = wr_d1;
+tlb_d1[18] when (wr_18) = wr_d1; tlb_d1[19] when (wr_19) = wr_d1;
+tlb_d1[20] when (wr_20) = wr_d1; tlb_d1[21] when (wr_21) = wr_d1;
+tlb_d1[22] when (wr_22) = wr_d1; tlb_d1[23] when (wr_23) = wr_d1;
+tlb_d1[24] when (wr_24) = wr_d1; tlb_d1[25] when (wr_25) = wr_d1;
+tlb_d1[26] when (wr_26) = wr_d1; tlb_d1[27] when (wr_27) = wr_d1;
+tlb_d1[28] when (wr_28) = wr_d1; tlb_d1[29] when (wr_29) = wr_d1;
+tlb_d1[30] when (wr_30) = wr_d1; tlb_d1[31] when (wr_31) = wr_d1;
+
+// Update PC
+pc = pc + 4;

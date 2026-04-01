@@ -1,0 +1,154 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 DTB (Data TLB) Translation Aspect for Store Operations
+//
+// This aspect provides virtual-to-physical address translation for
+// data stores. In PAL mode, addresses are used directly (physical).
+// In user/kernel mode, DTB lookup is performed.
+//
+// Requires: addr variable must be defined before including this aspect
+//
+// Provides:
+//   store_pa        - Physical address for data store
+//   dtb_store_miss  - Set if DTB miss occurs (triggers PAL exception)
+//
+// Requires gates: addr, pal_mode, pal_base
+
+// Physical address output
+var store_pa[63:0];
+var dtb_store_miss[0:0];
+
+// Extract virtual page number and offset from address
+var store_vpn[29:0];
+var store_offset[12:0];
+store_vpn = addr[42:13];
+store_offset = addr[12:0];
+
+// DTB lookup (8 entries) - check tag matches
+var stag_match0[0:0];
+var stag_match1[0:0];
+var stag_match2[0:0];
+var stag_match3[0:0];
+var stag_match4[0:0];
+var stag_match5[0:0];
+var stag_match6[0:0];
+var stag_match7[0:0];
+stag_match0 = (dtb_tag[0][29:0] == store_vpn);
+stag_match1 = (dtb_tag[1][29:0] == store_vpn);
+stag_match2 = (dtb_tag[2][29:0] == store_vpn);
+stag_match3 = (dtb_tag[3][29:0] == store_vpn);
+stag_match4 = (dtb_tag[4][29:0] == store_vpn);
+stag_match5 = (dtb_tag[5][29:0] == store_vpn);
+stag_match6 = (dtb_tag[6][29:0] == store_vpn);
+stag_match7 = (dtb_tag[7][29:0] == store_vpn);
+
+// Combine valid and match for each entry
+var sh0[0:0];
+var sh1[0:0];
+var sh2[0:0];
+var sh3[0:0];
+var sh4[0:0];
+var sh5[0:0];
+var sh6[0:0];
+var sh7[0:0];
+var sasn0[0:0];
+sasn0 = dtb_pte[0][4] | (dtb_asn_entry[0] == dtb_asn[7:0]);
+sh0 = dtb_valid[0] & stag_match0 & sasn0;
+var sasn1[0:0];
+sasn1 = dtb_pte[1][4] | (dtb_asn_entry[1] == dtb_asn[7:0]);
+sh1 = dtb_valid[1] & stag_match1 & sasn1;
+var sasn2[0:0];
+sasn2 = dtb_pte[2][4] | (dtb_asn_entry[2] == dtb_asn[7:0]);
+sh2 = dtb_valid[2] & stag_match2 & sasn2;
+var sasn3[0:0];
+sasn3 = dtb_pte[3][4] | (dtb_asn_entry[3] == dtb_asn[7:0]);
+sh3 = dtb_valid[3] & stag_match3 & sasn3;
+var sasn4[0:0];
+sasn4 = dtb_pte[4][4] | (dtb_asn_entry[4] == dtb_asn[7:0]);
+sh4 = dtb_valid[4] & stag_match4 & sasn4;
+var sasn5[0:0];
+sasn5 = dtb_pte[5][4] | (dtb_asn_entry[5] == dtb_asn[7:0]);
+sh5 = dtb_valid[5] & stag_match5 & sasn5;
+var sasn6[0:0];
+sasn6 = dtb_pte[6][4] | (dtb_asn_entry[6] == dtb_asn[7:0]);
+sh6 = dtb_valid[6] & stag_match6 & sasn6;
+var sasn7[0:0];
+sasn7 = dtb_pte[7][4] | (dtb_asn_entry[7] == dtb_asn[7:0]);
+sh7 = dtb_valid[7] & stag_match7 & sasn7;
+
+// Combine hits with OR chain
+var sh01[0:0];
+var sh23[0:0];
+var sh45[0:0];
+var sh67[0:0];
+var sh0123[0:0];
+var sh4567[0:0];
+var dtb_store_hit[0:0];
+sh01 = sh0 ? 1'b1 : sh1;
+sh23 = sh2 ? 1'b1 : sh3;
+sh45 = sh4 ? 1'b1 : sh5;
+sh67 = sh6 ? 1'b1 : sh7;
+sh0123 = sh01 ? 1'b1 : sh23;
+sh4567 = sh45 ? 1'b1 : sh67;
+dtb_store_hit = sh0123 ? 1'b1 : sh4567;
+
+// Priority encoder for PTE selection
+var dtb_st_pte_s7[63:0];
+var dtb_st_pte_s6[63:0];
+var dtb_st_pte_s5[63:0];
+var dtb_st_pte_s4[63:0];
+var dtb_st_pte_s3[63:0];
+var dtb_st_pte_s2[63:0];
+var dtb_st_pte_s1[63:0];
+var dtb_store_pte_sel[63:0];
+dtb_st_pte_s7 = sh7 ? dtb_pte[7] : 64'b0;
+dtb_st_pte_s6 = sh6 ? dtb_pte[6] : dtb_st_pte_s7;
+dtb_st_pte_s5 = sh5 ? dtb_pte[5] : dtb_st_pte_s6;
+dtb_st_pte_s4 = sh4 ? dtb_pte[4] : dtb_st_pte_s5;
+dtb_st_pte_s3 = sh3 ? dtb_pte[3] : dtb_st_pte_s4;
+dtb_st_pte_s2 = sh2 ? dtb_pte[2] : dtb_st_pte_s3;
+dtb_st_pte_s1 = sh1 ? dtb_pte[1] : dtb_st_pte_s2;
+dtb_store_pte_sel = sh0 ? dtb_pte[0] : dtb_st_pte_s1;
+
+// Extract PFN from selected PTE
+var store_pfn[31:0];
+store_pfn = dtb_store_pte_sel[63:32];
+
+// Permission checking for stores (write access)
+var dtb_fow[0:0];
+var dtb_store_kwe[0:0];
+var dtb_store_uwe[0:0];
+dtb_fow = dtb_store_pte_sel[2];
+dtb_store_kwe = dtb_store_pte_sel[12];
+dtb_store_uwe = dtb_store_pte_sel[13];
+var dtb_store_is_user[0:0];
+dtb_store_is_user = ps[3];
+var dtb_store_perm_ok[0:0];
+dtb_store_perm_ok = dtb_fow ? 1'b0 : (dtb_store_is_user ? dtb_store_uwe : dtb_store_kwe);
+var dtb_store_acv[0:0];
+dtb_store_acv = not_pal_mode ? (dtb_store_hit ? (~dtb_store_perm_ok) : 1'b0) : 1'b0;
+
+// Compute translated address
+var store_xlated[63:0];
+store_xlated = {store_pfn, store_offset};
+
+// Note: not_pal_mode is defined by itb.isa aspect
+var dtb_store_no_hit[0:0];
+dtb_store_no_hit = (dtb_store_hit == 0);
+dtb_store_miss = not_pal_mode ? dtb_store_no_hit : 1'b0;
+
+// Physical address: PAL=addr, TLB hit=translated, else=addr (will raise DTB miss)
+store_pa = not_pal_mode ? (dtb_store_hit ? store_xlated : addr) : addr;
+
+// DTB miss exception entry point
+var dtb_store_miss_entry[63:0];
+dtb_store_miss_entry = pal_base + 64'h200;
+
+// Compute store fault condition (DTB miss or ACV when no ITB fault)
+var no_itb_fault_st[0:0];
+no_itb_fault_st = (itb_fault == 0);
+var dtb_store_fault[0:0];
+dtb_store_fault = (dtb_store_miss | dtb_store_acv) ? no_itb_fault_st : 1'b0;
+
+// MM_STAT encoding: bit 0 = WR (1=write), bit 1 = ACV (1=acv, 0=miss)
+var dtb_store_mm_stat[63:0];
+dtb_store_mm_stat = dtb_store_acv ? 64'd3 : 64'd1;

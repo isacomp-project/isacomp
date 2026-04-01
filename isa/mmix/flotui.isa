@@ -1,0 +1,31 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX FLOTUI - Convert Unsigned Immediate to Floating-Point
+// FLOTUI $X,Z: $X = (float)(unsigned)Z
+// Opcode: 0x0F
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rA[63:0];
+mem umem[14:0];
+
+var x[7:0];
+var z[7:0];
+var z_ext[63:0];
+var rm[1:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x0F;
+
+x = instr[23:16];
+z = instr[7:0];
+
+z_ext = {56'h0, z};
+rm = rA[17:16];
+
+// Convert unsigned 64-bit int to FP64
+result = fp_cvt_d_lu(z_ext, {1'b0, rm});
+
+rf[x] = result;
+pc = pc + 4;

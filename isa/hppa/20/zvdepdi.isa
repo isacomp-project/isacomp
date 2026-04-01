@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 ZVDEPDI instruction (64-bit zero and variable deposit doubleword immediate)
+// DEPDI,Z,* im5,len,t - Zero and Variable Deposit Doubleword Immediate: deposits 'len'
+// bits of sign-extended immediate at SAR-specified position, zeros all other bits.
+// 64-bit doubleword variant of ZVDEPI.
+// Opcode: 0x35 (bits 31:26), sub: bits[12:10]=100, bit[9]=1 (doubleword mode)
+// t=instr[25:21], im5=instr[20:16] (low_sign_ext), clen5=instr[4:0]
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state sar[5:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var zdi_t[4:0];
+var zdi_im5[4:0];
+var zdi_clen[4:0];
+var zdi_sign_ext_imm[63:0];
+var zdi_len[6:0];
+var zdi_pos[5:0];
+var zdi_shift_amt[5:0];
+var zdi_mask[63:0];
+var zdi_deposited[63:0];
+var zdi_res[63:0];
+var zdi_cond_eq[0:0];
+var zdi_cond_lt[0:0];
+var zdi_cond_od[0:0];
+var zdi_cond_base[0:0];
+var zdi_cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// ZVDEPDI encoding: opcode=0x35, bits[12:10]=100, bit[9]=1 (64-bit doubleword)
+assume instr[31:26] == 0b110101;
+assume instr[12:10] == 0b100;
+assume instr[9] == 1;
+
+// Extract fields
+zdi_t = instr[25:21];
+zdi_im5 = instr[20:16];
+zdi_clen = instr[4:0];
+
+// Low-sign-extend 5-bit immediate: sign bit is im5[0], value is im5[4:1]
+zdi_sign_ext_imm = zdi_im5[0] ? {60'hFFFFFFFFFFFFFFF, zdi_im5[4:1]} : {60'h0, zdi_im5[4:1]};
+
+// len = 64 - {~instr[8], clen5} (6-bit clen for 64-bit SAR deposits, full range 1-64)
+// The MSB of the 6-bit clen is ~instr[8], giving clen6 = {~instr[8], clen5[4:0]}
+// Equivalent formula: len = 1 + {1'b0, instr[8], ~clen5}
+zdi_len = 7'b0000001 + {1'b0, instr[8], ~zdi_clen};
+
+// Position from SAR (full 6 bits for 64-bit operation)
+zdi_pos = sar[5:0];
+
+// shift_amt = 63 - pos (convert PA-RISC position to shift amount)
+zdi_shift_amt = 6'b111111 - zdi_pos;
+
+// Mask the low 'len' bits and shift to position
+zdi_mask = (64'h1 << zdi_len) - 64'h1;
+zdi_deposited = (zdi_sign_ext_imm & zdi_mask) << zdi_shift_amt;
+
+// Zero and deposit: result is full 64-bit (no truncation)
+zdi_res = zdi_deposited;
+
+// 3-bit conditional nullification (c=instr[15:13])
+zdi_cond_eq = (zdi_res == 0);
+zdi_cond_lt = zdi_res[63];
+zdi_cond_od = zdi_res[0];
+zdi_cond_base = (instr[13] & ~instr[14] & zdi_cond_eq) | (~instr[13] & instr[14] & zdi_cond_lt) | (instr[13] & instr[14] & zdi_cond_od);
+zdi_cond_met = zdi_cond_base ^ instr[15];
+psw when (zdi_cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target
+rf[zdi_t] when (zdi_t != 0 & ~instr_trap_taken & ~in_nullified) = zdi_res;
+
+// Advance PC
+pc = pc + 4;

@@ -1,0 +1,274 @@
+diff --git a/arch/m68k/Kbuild b/arch/m68k/Kbuild
+index 7762af9f6..8c4726699 100644
+--- a/arch/m68k/Kbuild
++++ b/arch/m68k/Kbuild
+@@ -18,3 +18,4 @@ obj-$(CONFIG_M68KFPU_EMU)	+= math-emu/
+ obj-$(CONFIG_M68000)		+= 68000/
+ obj-$(CONFIG_COLDFIRE)		+= coldfire/
+ obj-$(CONFIG_VIRT)		+= virt/
++obj-$(CONFIG_ISACOMP)		+= isacomp/
+diff --git a/arch/m68k/Kconfig.machine b/arch/m68k/Kconfig.machine
+index d06b1c5d9..9ec0f540e 100644
+--- a/arch/m68k/Kconfig.machine
++++ b/arch/m68k/Kconfig.machine
+@@ -161,11 +161,23 @@ config VIRT
+ 	select RTC_CLASS
+ 	select RTC_DRV_GOLDFISH
+ 	select TTY
+-	select VIRTIO_MENU
+-	select VIRTIO_MMIO
+ 	help
+-	  This options enable a pure virtual machine based on m68k,
+-	  VIRTIO MMIO devices and GOLDFISH interfaces (TTY, RTC, PIC).
++	  This options enable a pure virtual machine based on m68k
++	  with GOLDFISH interfaces (TTY, RTC, PIC).
++
++config ISACOMP
++	bool "ISAComp M68K Platform support"
++	depends on MMU
++	select LEGACY_TIMER_TICK
++	select M68040
++	select MMU_MOTOROLA if MMU
++	select TTY
++	select SERIAL_UARTLITE
++	select SERIAL_UARTLITE_CONSOLE
++	help
++	  Support for the ISAComp-generated M68K processor platform.
++	  This is a minimal platform with UARTLite serial, a simple
++	  timer, and a simple interrupt controller.
+ 
+ config PILOT
+ 	bool
+diff --git a/arch/m68k/include/asm/config.h b/arch/m68k/include/asm/config.h
+index 9bb888ab5..754d9de40 100644
+--- a/arch/m68k/include/asm/config.h
++++ b/arch/m68k/include/asm/config.h
+@@ -18,6 +18,7 @@ extern int mvme147_parse_bootinfo(const struct bi_record *record);
+ extern int mvme16x_parse_bootinfo(const struct bi_record *record);
+ extern int q40_parse_bootinfo(const struct bi_record *record);
+ extern int virt_parse_bootinfo(const struct bi_record *record);
++extern int isacomp_parse_bootinfo(const struct bi_record *record);
+ 
+ extern void config_amiga(void);
+ extern void config_apollo(void);
+@@ -31,5 +32,6 @@ extern void config_q40(void);
+ extern void config_sun3(void);
+ extern void config_sun3x(void);
+ extern void config_virt(void);
++extern void config_isacomp(void);
+ 
+ #endif /* _M68K_CONFIG_H */
+diff --git a/arch/m68k/include/asm/irq.h b/arch/m68k/include/asm/irq.h
+index 14992fde7..e5bf4ec65 100644
+--- a/arch/m68k/include/asm/irq.h
++++ b/arch/m68k/include/asm/irq.h
+@@ -16,7 +16,8 @@
+ #if defined(CONFIG_COLDFIRE)
+ #define NR_IRQS 256
+ #elif defined(CONFIG_VME) || defined(CONFIG_SUN3) || \
+-      defined(CONFIG_SUN3X) || defined(CONFIG_VIRT)
++      defined(CONFIG_SUN3X) || defined(CONFIG_VIRT) || \
++      defined(CONFIG_ISACOMP)
+ #define NR_IRQS 200
+ #elif defined(CONFIG_ATARI)
+ #define NR_IRQS 141
+diff --git a/arch/m68k/include/asm/setup.h b/arch/m68k/include/asm/setup.h
+index 2c99477aa..6a5c32e8d 100644
+--- a/arch/m68k/include/asm/setup.h
++++ b/arch/m68k/include/asm/setup.h
+@@ -38,7 +38,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_MVME16x) || defined(CONFIG_BVME6000)               \
+ 	|| defined(CONFIG_HP300) || defined(CONFIG_Q40)                      \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME147)                  \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_AMIGA (m68k_machtype == MACH_AMIGA)
+ #else
+ #  define MACH_AMIGA_ONLY
+@@ -52,7 +52,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_MVME16x) || defined(CONFIG_BVME6000)               \
+ 	|| defined(CONFIG_HP300) || defined(CONFIG_Q40)                      \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME147)                  \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_ATARI (m68k_machtype == MACH_ATARI)
+ #else
+ #  define MACH_ATARI_ONLY
+@@ -66,7 +66,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_MVME16x) || defined(CONFIG_BVME6000)                 \
+ 	|| defined(CONFIG_HP300) || defined(CONFIG_Q40)                        \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME147)                    \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_MAC (m68k_machtype == MACH_MAC)
+ #else
+ #  define MACH_MAC_ONLY
+@@ -88,7 +88,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_MVME16x) || defined(CONFIG_BVME6000)              \
+ 	|| defined(CONFIG_HP300) || defined(CONFIG_Q40)                     \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME147)                 \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_APOLLO (m68k_machtype == MACH_APOLLO)
+ #else
+ #  define MACH_APOLLO_ONLY
+@@ -102,7 +102,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_APOLLO) || defined(CONFIG_BVME6000)               \
+ 	|| defined(CONFIG_HP300) || defined(CONFIG_Q40)                     \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME16x)                 \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_MVME147 (m68k_machtype == MACH_MVME147)
+ #else
+ #  define MACH_MVME147_ONLY
+@@ -116,7 +116,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_APOLLO) || defined(CONFIG_BVME6000)               \
+ 	|| defined(CONFIG_HP300) || defined(CONFIG_Q40)                     \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME147)                 \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_MVME16x (m68k_machtype == MACH_MVME16x)
+ #else
+ #  define MACH_MVME16x_ONLY
+@@ -130,7 +130,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_APOLLO) || defined(CONFIG_MVME16x)                \
+ 	|| defined(CONFIG_HP300) || defined(CONFIG_Q40)                     \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME147)                 \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_BVME6000 (m68k_machtype == MACH_BVME6000)
+ #else
+ #  define MACH_BVME6000_ONLY
+@@ -144,7 +144,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_APOLLO) || defined(CONFIG_MVME16x) \
+ 	|| defined(CONFIG_BVME6000) || defined(CONFIG_Q40) \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME147) \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_HP300 (m68k_machtype == MACH_HP300)
+ #else
+ #  define MACH_HP300_ONLY
+@@ -158,7 +158,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_APOLLO) || defined(CONFIG_MVME16x)                \
+ 	|| defined(CONFIG_BVME6000) || defined(CONFIG_HP300)                \
+ 	|| defined(CONFIG_SUN3X) || defined(CONFIG_MVME147)                 \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_Q40 (m68k_machtype == MACH_Q40)
+ #else
+ #  define MACH_Q40_ONLY
+@@ -172,7 +172,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_APOLLO) || defined(CONFIG_MVME16x)                \
+ 	|| defined(CONFIG_BVME6000) || defined(CONFIG_HP300)                \
+ 	|| defined(CONFIG_Q40) || defined(CONFIG_MVME147)                   \
+-	|| defined(CONFIG_VIRT)
++	|| defined(CONFIG_VIRT) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_SUN3X (m68k_machtype == MACH_SUN3X)
+ #else
+ #  define CONFIG_SUN3X_ONLY
+@@ -186,7 +186,7 @@ extern unsigned long m68k_machtype;
+ 	|| defined(CONFIG_APOLLO) || defined(CONFIG_MVME16x)                \
+ 	|| defined(CONFIG_BVME6000) || defined(CONFIG_HP300)                \
+ 	|| defined(CONFIG_Q40) || defined(CONFIG_SUN3X)                     \
+-	|| defined(CONFIG_MVME147)
++	|| defined(CONFIG_MVME147) || defined(CONFIG_ISACOMP)
+ #  define MACH_IS_VIRT (m68k_machtype == MACH_VIRT)
+ #else
+ #  define MACH_VIRT_ONLY
+@@ -194,6 +194,20 @@ extern unsigned long m68k_machtype;
+ #  define MACH_TYPE (MACH_VIRT)
+ #endif
+ 
++#if !defined(CONFIG_ISACOMP)
++#  define MACH_IS_ISACOMP (0)
++#elif defined(CONFIG_AMIGA) || defined(CONFIG_MAC) || defined(CONFIG_ATARI) \
++	|| defined(CONFIG_APOLLO) || defined(CONFIG_MVME16x)                \
++	|| defined(CONFIG_BVME6000) || defined(CONFIG_HP300)                \
++	|| defined(CONFIG_Q40) || defined(CONFIG_SUN3X)                     \
++	|| defined(CONFIG_MVME147) || defined(CONFIG_VIRT)
++#  define MACH_IS_ISACOMP (m68k_machtype == MACH_ISACOMP)
++#else
++#  define MACH_ISACOMP_ONLY
++#  define MACH_IS_ISACOMP (1)
++#  define MACH_TYPE (MACH_ISACOMP)
++#endif
++
+ #ifndef MACH_TYPE
+ #  define MACH_TYPE (m68k_machtype)
+ #endif
+diff --git a/arch/m68k/include/uapi/asm/bootinfo.h b/arch/m68k/include/uapi/asm/bootinfo.h
+index 024e87d70..a00aac5c4 100644
+--- a/arch/m68k/include/uapi/asm/bootinfo.h
++++ b/arch/m68k/include/uapi/asm/bootinfo.h
+@@ -91,6 +91,7 @@ struct mem_info {
+ #define MACH_M54XX		12
+ #define MACH_M5441X		13
+ #define MACH_VIRT		14
++#define MACH_ISACOMP		15
+ 
+ 
+     /*
+diff --git a/arch/m68k/kernel/Makefile b/arch/m68k/kernel/Makefile
+index f335bf326..b6bd5ac8a 100644
+--- a/arch/m68k/kernel/Makefile
++++ b/arch/m68k/kernel/Makefile
+@@ -14,6 +14,7 @@ obj-$(CONFIG_HP300)	:= head.o
+ obj-$(CONFIG_Q40)	:= head.o
+ obj-$(CONFIG_SUN3X)	:= head.o
+ obj-$(CONFIG_VIRT)	:= head.o
++obj-$(CONFIG_ISACOMP)	:= head.o
+ obj-$(CONFIG_SUN3)	:= sun3-head.o
+ 
+ obj-y	+= entry.o irq.o module.o process.o ptrace.o
+diff --git a/arch/m68k/kernel/setup_mm.c b/arch/m68k/kernel/setup_mm.c
+index 10310b04f..44776ebe8 100644
+--- a/arch/m68k/kernel/setup_mm.c
++++ b/arch/m68k/kernel/setup_mm.c
+@@ -183,6 +183,8 @@ static void __init m68k_parse_bootinfo(const struct bi_record *record)
+ 				unknown = apollo_parse_bootinfo(record);
+ 			else if (MACH_IS_VIRT)
+ 				unknown = virt_parse_bootinfo(record);
++			else if (MACH_IS_ISACOMP)
++				unknown = isacomp_parse_bootinfo(record);
+ 			else
+ 				unknown = 1;
+ 		}
+@@ -320,6 +322,11 @@ void __init setup_arch(char **cmdline_p)
+ 	case MACH_VIRT:
+ 		config_virt();
+ 		break;
++#endif
++#ifdef CONFIG_ISACOMP
++	case MACH_ISACOMP:
++		config_isacomp();
++		break;
+ #endif
+ 	default:
+ 		panic("No configuration setup");
+diff --git a/arch/m68k/mm/kmap.c b/arch/m68k/mm/kmap.c
+index 7594a9457..455057e0a 100644
+--- a/arch/m68k/mm/kmap.c
++++ b/arch/m68k/mm/kmap.c
+@@ -181,7 +181,7 @@ void __iomem *__ioremap(unsigned long physaddr, unsigned long size, int cachefla
+ #endif
+ #ifdef CONFIG_VIRT
+ 	if (MACH_IS_VIRT) {
+-		if (physaddr >= 0xff000000 && cacheflag == IOMAP_NOCACHE_SER)
++		if (physaddr >= 0x04000000 && cacheflag == IOMAP_NOCACHE_SER)
+ 			return (void __iomem *)physaddr;
+ 	}
+ #endif
+diff --git a/lib/crypto/blake2s.c b/lib/crypto/blake2s.c
+index 71a316552..4204c7419 100644
+--- a/lib/crypto/blake2s.c
++++ b/lib/crypto/blake2s.c
+@@ -60,9 +60,6 @@ EXPORT_SYMBOL(blake2s_final);
+ 
+ static int __init blake2s_mod_init(void)
+ {
+-	if (!IS_ENABLED(CONFIG_CRYPTO_MANAGER_DISABLE_TESTS) &&
+-	    WARN_ON(!blake2s_selftest()))
+-		return -ENODEV;
+ 	return 0;
+ }
+ 

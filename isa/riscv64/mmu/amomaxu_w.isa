@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V AMOMAXU_W instruction (RV64A)
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[23:0];
+
+// Dedicated CSR registers as isa_state (for MMU aspect)
+isa_state priv_mode[1:0];      // Privilege mode: 0=U-mode, 1=S-mode, 3=M-mode
+isa_state satp[63:0];          // Supervisor Address Translation and Protection (0x180)
+isa_state mtvec[63:0];         // Machine Trap-Vector Base-Address (0x305)
+isa_state mepc[63:0];          // Machine Exception Program Counter (0x341)
+isa_state mcause[63:0];        // Machine Cause (0x342)
+isa_state mtval[63:0];         // Machine Trap Value (0x343)
+isa_state medeleg[63:0];       // Machine Exception Delegation (0x302)
+isa_state sepc[63:0];          // Supervisor Exception Program Counter (0x141)
+isa_state stvec[63:0];         // Supervisor Trap-Vector Base-Address (0x105)
+isa_state scause[63:0];        // Supervisor Cause (0x142)
+isa_state stval[63:0];         // Supervisor Trap Value (0x143)
+isa_state mie[63:0];           // Machine Interrupt Enable (0x304)
+isa_state mstatus[63:0];       // Machine Status (0x300)
+isa_state sstatus[63:0];       // Supervisor Status (0x100) - SPP is bit 8
+ext isa_state timer_irq_pending[0:0]; // Timer interrupt pending from CLINT
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var r1[63:0];
+var r2[63:0];
+var old_val[31:0];
+var new_val[31:0];
+var addr[63:0];
+
+// Virtual memory translation for instruction fetch
+aspect mmu.isa gates pc, priv_mode, mepc, mcause, mtval, sepc, scause, stval, mstatus, sstatus;
+
+instr = umem[pc_pa];
+assume instr[6:0] == 0b0101111;
+assume instr[14:12] == 0b010;
+assume instr[31:27] == 0b11100;
+pc = pc + 4;
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+rd = instr[11:7];
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+addr = r1;
+
+// Virtual memory translation for AMO address (load+store)
+aspect mmu_load.isa gates pc, priv_mode, mepc, mcause, mtval, sepc, scause, stval, mstatus, sstatus;
+
+old_val = umem[addr_pa];
+new_val = (old_val > r2[31:0]) ? old_val : r2[31:0];
+umem[addr_pa] when (~load_exception_taken & ~instr_trap_taken) = new_val;
+
+// Sign-extend 32-bit old value to 64 bits
+rf[rd] when (rd != 0 & ~load_exception_taken & ~instr_trap_taken) = {{32{old_val[31]}}, old_val};

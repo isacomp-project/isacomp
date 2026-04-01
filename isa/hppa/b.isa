@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA B instruction (unconditional branch)
+// B target - Unconditional branch
+// This is actually BL target,r0 (link to r0 which discards the return address)
+// Opcode: 0x3a (bits 31:26), with link register = 0
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var w[16:0];
+var target_offset[31:0];
+var target[31:0];
+
+instr = umem[pc_pa];
+
+// B encoding: opcode=0x3a (bits 31:26), link reg (bits 25:21) = 0
+// bits[15:13] = 000 distinguishes B/BL from BV (110) and BVB (111)
+assume instr[31:26] == 0b111010;
+assume instr[25:21] == 0b00000;
+assume instr[15:13] == 0b000;
+
+// Assemble 17-bit PC-relative offset (word-aligned displacement)
+// W17 encoding: bit[0]=sign(W), bits[20:16]=W1, bit[2]=bit10, bits[12:3]=W2_low10
+// Displacement = sign_extend17({instr[0], instr[20:16], instr[2], instr[12:3]})
+w = {instr[0], instr[20:16], instr[2], instr[12:3]};
+
+// Sign-extend and multiply by 4 (word alignment)
+target_offset = {{13{w[16]}}, w, 2'b00};
+
+// Calculate target address (PC + 8 + offset)
+// HPPA uses delay slots, so branch target is relative to PC+8
+target = pc + 8 + target_offset;
+
+// B,N: set PSW.N=1 so the delay slot instruction is nullified
+psw when (instr[1] & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 32'h00200000;
+
+// Advance PC to target
+// Set up delay slot: next instruction executes, then branch takes effect
+delay_slot when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+pc = pc + 4;

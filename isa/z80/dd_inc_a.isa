@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD 3C - DD prefix passthrough
+// DD prefix consumed, base opcode 3C executes unchanged
+
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_S[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_H[0:0];
+isa_state flag_PV[0:0];
+isa_state flag_N[0:0];
+
+var result[7:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'h3CDD;
+pc = pc + 2;
+
+result = A + 1;
+
+flag_S = result[7];
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+flag_H = (A[3:0] == 0x0F) ? 1'b1 : 1'b0;
+// P/V set if A was 0x7F (overflow to negative)
+flag_PV = (A == 0x7F) ? 1'b1 : 1'b0;
+flag_N = 1'b0;
+// C not affected
+
+A = result;

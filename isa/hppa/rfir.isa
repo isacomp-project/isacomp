@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA RFIR instruction (RFI,R = Return From Interruption and Restore)
+// RFIR - Return From Interruption and Restore recovery counter enable
+// Opcode: 0x00 (bits 31:26), function=0x65 (bits 12:5)
+//
+// Identical semantics to RFI for simulation purposes.
+// In hardware, RFIR additionally resets PSW.R (recovery counter enable).
+// Restores processor state from interruption shadow registers:
+//   PSW        <- CR22 (IPSW)
+//   PC         <- CR18 (IAOQ front), privilege bits cleared
+//   priv_level <- CR18[1:0]
+
+// === ISA State ===
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+isa_state priv_level[1:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Interruption shadow registers (crNN naming)
+isa_state cr18[31:0];       // IIAOQ front
+isa_state cr18_back[31:0];  // IIAOQ back
+isa_state cr22[31:0];       // IPSW
+
+// Additional CRs needed by interruption aspect
+isa_state cr14[31:0];       // IVA
+isa_state cr15[31:0];       // EIEM
+isa_state cr17[31:0];       // IIASQ
+isa_state cr19[31:0];       // IIR
+isa_state cr20[31:0];       // ISR
+isa_state cr21[31:0];       // IOR
+ext isa_state cr23[31:0];   // EIRR (managed by testbench/SoC)
+
+// External state for interruption aspect
+ext isa_state timer_irq_pending[0:0];
+ext isa_state ext_irq_lines[31:0];
+
+mem umem[25:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+// === Instruction decode ===
+var instr[31:0];
+
+instr = umem[pc_pa];
+
+// RFIR encoding: bits[12:5] = 0b01100101 = 0x65
+assume instr[31:26] == 0b000000;
+assume instr[12:5] == 0b01100101;
+
+// === Restore state (gated on no prior trap and not nullified) ===
+var rfi_active[0:0];
+rfi_active = ~instr_trap_taken & ~in_nullified;
+
+// Restore PSW from IPSW
+psw when (rfi_active) = cr22;
+
+// Restore privilege level from IAOQ front low 2 bits
+priv_level when (rfi_active) = cr18[1:0];
+
+// Restore PC from IAOQ front with privilege bits cleared
+var restored_pc[31:0];
+restored_pc = {cr18[31:2], 2'b00};
+pc when (rfi_active) = restored_pc;
+
+// === IAOQ queue restoration ===
+var rfi_back_pc[31:0];
+var rfi_next_sequential[31:0];
+var rfi_resuming_delay_slot[0:0];
+
+rfi_back_pc = {cr18_back[31:2], 2'b00};
+rfi_next_sequential = restored_pc + 4;
+rfi_resuming_delay_slot = (rfi_back_pc != rfi_next_sequential);
+
+delay_slot when (rfi_active & rfi_resuming_delay_slot) = 1;
+branch_target when (rfi_active & rfi_resuming_delay_slot) = rfi_back_pc;
+
+// === Restore instruction address space from IIASQ ===
+isa_state code_iasq[31:0];
+code_iasq when (rfi_active) = cr17;
+
+// === Restore shadow registers ===
+// PA-RISC 1.1: RFIR restores GR1, GR8, GR9, GR16, GR17, GR24, GR25
+// from hardware shadow registers saved on interruption.
+rf[1] when (rfi_active) = shadow_r1;
+rf[8] when (rfi_active) = shadow_r8;
+rf[9] when (rfi_active) = shadow_r9;
+rf[16] when (rfi_active) = shadow_r16;
+rf[17] when (rfi_active) = shadow_r17;
+rf[24] when (rfi_active) = shadow_r24;
+rf[25] when (rfi_active) = shadow_r25;

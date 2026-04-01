@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 OUT imm8, EAX (0xE7)
+// Output EAX to immediate I/O port
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases
+isa_state EAX[31:0] of xregs[0];
+
+isa_state imem[7:0][31:0];
+isa_state io_ports[7:0][15:0];
+
+var port[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xE7;
+eip = eip + 1;
+
+// Fetch 8-bit port number
+port = imem[eip];
+eip = eip + 1;
+
+// Write EAX to I/O port (little-endian)
+io_ports[port] = EAX[7:0];
+io_ports[port + 1] = EAX[15:8];
+io_ports[port + 2] = EAX[23:16];
+io_ports[port + 3] = EAX[31:24];
+
+// OUT does not affect flags

@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 NEG r32 (0xF7 /3 with mod=11)
+// Two's complement negate: r32 = 0 - r32
+// Affects: CF, OF, SF, ZF, AF, PF
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var result[32:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xF7;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is NEG (reg_bits = 011)
+assume reg_bits == 0b011;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read destination value
+dst_val = xregs[rm_bits];
+
+// Perform NEG operation: 0 - dst_val
+result = 32'h00000000 - dst_val;
+
+// Write result
+xregs[rm_bits] = result[31:0];
+
+// Set flags
+flag_CF = (dst_val != 32'h00000000);  // CF set unless operand is 0
+flag_OF = (dst_val == 32'h80000000);  // OF set if operand is most negative
+flag_SF = result[31];
+flag_ZF = result[31:0] == 32'h00000000;
+flag_AF = (dst_val[3:0] != 4'h0);
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);

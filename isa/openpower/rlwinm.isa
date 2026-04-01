@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER rlwinm - Rotate Left Word Immediate then AND with Mask (M-Form)
+// rlwinm rA, rS, sh, mb, me
+// Primary opcode 21, Rc=0
+// rA = ROTL32(rS[32:63], sh) & MASK(mb, me)
+// Extended mnemonics: clrrwi, clrlwi, extlwi, extrwi, etc.
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var rlwinm_ra[4:0];
+var rlwinm_sh[4:0];
+var rlwinm_mb[4:0];
+var rlwinm_me[4:0];
+var rs_val[63:0];
+var rlwinm_rs_val[31:0];
+var rlwinm_rotated[31:0];
+var rlwinm_mask[31:0];
+var rlwinm_result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 21
+assume instr[31:26] == 21;
+// Rc = 0 (don't update CR)
+assume instr[0] == 0;
+
+// Extract fields
+rs = instr[25:21];
+rlwinm_ra = instr[20:16];
+rlwinm_sh = instr[15:11];
+rlwinm_mb = instr[10:6];
+rlwinm_me = instr[5:1];
+
+// Read register (64-bit) and extract lower 32 bits
+rs_val = rf[rs];
+rlwinm_rs_val = rs_val[31:0];
+
+// Rotate left by rlwinm_sh (32-bit rotation)
+rlwinm_rotated = rlwinm_sh == 0 ? rlwinm_rs_val : ((rlwinm_rs_val << rlwinm_sh) | (rlwinm_rs_val >> (32 - rlwinm_sh)));
+
+// Build mask from rlwinm_mb to rlwinm_me (inclusive)
+// In PowerPC bit numbering: bit 0 = MSB of 32-bit word
+// MASK(mb, me) sets bits from mb to me
+// When me = 31, shifting by me+1=32 is undefined, handle specially
+rlwinm_mask = rlwinm_me >= rlwinm_mb ?
+    ((32'hFFFFFFFF >> rlwinm_mb) & (rlwinm_me == 31 ? 32'hFFFFFFFF : ~(32'hFFFFFFFF >> (rlwinm_me + 1)))) :
+    ((32'hFFFFFFFF >> rlwinm_mb) | (rlwinm_me == 31 ? 32'h0 : ~(32'hFFFFFFFF >> (rlwinm_me + 1))));
+
+// Apply mask and zero-extend to 64 bits
+rlwinm_result = {32'h0, rlwinm_rotated & rlwinm_mask};
+
+// Write result
+#ifdef VM
+rf[rlwinm_ra] when (~instr_trap_taken) = rlwinm_result;
+#else
+rf[rlwinm_ra] = rlwinm_result;
+#endif
+
+pc = pc + 4;

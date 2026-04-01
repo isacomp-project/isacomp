@@ -1,0 +1,23 @@
+diff --git a/pyGHDL/dom/_Translate.py b/pyGHDL/dom/_Translate.py
+index 2cfae42a0..0649e0649 100644
+--- a/pyGHDL/dom/_Translate.py
++++ b/pyGHDL/dom/_Translate.py
+@@ -977,12 +977,13 @@ def GetSequentialStatementsFromChainedNodes(
+             yield CaseStatement.parse(statement, label)
+         elif kind == nodes.Iir_Kind.Simple_Signal_Assignment_Statement:
+             yield SequentialSimpleSignalAssignment.parse(statement, label)
+-        elif kind in (
+-            nodes.Iir_Kind.Variable_Assignment_Statement,
+-            nodes.Iir_Kind.Conditional_Variable_Assignment_Statement,
+-        ):
++        elif kind == nodes.Iir_Kind.Variable_Assignment_Statement:
++            # ISAComp patch: Handle variable assignments
++            from pyGHDL.dom.Sequential import SequentialSimpleVariableAssignment
++            yield SequentialSimpleVariableAssignment.parse(statement)
++        elif kind == nodes.Iir_Kind.Conditional_Variable_Assignment_Statement:
+             WarningCollector.Raise(
+-                NotImplementedError(f"Variable assignment (label: '{label}') at line {position.Line}")
++                NotImplementedError(f"Conditional variable assignment (label: '{label}') at line {position.Line}")
+             )
+         elif kind == nodes.Iir_Kind.Wait_Statement:
+             yield WaitStatement.parse(statement, label)

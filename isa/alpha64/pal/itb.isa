@@ -1,0 +1,155 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha ITB (Instruction Translation Buffer) Aspect
+//
+// This aspect provides address translation for instruction fetch.
+// It checks the architectural ITB first, and on miss, triggers a
+// trap to PALcode which handles the page table walk.
+//
+// Alpha Virtual Address Format (43-bit VA, 8KB pages):
+//   [42:13] Virtual Page Number (VPN) - 30 bits
+//   [12:0]  Page offset - 13 bits (8KB pages)
+//
+// Alpha PTE Format (64-bit, Linux kernel layout):
+//   [63:32] PFN (Physical Frame Number)
+//   [31:14] Reserved / Software
+//   [13]    UWE (User Write Enable)
+//   [12]    URE (User Read Enable)
+//   [11]    Reserved
+//   [10]    KWE (Kernel Write Enable)
+//   [9]     Reserved
+//   [8]     KRE (Kernel Read Enable)
+//   [7]     Reserved
+//   [6:5]   GH (Granularity Hint)
+//   [4]     ASM (Address Space Match - global mapping)
+//   [3]     FOE (Fault on Execute)
+//   [2]     FOW (Fault on Write)
+//   [1]     FOR (Fault on Read)
+//   [0]     V (Valid)
+//
+// On TLB miss: Trap to PAL_itb_miss entry
+// On permission fault: Trap to PAL_fen (if FOE set) or PAL_mm_fault
+
+// Output: Physical address for instruction fetch
+var pc_pa[63:0];
+
+// Capture original PC
+var original_pc[63:0];
+original_pc = pc;
+
+// Exception tracking
+var itb_exception[0:0];
+var itb_miss[0:0];
+var itb_fault[0:0];
+
+// Extract address components
+var pc_vpn[29:0];
+var pc_offset[12:0];
+pc_vpn = pc[42:13];
+pc_offset = pc[12:0];
+
+// TLB lookup - check all 32 entries in parallel
+// For each entry: check valid bit and tag match
+var itb_hit[31:0];
+var itb_hit_any[0:0];
+var itb_hit_pte[63:0];
+
+// Check each TLB entry (simplified to check first 8 for brevity)
+// In full implementation, all 32 would be checked in parallel
+var hit0[0:0];
+var hit1[0:0];
+var hit2[0:0];
+var hit3[0:0];
+var hit4[0:0];
+var hit5[0:0];
+var hit6[0:0];
+var hit7[0:0];
+
+hit0 = itb_valid[0] & (itb_tag[0][29:0] == pc_vpn);
+hit1 = itb_valid[1] & (itb_tag[1][29:0] == pc_vpn);
+hit2 = itb_valid[2] & (itb_tag[2][29:0] == pc_vpn);
+hit3 = itb_valid[3] & (itb_tag[3][29:0] == pc_vpn);
+hit4 = itb_valid[4] & (itb_tag[4][29:0] == pc_vpn);
+hit5 = itb_valid[5] & (itb_tag[5][29:0] == pc_vpn);
+hit6 = itb_valid[6] & (itb_tag[6][29:0] == pc_vpn);
+hit7 = itb_valid[7] & (itb_tag[7][29:0] == pc_vpn);
+
+itb_hit_any = hit0 | hit1 | hit2 | hit3 | hit4 | hit5 | hit6 | hit7;
+
+// Select matching PTE (priority encoder)
+var sel_pte[63:0];
+sel_pte = hit0 ? itb_pte[0] :
+          hit1 ? itb_pte[1] :
+          hit2 ? itb_pte[2] :
+          hit3 ? itb_pte[3] :
+          hit4 ? itb_pte[4] :
+          hit5 ? itb_pte[5] :
+          hit6 ? itb_pte[6] :
+          hit7 ? itb_pte[7] : 64'b0;
+
+itb_hit_pte = sel_pte;
+
+// Extract PTE fields
+var pte_pfn[31:0];
+var pte_valid[0:0];
+var pte_foe[0:0];
+var pte_kre[0:0];
+var pte_ure[0:0];
+
+pte_pfn = itb_hit_pte[63:32];
+pte_valid = itb_hit_pte[0];
+pte_foe = itb_hit_pte[3];
+pte_kre = itb_hit_pte[8];
+pte_ure = itb_hit_pte[12];
+
+// Check permissions based on current mode
+// ps[3] = CM (current mode): 0=kernel, 1=user
+var is_user_mode[0:0];
+var has_execute_permission[0:0];
+
+is_user_mode = ps[3];
+has_execute_permission = is_user_mode ? pte_ure : pte_kre;
+
+// Determine exception type
+// In PAL mode, translation is bypassed
+var vm_enabled[0:0];
+vm_enabled = (pal_mode == 0);
+
+itb_miss = vm_enabled & (itb_hit_any == 0);
+itb_fault = vm_enabled & itb_hit_any & ((pte_valid == 0) | (has_execute_permission == 0) | pte_foe);
+itb_exception = itb_miss | itb_fault;
+
+// PAL entry points for exceptions
+// ITB miss: 0x03 (offset 0x0C0)
+// Instruction fault: typically handled by entIF (instruction fault entry)
+var itb_miss_entry[63:0];
+var itb_fault_entry[63:0];
+
+itb_miss_entry = pal_base + 64'h0C0;    // ITB miss handler
+itb_fault_entry = pal_base + 64'h180;   // Instruction fault handler
+
+// On exception, save state and jump to PALcode
+exc_addr when (itb_exception) = pc;
+va when (itb_exception) = pc;
+pal_mode when (itb_exception) = 1;
+
+// Compute physical address
+// If PAL mode: use physical address directly
+// If TLB hit: translate using PTE
+// If TLB miss/fault: will redirect to PAL handler
+var pc_translated[63:0];
+pc_translated = {pte_pfn, pc_offset};
+
+var pc_with_translation[63:0];
+pc_with_translation = itb_hit_any ? pc_translated : original_pc;
+
+// Final PC for fetch
+// If PAL mode: identity map
+// If exception: redirect to PAL handler
+pc_pa = pal_mode ? original_pc :
+        itb_miss ? itb_miss_entry :
+        itb_fault ? itb_fault_entry :
+        pc_with_translation;
+
+// Update PC on exception (redirect to PAL handler)
+pc when (itb_miss & (pal_mode == 0)) = itb_miss_entry;
+pc when (itb_fault & (pal_mode == 0)) = itb_fault_entry;

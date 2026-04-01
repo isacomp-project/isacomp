@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX LDSF - Load Short Float
+// LDSF $X,$Y,$Z: $X = (float)M4[$Y + $Z]
+// Opcode: 0x90
+// Note: Loads 32-bit float and converts to 64-bit
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var y[7:0];
+var z[7:0];
+var y_val[63:0];
+var z_val[63:0];
+var addr[63:0];
+var word[63:0];
+var data[31:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x90;
+
+x = instr[23:16];
+y = instr[15:8];
+z = instr[7:0];
+
+y_val = rf[y];
+z_val = rf[z];
+addr = y_val + z_val;
+word = umem[addr];
+data = word[31:0];
+// Sign extend for now (proper FP conversion would need FPU)
+result = {32'b0, data};
+
+rf[x] = result;
+pc = pc + 4;

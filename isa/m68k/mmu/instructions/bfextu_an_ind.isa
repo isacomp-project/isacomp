@@ -1,0 +1,138 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 BFEXTU (An){offset:width},Dn - Bit Field Extract Unsigned from address register indirect
+// Opcode: 1110 1001 11 010 AAA followed by extension word
+// Extension: 0 DDD Do ooooo Dw wwwww
+// Supports register or immediate offset/width
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var bfai_ext[15:0];
+var ea_reg[2:0];
+var dst_reg[2:0];
+var offset_in_reg[0:0];
+var offset_field[4:0];
+var width_in_reg[0:0];
+var width_field[4:0];
+var offset_val[31:0];
+var width_val[5:0];
+var base_addr[31:0];
+var byte_addr[31:0];
+var bit_in_byte[2:0];
+var word_addr[31:0];
+var mem_hi[15:0];
+var mem_lo[15:0];
+var mem_raw[31:0];
+var mem_adj[31:0];
+var shifted[31:0];
+var mask[31:0];
+var field[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b1110100111;  // BFEXTU opcode
+assume instr[5:3] == 3'b010;           // EA mode: (An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_reg = instr[2:0];
+
+// Fetch extension word
+bfai_ext = dmem[pc + pc_pa_delta];
+assume bfai_ext[15] == 1'b0;
+pc when (~m68k_exc_taken) = pc + 2;
+
+dst_reg = bfai_ext[14:12];
+offset_in_reg = bfai_ext[11];
+offset_field = bfai_ext[10:6];
+width_in_reg = bfai_ext[5];
+width_field = bfai_ext[4:0];
+
+// Get offset: full 32-bit signed from register, or 5-bit immediate
+offset_val = offset_in_reg ? dregs[offset_field[2:0]] : {27'b0, offset_field};
+
+// Get width (0 means 32)
+width_val = width_in_reg ?
+    (dregs[width_field[2:0]][4:0] == 0 ? 6'd32 : {1'b0, dregs[width_field[2:0]][4:0]}) :
+    (width_field == 0 ? 6'd32 : {1'b0, width_field});
+
+// Base address from register
+base_addr = aregs[ea_reg];
+
+// Calculate byte address: base + (offset / 8) with sign extension
+byte_addr = base_addr + {{3{offset_val[31]}}, offset_val[31:3]};
+bit_in_byte = offset_val[2:0];
+
+// Align to word boundary for 16-bit memory reads
+word_addr = {byte_addr[31:1], 1'b0};
+
+// Read 4 bytes (2 words) to cover any bit field spanning up to 32+7 bits
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = word_addr;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+mem_hi = dmem[ea_pa];
+#else
+mem_hi = dmem[word_addr];
+#endif
+#ifdef MMU
+mem_lo = dmem[ea_pa + 2];
+#else
+mem_lo = dmem[word_addr + 2];
+#endif
+mem_raw = {mem_hi, mem_lo};
+
+// Adjust for odd byte address: shift left 8 if base byte is at odd address
+mem_adj = byte_addr[0] ? (mem_raw << 4'd8) : mem_raw;
+
+// Now bit 31 of mem_adj corresponds to bit 0 of the byte at byte_addr
+// Shift left by bit_in_byte to align field MSB to bit 31
+shifted = mem_adj << bit_in_byte;
+
+// Extract 'width_val' bits from the top of shifted, zero-extend
+mask = (width_val == 6'd32) ? 32'hFFFFFFFF : ((32'b1 << width_val) - 1);
+field = (shifted >> (6'd32 - width_val)) & mask;
+
+// Store result
+dregs[dst_reg] when (~m68k_exc_taken & ~data_exc_taken) = field;
+
+// Update CCR
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = shifted[31];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = field == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

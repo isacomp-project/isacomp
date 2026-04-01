@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// J4 (SuperH-4) Address Error Aspect for Load Operations
+// Detects misaligned memory access on load instructions:
+// - Word (16-bit) access must be 2-byte aligned (addr[0] == 0)
+// - Long (32-bit) access must be 4-byte aligned (addr[1:0] == 0)
+//
+// This aspect must be included AFTER the load address is computed.
+// The instruction must define:
+// - load_addr: the address being accessed
+// - load_size: 2'b01 for byte, 2'b10 for word, 2'b11 for long
+//
+// This aspect sets exc_taken and exc_vector if misaligned.
+// The exception.isa aspect must also be included to handle the exception.
+//
+// Vector 7 = Address error (read)
+
+// Check for address alignment errors
+var addr_err_load_misaligned[0:0];
+var addr_err_load_word_bad[0:0];
+var addr_err_load_long_bad[0:0];
+var addr_err_load_bl[0:0];  // BL bit from SR (exceptions blocked)
+
+// Word access: bit 0 must be 0
+addr_err_load_word_bad = (load_size == 2'b10) & load_addr[0];
+
+// Long access: bits 1:0 must be 00
+addr_err_load_long_bad = (load_size == 2'b11) & (load_addr[1:0] != 2'b00);
+
+// Any misalignment triggers address error
+addr_err_load_misaligned = addr_err_load_word_bad | addr_err_load_long_bad;
+
+// Check if exceptions are blocked (SR bit 28 = BL)
+// When BL=1, general exceptions are blocked to prevent recursive exceptions
+addr_err_load_bl = sr[28];
+
+// Set exception variables (will be handled by exception.isa)
+// Only trigger if misaligned AND exceptions not blocked
+exc_taken = addr_err_load_misaligned & ~addr_err_load_bl;
+exc_vector = 8'h07;  // Address error (read)
+
+// Export variable for instruction to use: may the load side effects proceed?
+// True if no misalignment, OR if misaligned but exceptions blocked by BL=1
+// (SH4 spec says behavior is undefined in the BL=1 misaligned case)
+var addr_err_load_proceed[0:0];
+addr_err_load_proceed = ~addr_err_load_misaligned | addr_err_load_bl;

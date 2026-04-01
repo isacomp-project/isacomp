@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 MULS.L #imm,Dl - Signed Multiply Long immediate (32x32->32)
+// Opcode: 0100 1100 00 111 100 followed by extension word, then 32-bit immediate
+// Extension: 1 DDD x 0 0000000000 where DDD=Dl register, bit15=1 (signed), bit10=0 (32-bit)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ext_word[15:0];
+var dl_reg[2:0];
+var imm_hi[15:0];
+var imm_lo[15:0];
+var imm_val[31:0];
+var dl_val[31:0];
+var result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100110000;  // MULU.L/MULS.L
+assume instr[5:3] == 0b111;          // EA mode: Special
+assume instr[2:0] == 0b100;          // Immediate
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Fetch extension word
+ext_word = dmem[pc + pc_pa_delta];
+assume ext_word[11] == 0b1;    // Signed (MULS.L) - bit 11 distinguishes signed/unsigned
+assume ext_word[10] == 0b0;    // 32-bit result (prevents OR-mux collision with 64-bit _dh_dl variant)
+pc when (~m68k_exc_taken) = pc + 2;
+
+dl_reg = ext_word[14:12];
+
+// Fetch 32-bit immediate (big-endian)
+imm_hi = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+imm_lo = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+imm_val = {imm_hi, imm_lo};
+
+// Execute signed multiply (32x32->32, lower 32 bits only)
+// For signed multiplication, the lower 32 bits are the same as unsigned
+dl_val = dregs[dl_reg];
+result = dl_val * imm_val;
+dregs[dl_reg] when (~m68k_exc_taken) = result;
+
+// Update CCR
+flag_N when (~m68k_exc_taken) = result[31];
+flag_Z when (~m68k_exc_taken) = result == 0;
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

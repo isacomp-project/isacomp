@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 ED 67 - RRD (Rotate Right Digit)
+// A low nibble -> (HL) high nibble -> (HL) low nibble -> A low nibble
+// Affects S, Z, H=0, P/V=parity, N=0 (C unaffected)
+
+isa_state pc[15:0];
+var ed_instr[15:0];
+var pc_plus_1[15:0];
+isa_state H[7:0];
+isa_state L[7:0];
+isa_state A[7:0];
+isa_state flag_S;
+isa_state flag_Z;
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+ed_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume ed_instr == 0x67ED;
+pc = pc_plus_1 + 1;
+
+var addr[15:0];
+addr = {H, L};
+var mem_val[7:0];
+mem_val = mainmem[addr];
+
+var a_low[3:0];
+a_low = A[3:0];
+var mem_low[3:0];
+mem_low = mem_val[3:0];
+var mem_high[3:0];
+mem_high = mem_val[7:4];
+
+// A gets low nibble of (HL) in low nibble, high nibble unchanged
+var new_a[7:0];
+new_a = {A[7:4], mem_low};
+// (HL) gets A's low nibble in high, old high nibble in low
+var new_mem[7:0];
+new_mem = {a_low, mem_high};
+
+A = new_a;
+mainmem[addr] = new_mem;
+
+var parity[0:0];
+parity = new_a[7] ^ new_a[6] ^ new_a[5] ^ new_a[4] ^ new_a[3] ^ new_a[2] ^ new_a[1] ^ new_a[0];
+
+flag_S = new_a[7];
+flag_Z = (new_a == 8'h00) ? 1'b1 : 1'b0;
+flag_H = 1'b0;
+flag_PV = parity ^ 1'b1;
+flag_N = 1'b0;

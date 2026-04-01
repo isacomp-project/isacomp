@@ -1,0 +1,120 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 MOVES - Move to/from Address Space
+// Opcode: 0000 1110 ss mmm rrr followed by extension word
+//   ss = size (00=byte, 01=word, 10=long)
+//   mmm rrr = effective address
+// Extension: A/D RRR d 000 0000 0000
+//   A/D = 0 for Dn, 1 for An
+//   RRR = register number
+//   d = moves_dir (0 = EA to Rn, 1 = Rn to EA)
+// Uses DFC/SFC for address space selection
+// Privileged instruction
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+isa_state sr[15:0];
+isa_state sfc[2:0];
+isa_state dfc[2:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var size[1:0];
+var ea_mode[2:0];
+var ea_reg[2:0];
+var is_addr[0:0];
+var reg_num[2:0];
+var moves_dir[0:0];
+var addr[31:0];
+var data[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+instr = dmem[pc_pa];
+assume instr[15:12] == 4'b0000;
+assume instr[11:8] == 4'b1110;
+pc when (~m68k_exc_taken) = pc + 2;
+
+size = instr[7:6];
+ea_mode = instr[5:3];
+ea_reg = instr[2:0];
+
+// Must be in supervisor mode
+assume sr[13] == 1'b1;
+
+extw = dmem[pc + pc_pa_delta];
+assume extw[10:0] == 11'b00000000000;
+pc when (~m68k_exc_taken) = pc + 2;
+
+is_addr = extw[15];
+reg_num = extw[14:12];
+moves_dir = extw[11];
+
+// This variant: (An) addressing, long size
+assume instr[5:3] == 3'b010;
+assume size == 2'b10;
+addr = aregs[ea_reg];
+
+// Direction 0: EA -> Rn (read using SFC)
+// Direction 1: Rn -> EA (write using DFC)
+// The function codes select the address space
+
+// Read from memory (moves_dir 0)
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = addr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+data = {dmem[ea_pa], dmem[addr + 2]};
+#else
+data = {dmem[addr], dmem[addr + 2]};
+#endif
+dregs[reg_num] when (~moves_dir & ~is_addr & ~m68k_exc_taken) = data;
+aregs[reg_num] when (~moves_dir & is_addr & ~m68k_exc_taken) = data;
+
+// Write to memory (moves_dir 1)
+data = is_addr ? aregs[reg_num] : dregs[reg_num];
+#ifdef MMU
+dmem[ea_pa] when (moves_dir & ~m68k_exc_taken) = data[31:16];
+#else
+dmem[addr] when (moves_dir & ~m68k_exc_taken) = data[31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa + 2] when (moves_dir & ~m68k_exc_taken) = data[15:0];
+#else
+dmem[addr + 2] when (moves_dir & ~m68k_exc_taken) = data[15:0];
+#endif
+
+// MOVES does not affect CCR

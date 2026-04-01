@@ -1,0 +1,20 @@
+_build/
+test_simple
+test_debug
+debug_sim
+debug_test
+umem.hex
+*.vcd
+*.ml
+*.v
+*.rgraph
+dune
+dune-project
+simple_tb.sv
+debug_tb.sv
+
+# Ignore generated test infra in stage-specific pipeline dirs
+# (canonical copies live in riscv32i_pipelined/ and riscv32i_complete/)
+riscv32i_pipelined_*/gen_tb.py
+riscv32i_pipelined_*/load_test.py
+riscv32i_pipelined_*/run_all_tests.sh

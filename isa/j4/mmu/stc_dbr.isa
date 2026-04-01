@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC DBR, Rn - Store Control Register DBR to Rn
+// SH-4 specific: Debug Base Register
+// Encoding: 0000nnnn11111010
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+isa_state dbr[31:0];  // Debug Base Register (SH-4 specific)
+mem umem[23:0];
+
+var rn[3:0];
+var stc_dbr_rn_lo[2:0];
+var stc_dbr_rb[0:0];
+var stc_dbr_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x0;
+assume instr[7:0] == 0xFA;
+rn = instr[11:8];
+
+stc_dbr_rn_lo = rn[2:0];
+stc_dbr_rb = sr[29];  // RB bit (bit 29 in SR)
+stc_dbr_rn_bk = (rn[3] == 1'b0) & stc_dbr_rb;
+
+// Store DBR to Rn (privileged, SH-4 specific)
+rf[rn] when (~int_should_take & ~itlb_exc_actually_taken & (stc_dbr_rn_bk == 0)) = dbr;
+rf_bank[stc_dbr_rn_lo] when (~int_should_take & ~itlb_exc_actually_taken & (stc_dbr_rn_bk)) = dbr;
+pc = pc + 2;

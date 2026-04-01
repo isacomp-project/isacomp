@@ -1,0 +1,68 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// FSUB DRm,DRn - Double-precision floating-point subtract
+// DRn = DRn - DRm (when FPSCR.PR=1)
+// Encoding: 1111nnn0mmm00001 (0xFnm1) with n,m even
+isa_state pc[31:0];
+var instr[15:0];
+isa_state fpr[31:0][3:0];
+isa_state fpscr[31:0];
+mem umem[23:0];
+
+var drn[2:0];
+var drm[2:0];
+var frn_idx[3:0];
+var frm_idx[3:0];
+var DRn_hi[31:0];
+var DRn_lo[31:0];
+var DRm_hi[31:0];
+var DRm_lo[31:0];
+var DRn[63:0];
+var DRm[63:0];
+var result[63:0];
+var rm[1:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0xF;
+assume instr[3:0] == 0x1;
+assume instr[8] == 1'b0;
+assume instr[4] == 1'b0;
+
+drn = instr[11:9];
+drm = instr[7:5];
+frn_idx = {drn, 1'b0};
+frm_idx = {drm, 1'b0};
+
+DRn_hi = fpr[frn_idx];
+DRn_lo = fpr[frn_idx + 1];
+DRm_hi = fpr[frm_idx];
+DRm_lo = fpr[frm_idx + 1];
+
+DRn = {DRn_hi, DRn_lo};
+DRm = {DRm_hi, DRm_lo};
+
+rm = fpscr[1:0];
+
+result = fp_sub_d(DRn, DRm, rm);
+
+fpr[frn_idx] when (~int_should_take & ~itlb_exc_actually_taken) = result[63:32];
+fpr[frn_idx + 1] when (~int_should_take & ~itlb_exc_actually_taken) = result[31:0];
+
+pc = pc + 2;

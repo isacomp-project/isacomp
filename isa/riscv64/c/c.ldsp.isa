@@ -1,0 +1,39 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RV64C C.LDSP - Load doubleword from stack (RV64 only)
+
+isa_state pc[63:0];
+var c_instr[15:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rd[4:0];
+var sp[63:0];
+var uimm[8:0];
+var zero_ext_imm[63:0];
+var c_ldsp_addr[63:0];
+var c_data[63:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.LDSP format: CI-type (RV64 only)
+// Encoding: 011 imm[5] rd imm[4:3|8:6] 10
+assume c_instr[1:0] == 0b10;
+assume c_instr[15:13] == 0b011;
+assume c_instr[11:7] != 0;
+
+pc = pc + 2;
+
+rd = c_instr[11:7];
+
+// Unsigned immediate: uimm[8:3] = {c_instr[4:2], c_instr[12], c_instr[6:5]}
+uimm = {c_instr[4:2], c_instr[12], c_instr[6:5], 3'b000};
+zero_ext_imm = {55'b0, uimm};
+
+// SP is x2
+sp = rf[5'b00010];
+
+c_ldsp_addr = sp + zero_ext_imm;
+c_data = umem[c_ldsp_addr];
+
+rf[rd] when (rd != 0) = c_data;

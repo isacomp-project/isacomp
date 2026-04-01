@@ -1,0 +1,104 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// CALL_PAL - Call Privileged Architecture Library
+//
+// Format: 00 | function[25:0]
+// Opcode: 0x00
+//
+// EV5 PAL entry layout:
+//   Privileged (func[7:6]==00):   pal_base + 0x2000 + (func[5:0] * 64)
+//   Unprivileged (func[7:6]==10): pal_base + 0x3000 + (func[5:0] * 64)
+// Saves return address to exc_addr, enters PAL mode, disables interrupts.
+//
+// This is the gateway from normal code to privileged PALcode routines.
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[63:0];
+
+// PAL state
+isa_state pal_mode[0:0];
+isa_state pal_base[63:0];
+isa_state exc_addr[63:0];
+isa_state ps[63:0];
+isa_state ipl[5:0];
+isa_state lock_flag[0:0];
+
+// ITB translation state (makes ITB signals global across all instructions)
+isa_state itb_pte[63:0][2:0];
+isa_state itb_tag[63:0][2:0];
+isa_state itb_valid[0:0][2:0];
+isa_state itb_asn[63:0];
+isa_state itb_asn_entry[7:0][2:0];
+
+// Interrupt state
+ext isa_state isr[63:0];
+isa_state hier[63:0];
+
+// Exception state
+isa_state va[63:0];
+
+// ITB translation for instruction fetch
+aspect ../vm/aspects/itb.isa gates pc, pal_mode, pal_base, itb_pte, itb_tag, itb_valid, itb_asn, itb_asn_entry, ps;
+
+// Interrupt check
+aspect ../vm/aspects/interrupt.isa gates pal_mode, pal_base, ipl, isr, hier;
+
+var func[25:0];
+var pal_entry[63:0];
+var saved_pc[63:0];
+
+instr = umem[pc_pa];
+assume instr[31:26] == 0;
+
+// Extract PAL function number from instruction
+func = instr[25:0];
+
+// Classify the call
+var is_privileged[0:0];
+var is_unprivileged[0:0];
+is_privileged = (func[7:6] == 2'b00);
+is_unprivileged = (func[7:6] == 2'b10);
+
+// Privilege check: privileged PAL calls (func[7:6]==00) require kernel mode (ps[3]==0)
+// Reserved ranges (func[7:6]==01 or 11) are also invalid
+var valid_call[0:0];
+valid_call = is_privileged ? (ps[3] == 0) : is_unprivileged;
+assume valid_call == 1;
+
+// Save return address (PC + 4)
+saved_pc = pc + 4;
+
+// Calculate PAL entry point
+// Privileged: pal_base + 0x2000 + func[5:0]*64
+// Unprivileged: pal_base + 0x3000 + func[5:0]*64
+var priv_entry[63:0];
+var unpriv_entry[63:0];
+priv_entry = pal_base + 64'h2000 + {{52{1'b0}}, func[5:0], 6'b000000};
+unpriv_entry = pal_base + 64'h3000 + {{52{1'b0}}, func[5:0], 6'b000000};
+pal_entry = is_privileged ? priv_entry : unpriv_entry;
+
+// Interrupt handling (higher priority than ITB fault)
+exc_addr when (take_interrupt || itb_fault) = pc;
+pal_mode when (take_interrupt) = 1;
+lock_flag when (take_interrupt) = 0;
+pc when (take_interrupt) = interrupt_entry;
+
+// ITB fault handling (when no interrupt)
+va when (take_interrupt == 0 && itb_fault) = pc;
+pal_mode when (take_interrupt == 0 && itb_fault) = 1;
+pc when (take_interrupt == 0 && itb_miss) = itb_miss_entry;
+pc when (take_interrupt == 0 && itb_acv) = itb_acv_entry;
+
+// Normal execution (gated by no fault):
+// - Save return PC to exc_addr
+// - Enter PAL mode
+// Note: IPL is NOT modified here. PAL mode itself prevents interrupts
+// (interrupt.isa checks pal_mode == 0). PALcode handlers explicitly
+// manage IPL via hw_mtpr when needed (e.g., swpipl reads old IPL first).
+exc_addr when (take_interrupt == 0 && itb_fault == 0) = saved_pc;
+pal_mode when (take_interrupt == 0 && itb_fault == 0) = 1;
+lock_flag when (take_interrupt == 0 && itb_fault == 0) = 0;
+
+// Jump to PAL entry point
+pc when (take_interrupt == 0 && itb_fault == 0) = pal_entry;

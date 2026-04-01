@@ -1,0 +1,110 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 BFFFO - Bit Field Find First One
+// Opcode: 1110 1101 11 mmm rrr followed by extension word
+// Extension: 0 DDD D ooooo D wwwww
+// Finds bit offset of first set bit in field (from MSB)
+// Returns offset + width if no bits set
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+isa_state imem[15:0][23:0];
+#ifdef MMU
+// MMU state for ATC instruction fetch translation
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state cam atc_va[19:0]@[4:0][];
+isa_state atc_fc[2:0][4:0];
+isa_state atc_v[0:0][4:0];
+isa_state atc_pa[19:0][4:0];
+isa_state atc_wp[0:0][4:0];
+isa_state atc_m[0:0][4:0];
+isa_state atc_u[0:0][4:0];
+isa_state atc_s[0:0][4:0];
+isa_state atc_next[4:0];
+#endif
+mem dmem[23:0];
+
+isa_state sr[15:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var ea_mode[2:0];
+var ea_reg[2:0];
+var dst_reg[2:0];
+var offset_in_reg[0:0];
+var offset_field[4:0];
+var width_in_reg[0:0];
+var width_field[4:0];
+
+var offset[5:0];
+var width[5:0];
+var source[31:0];
+var mask[31:0];
+var field[31:0];
+var aligned_field[31:0];
+var leading_zeros[5:0];
+var result[31:0];
+
+#ifdef MMU
+aspect ../mmu/atc_translate_instr.isa gates pc, atc_va, atc_fc, atc_v, atc_pa, atc_wp, atc_m, atc_u, atc_s, atc_next, dmem;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#endif
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+instr = imem[pc_pa];
+assume instr[15:6] == 10'b1110110111;  // BFFFO opcode
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_mode = instr[5:3];
+ea_reg = instr[2:0];
+
+extw = imem[pc + pc_pa_delta];
+assume extw[15] == 1'b0;
+pc when (~m68k_exc_taken) = pc + 2;
+
+dst_reg = extw[14:12];
+offset_in_reg = extw[11];
+offset_field = extw[10:6];
+width_in_reg = extw[5];
+width_field = extw[4:0];
+
+offset = offset_in_reg ? dregs[offset_field[2:0]][5:0] : {1'b0, offset_field};
+width = width_in_reg ?
+        (dregs[width_field[2:0]][4:0] == 0 ? 6'd32 : {1'b0, dregs[width_field[2:0]][4:0]}) :
+        (width_field == 0 ? 6'd32 : {1'b0, width_field});
+
+assume instr[5:3] == 3'b000;
+source = dregs[ea_reg];
+
+mask = (width == 6'd32) ? 32'hFFFFFFFF : ((32'b1 << width) - 1);
+field = (source >> (6'd32 - offset - width)) & mask;
+
+// Left-align field for CLZ operation
+aligned_field = field << (6'd32 - width);
+
+// Count leading zeros (find first one from MSB)
+leading_zeros = clz(aligned_field);
+
+// Result is offset + position of first 1 (or offset + width if none)
+result = {26'b0, offset} + ((field == 0) ? {26'b0, width} : {26'b0, leading_zeros});
+
+dregs[dst_reg] when (~m68k_exc_taken) = result;
+
+flag_N when (~m68k_exc_taken) = field[width - 1];
+flag_Z when (~m68k_exc_taken) = (field == 0);
+flag_V when (~m68k_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken) = 1'b0;

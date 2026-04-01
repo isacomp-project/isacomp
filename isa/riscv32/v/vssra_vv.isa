@@ -1,0 +1,52 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vssra.vv - Scaling Shift Right Arithmetic (vector-vector)
+// Encoding: vssra.vv vd, vs2, vs1, vm
+// Operation: vd[i] = roundoff_signed(vs2[i], vs1[i])
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+isa_state vxrm[1:0];
+mem umem[12:0];
+
+var instr[31:0];
+var vs1[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v1[127:0];
+var v2[127:0];
+var res[127:0];
+var shift0[4:0];
+var shift1[4:0];
+var shift2[4:0];
+var shift3[4:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b000;
+assume instr[31:26] == 0b101011;
+
+pc = pc + 4;
+
+vs1 = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v1 = vrf[vs1];
+v2 = vrf[vs2];
+
+shift0 = v1[4:0];
+shift1 = v1[36:32];
+shift2 = v1[68:64];
+shift3 = v1[100:96];
+
+// Scaling shift right arithmetic with rounding (guard for shift=0)
+res[31:0]   = (shift0 == 0) ? v2[31:0]   : ((v2[31:0]   + (1 << (shift0 - 1))) >>> shift0);
+res[63:32]  = (shift1 == 0) ? v2[63:32]  : ((v2[63:32]  + (1 << (shift1 - 1))) >>> shift1);
+res[95:64]  = (shift2 == 0) ? v2[95:64]  : ((v2[95:64]  + (1 << (shift2 - 1))) >>> shift2);
+res[127:96] = (shift3 == 0) ? v2[127:96] : ((v2[127:96] + (1 << (shift3 - 1))) >>> shift3);
+
+vrf[vd] = res;

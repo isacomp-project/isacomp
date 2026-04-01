@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// PDP-11 BIC instruction - Register to Autoincrement
+// Source: mode 0, Dest: mode 2
+
+isa_state pc[15:0];
+var instr[15:0];
+isa_state rf[15:0][2:0];  // 8 registers, R7 is PC
+isa_state umem[7:0][15:0];      // Byte-addressable memory
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_val[15:0];
+var dst_val[15:0];
+var result[15:0];
+var dst_addr[15:0];
+var dst_lo[7:0];
+var dst_hi[7:0];
+
+
+// Fetch instruction (little-endian)
+var instr_lo[7:0];
+var instr_hi[7:0];
+instr_lo = umem[pc];
+instr_hi = umem[pc + 1];
+instr = {instr_hi, instr_lo};
+
+
+assume instr[15:12] == 0b0100;  // BIC opcode
+assume instr[11:9] == 0b000;    // Source mode 0 (register)
+assume instr[5:3] == 0b010;     // Dest mode 2 (autoincrement)
+
+src_reg = instr[8:6];
+dst_reg = instr[2:0];
+
+pc = pc + 2;
+
+// Fetch source operand
+src_val = src_reg == 7 ? pc : rf[src_reg];
+
+// Fetch destination operand
+dst_addr = rf[dst_reg];
+rf[dst_reg] when (dst_reg != 7) = rf[dst_reg] + 2;
+dst_lo = umem[dst_addr];
+dst_hi = umem[dst_addr + 1];
+dst_val = {dst_hi, dst_lo};
+
+result = dst_val & ~src_val;
+
+// Write result
+umem[dst_addr] = result[7:0];
+umem[dst_addr + 1] = result[15:8];
+
+flag_N = result[15];
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+flag_V = 0;

@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SCASW (0xAF) - WITH PROPER SEGMENTATION
+// Scan word string - compare AX with ES:[DI]
+// Uses ES segment for destination
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state ES[15:0];            // Extra segment register
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state DI[15:0] of xregs[7][15:0];
+isa_state flag_DF[0:0];
+isa_state flag_CF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_PF[0:0];
+
+var di_offset_lo[7:0];
+var di_offset_hi[7:0];
+var physical_addr_lo[31:0];
+var physical_addr_hi[31:0];
+var low_byte[7:0];
+var high_byte[7:0];
+var word_value[15:0];
+var result[16:0];
+
+instr = imem[eip];
+assume instr == 0xAF;
+
+// Calculate destination offsets with wraparound
+di_offset_lo = DI;
+di_offset_hi = DI + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using ES segment
+physical_addr_lo = (ES << 4) + di_offset_lo;  // ES:DI
+physical_addr_hi = (ES << 4) + di_offset_hi;  // ES:(DI+1)
+
+// Compare AX with word at ES:[DI] (little-endian)
+low_byte = dmem[physical_addr_lo];
+high_byte = dmem[physical_addr_hi];
+word_value = {high_byte, low_byte};
+result = AX - word_value;
+
+// Set flags based on result
+flag_CF = AX < word_value ? 1'b1 : 1'b0;
+flag_ZF = result[15:0] == 16'h0000 ? 1'b1 : 1'b0;
+flag_SF = result[15];
+flag_PF = result[0];
+flag_OF = ((AX[15] != word_value[15]) & (result[15] != AX[15])) ? 1'b1 : 1'b0;
+
+// Increment or decrement DI by 2 based on direction flag
+DI = flag_DF == 1'b0 ? (DI + 16'h0002) : (DI - 16'h0002);
+
+// Update EIP after all imem reads are complete
+eip = eip + 1;

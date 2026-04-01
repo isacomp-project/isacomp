@@ -1,0 +1,20 @@
+#include "test_macros.h"
+
+RVTEST_CODE_BEGIN
+
+    # Test SH3ADD - shift left by 3 and add
+    # SH3ADD r1,r2,t: t = (r1 << 3) + r2
+    
+    TEST_RR_OP( 2, sh3add, 0x00000008, 0x00000001, 0x00000000 )
+    TEST_RR_OP( 3, sh3add, 0x00000010, 0x00000002, 0x00000000 )
+    TEST_RR_OP( 4, sh3add, 0x00000018, 0x00000002, 0x00000008 )
+    TEST_RR_OP( 5, sh3add, 0x00000024, 0x00000003, 0x0000000c )
+    
+    TEST_PASSFAIL
+    
+RVTEST_PASS
+RVTEST_FAIL
+
+RVTEST_DATA_BEGIN
+    TEST_DATA
+RVTEST_DATA_END

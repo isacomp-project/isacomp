@@ -1,0 +1,77 @@
+BOOT
+Linux version 6.1.120 (jbalkind@mull) (sh4-linux-gnu-gcc (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0, GNU ld (GNU Binutils for Ubuntu) 2.42) #3 Mon Feb  9 19:33:11 PST 2026
+Boot params:
+... MOUNT_ROOT_RDONLY - 00000001
+... RAMDISK_FLAGS     - 00000000
+... ORIG_ROOT_DEV     - 00000200
+... LOADER_TYPE       - 00000001
+... INITRD_START      - 00000000
+... INITRD_SIZE       - 00000000
+earlycon: uartlite0 at MMIO 0xa3f00100 (options '')
+printk: bootconsole [uartlite0] enabled
+Booting machvec: generic
+initrd disabled
+Zone ranges:
+  Normal   [mem 0x0000000000000000-0x0000000003efffff]
+Movable zone start for each node
+Early memory node ranges
+  node   0: [mem 0x0000000000000000-0x0000000003efffff]
+Initmem setup node 0 [mem 0x0000000000000000-0x0000000003efffff]
+Built 1 zonelists, mobility grouping on.  Total pages: 16002
+Kernel command line: earlycon=uartlite,mmio,0xa3f00100 console=ttyUL0,115200 lpj=250000
+Unknown kernel command line parameters "lpj=250000", will be passed to user space.
+Dentry cache hash table entries: 8192 (order: 3, 32768 bytes, linear)
+Inode-cache hash table entries: 4096 (order: 2, 16384 bytes, linear)
+Sorting __ex_table...
+mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+I-cache : n_ways=1 n_sets=256 way_incr=8192
+I-cache : entry_mask=0x00001fe0 alias_mask=0x00001000 n_aliases=2
+D-cache : n_ways=1 n_sets=512 way_incr=16384
+D-cache : entry_mask=0x00003fe0 alias_mask=0x00003000 n_aliases=4
+virtual kernel memory layout:
+    fixmap  : 0xdfff7000 - 0xdffff000   (  32 kB)
+    vmalloc : 0xc0000000 - 0xdfff5000   ( 511 MB)
+    lowmem  : 0x80000000 - 0x83f00000   (  63 MB) (cached)
+            : 0xa0000000 - 0xc0000000   ( 512 MB) (uncached)
+      .init : 0x802fb000 - 0x80317000   ( 112 kB)
+      .data : 0x802430e4 - 0x802faedc   ( 735 kB)
+      .text : 0x80001000 - 0x802430e4   (2312 kB)
+Memory: 60668K/64512K available (2308K kernel code, 164K rwdata, 568K rodata, 112K init, 70K bss, 3840K reserved, 0K cma-reserved)
+NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+intc: Registered controller 'sh7750' with 20 IRQs
+intc: Registered controller 'sh7750_dma8' with 9 IRQs
+intc: Registered controller 'sh7750_tmu34' with 2 IRQs
+intc: Registered controller 'sh7750_pci' with 8 IRQs
+Console: colour dummy device 80x25
+ sh-tmu.0: ch0: used for clock events
+ sh-tmu.0: ch0: used for periodic clock events
+ sh-tmu.0: ch1: used as clock source
+clocksource: sh-tmu.0: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100 ns
+ sh-tmu.1: ch0: used for clock events
+ sh-tmu.1: ch1: used as clock source
+clocksource: sh-tmu.1: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100 ns
+sched_clock: 32 bits at 250 Hz, resolution 4000000ns, wraps every 8589934590000000ns
+Calibrating delay loop (skipped)... 2.00 BogoMIPS PRESET (lpj=4000)
+CPU: SH7751
+pid_max: default: 32768 minimum: 301
+Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+futex hash table entries: 256 (order: -1, 3072 bytes, linear)
+DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+SCSI subsystem initialized
+pps_core: LinuxPPS API ver. 1 registered
+pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+sh_tmu sh-tmu.0: kept as earlytimer
+sh_tmu sh-tmu.1: kept as earlytimer
+clocksource: Switched to clocksource sh-tmu.0
+workingset: timestamp_bits=30 max_order=14 bucket_order=0
+io scheduler mq-deadline registered
+io scheduler kyber registered
+heartbeat: version 0.1.2 loaded
+Warning: unable to open an initial console.
+Freeing unused kernel image (initmem) memory: 112K
+This architecture does not have kernel memory protection.
+Run /init as init process
+process '/init' started with executable stack
+Hello from J4 userspace!

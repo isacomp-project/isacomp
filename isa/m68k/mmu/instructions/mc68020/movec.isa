@@ -1,0 +1,130 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68010/68020 MOVEC - Move Control Register
+// Opcode: 0100 1110 0111 101d (4E7A/4E7B) followed by extension word
+// d=0: Rc -> Rn (read control register)
+// d=1: Rn -> Rc (write control register)
+// Extension: A/D RRR CCCC CCCC CCCC
+//   A/D = 0 for Dn, 1 for An
+//   RRR = register number
+//   12-bit control register code
+// Privileged instruction
+
+isa_state pc[31:0];
+var instr[15:0];
+var extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+
+// Status Register
+isa_state sr[15:0];
+
+// Control Registers (68010+)
+isa_state vbr[31:0];          // 0x801 - Vector Base Register
+isa_state sfc[2:0];           // 0x000 - Source Function Code
+isa_state dfc[2:0];           // 0x001 - Destination Function Code
+isa_state cacr[31:0];         // 0x002 - Cache Control Register (68020+)
+isa_state caar[31:0];         // 0x802 - Cache Address Register (68020/030)
+isa_state usp[31:0];          // 0x800 - User Stack Pointer
+isa_state msp[31:0];          // 0x803 - Master Stack Pointer (68020+)
+isa_state ssp[31:0];          // 0x804 - Interrupt Stack Pointer (68020+)
+
+// MMU Control Registers (68040+ via MOVEC, 68030 via PMOVE)
+// Providing MOVEC access allows kernels that probe 68040-style to work
+isa_state tc[31:0];           // 0x003 - Translation Control Register
+isa_state tt0[31:0];          // 0x004 - Transparent Translation 0 (ITT0 on 68040)
+isa_state tt1[31:0];          // 0x005 - Transparent Translation 1 (ITT1 on 68040)
+isa_state crp[63:0];          // CPU Root Pointer (lower 32 bits via 0x806/URP)
+isa_state srp[63:0];          // Supervisor Root Pointer (lower 32 bits via 0x807)
+isa_state mmusr[15:0];        // 0x805 - MMU Status Register
+
+// CCR flags (not modified by MOVEC)
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var movec_dir[0:0];
+var is_addr_reg[0:0];
+var reg_num[2:0];
+var cr_code[11:0];
+var reg_val[31:0];
+var cr_val[31:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp, tc, tt0, tt1, crp, srp, mmusr;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:1] == 15'b010011100111101;  // MOVEC opcode
+pc when (~m68k_exc_taken) = pc + 2;
+
+movec_dir = instr[0];  // 0=read, 1=write
+
+// Must be in supervisor mode
+assume sr[13] == 1'b1;
+
+// Fetch extension word
+extw = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode extension
+is_addr_reg = extw[15];
+reg_num = extw[14:12];
+cr_code = extw[11:0];
+
+// Get register value (for write movec_dir)
+reg_val = is_addr_reg ? aregs[reg_num] : dregs[reg_num];
+
+// Read control register value based on code
+cr_val = (cr_code == 12'h000) ? {29'b0, sfc} :      // SFC
+         (cr_code == 12'h001) ? {29'b0, dfc} :      // DFC
+         (cr_code == 12'h002) ? cacr :               // CACR
+         (cr_code == 12'h003) ? tc :                 // TC (68040+)
+         (cr_code == 12'h004) ? tt0 :                // ITT0/TT0 (68040+)
+         (cr_code == 12'h005) ? tt1 :                // ITT1/TT1 (68040+)
+         (cr_code == 12'h006) ? tt0 :                // DTT0 -> TT0 (68030 shared)
+         (cr_code == 12'h007) ? tt1 :                // DTT1 -> TT1 (68030 shared)
+         (cr_code == 12'h800) ? usp :                // USP
+         (cr_code == 12'h801) ? vbr :                // VBR
+         (cr_code == 12'h802) ? caar :               // CAAR
+         (cr_code == 12'h803) ? msp :                // MSP
+         (cr_code == 12'h804) ? ssp :                // ISP
+         (cr_code == 12'h805) ? {16'b0, mmusr} :     // MMUSR (68040+)
+         (cr_code == 12'h806) ? crp[31:0] :          // URP (68040+) -> CRP low
+         (cr_code == 12'h807) ? srp[31:0] :          // SRP (68040+) -> SRP low
+         32'b0;
+
+// Direction 0: Control Register -> General Register (read)
+dregs[reg_num] when (~movec_dir & ~is_addr_reg & ~m68k_exc_taken) = cr_val;
+aregs[reg_num] when (~movec_dir & is_addr_reg & ~m68k_exc_taken) = cr_val;
+
+// Direction 1: General Register -> Control Register (write)
+sfc when (movec_dir & (cr_code == 12'h000) & ~m68k_exc_taken) = reg_val[2:0];
+dfc when (movec_dir & (cr_code == 12'h001) & ~m68k_exc_taken) = reg_val[2:0];
+cacr when (movec_dir & (cr_code == 12'h002) & ~m68k_exc_taken) = reg_val;
+tc when (movec_dir & (cr_code == 12'h003) & ~m68k_exc_taken) = reg_val;
+tt0 when (movec_dir & (cr_code == 12'h004) & ~m68k_exc_taken) = reg_val;
+tt1 when (movec_dir & (cr_code == 12'h005) & ~m68k_exc_taken) = reg_val;
+tt0 when (movec_dir & (cr_code == 12'h006) & ~m68k_exc_taken) = reg_val;
+tt1 when (movec_dir & (cr_code == 12'h007) & ~m68k_exc_taken) = reg_val;
+usp when (movec_dir & (cr_code == 12'h800) & ~m68k_exc_taken) = reg_val;
+vbr when (movec_dir & (cr_code == 12'h801) & ~m68k_exc_taken) = reg_val;
+caar when (movec_dir & (cr_code == 12'h802) & ~m68k_exc_taken) = reg_val;
+msp when (movec_dir & (cr_code == 12'h803) & ~m68k_exc_taken) = reg_val;
+ssp when (movec_dir & (cr_code == 12'h804) & ~m68k_exc_taken) = reg_val;
+mmusr when (movec_dir & (cr_code == 12'h805) & ~m68k_exc_taken) = reg_val[15:0];
+crp when (movec_dir & (cr_code == 12'h806) & ~m68k_exc_taken) = {32'b0, reg_val};
+srp when (movec_dir & (cr_code == 12'h807) & ~m68k_exc_taken) = {32'b0, reg_val};
+
+// MOVEC does not affect CCR

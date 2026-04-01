@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX SYNC - Synchronize
+// SYNC XYZ: memory barrier/synchronization
+// Opcode: 0xFC
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xFC;
+
+// SYNC is a memory barrier - in single-cycle it's a no-op
+pc = pc + 4;

@@ -1,0 +1,67 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER bclrl - Branch Conditional to Link Register and Link (XL-Form)
+// bclrl BO,BI
+// Primary opcode 19, XO=16, LK=1
+// Branch to LR and save return address
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state ctr[63:0];
+isa_state cr[31:0];
+isa_state lr[63:0];
+
+var bo[4:0];
+var bi[4:0];
+var ctr_ok[0:0];
+var cond_ok[0:0];
+var take_branch[0:0];
+var new_ctr[63:0];
+var cr_bit[0:0];
+var target[63:0];
+var return_addr[63:0];
+var old_lr[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 19
+assume instr[31:26] == 19;
+// XO field = 16
+assume instr[10:1] == 16;
+// LK = 1
+assume instr[0] == 1;
+
+// Extract fields
+bo = instr[25:21];
+bi = instr[20:16];
+
+// Get CR bit
+cr_bit = cr[31 - bi];
+
+// Decrement CTR if BO[2] = 0
+new_ctr = bo[2] ? ctr : ctr - 1;
+ctr = new_ctr;
+
+// CTR test: BO bit 3 (bo[1]) controls CTR condition sense
+ctr_ok = bo[2] | (bo[1] ? (new_ctr == 0) : (new_ctr != 0));
+
+// Condition test: BO bit 0 (bo[4]) controls CR ignore, BO bit 1 (bo[3]) controls CR sense
+cond_ok = bo[4] | (cr_bit == bo[3]);
+
+// Take branch if both conditions satisfied
+take_branch = ctr_ok & cond_ok;
+
+// Target from LR (save before updating)
+old_lr = lr;
+target = {old_lr[63:2], 2'b00};
+
+// Save return address
+return_addr = pc + 4;
+lr = return_addr;
+
+pc = take_branch ? target : pc + 4;

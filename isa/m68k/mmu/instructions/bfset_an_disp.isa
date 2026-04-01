@@ -1,0 +1,124 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 BFSET d(An){Dn:width} - Set Bit Field in displacement indirect
+// Opcode: 1110 1110 11 101 AAA followed by extension word + 16-bit displacement
+// Handles register offset (Do=1) with immediate width (Dw=0)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var bfsd_ext[15:0];
+var ea_reg[2:0];
+var bfsd_off_reg[2:0];
+var bfsd_wf[4:0];
+var bfsd_width[5:0];
+var bfsd_bitoff[31:0];
+var bfsd_byteoff[31:0];
+var bfsd_disp[15:0];
+var bfsd_disp_ext[31:0];
+var bfsd_base[31:0];
+var bfsd_eff[31:0];
+var bfsd_waddr[31:0];
+var bfsd_biw[3:0];
+var bfsd_mem[15:0];
+var bfsd_mask[15:0];
+var bfsd_result[15:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b1110111011;  // BFSET
+assume instr[5:3] == 0b101;          // EA mode: d(An)
+pc when (~m68k_exc_taken) = pc + 2;
+
+ea_reg = instr[2:0];
+
+// Fetch extension word
+bfsd_ext = dmem[pc + pc_pa_delta];
+assume bfsd_ext[11] == 0b1;   // Offset is register (Do=1)
+assume bfsd_ext[5] == 0b0;    // Width is immediate (Dw=0)
+pc when (~m68k_exc_taken) = pc + 2;
+
+bfsd_off_reg = bfsd_ext[8:6];
+bfsd_wf = bfsd_ext[4:0];
+bfsd_width = bfsd_wf == 0 ? 6'd32 : {{1{1'b0}}, bfsd_wf};
+
+// Fetch 16-bit displacement
+bfsd_disp = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+bfsd_disp_ext = bfsd_disp[15] ? {16'hFFFF, bfsd_disp} : {16'h0000, bfsd_disp};
+
+// Get bit offset from register (full 32-bit signed)
+bfsd_bitoff = dregs[bfsd_off_reg];
+
+// Calculate base effective address with displacement
+bfsd_base = aregs[ea_reg] + bfsd_disp_ext;
+
+// Calculate byte address: base + bit_offset/8 (arithmetic shift right by 3)
+bfsd_byteoff = {bfsd_bitoff[31], bfsd_bitoff[31], bfsd_bitoff[31], bfsd_bitoff[31:3]};
+bfsd_eff = bfsd_base + bfsd_byteoff;
+
+// Align to word boundary and find bit within word
+bfsd_waddr = {bfsd_eff[31:1], 1'b0};
+bfsd_biw = {bfsd_eff[0], bfsd_bitoff[2:0]};
+
+// Read the word
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = bfsd_waddr;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+bfsd_mem = dmem[ea_pa];
+#else
+bfsd_mem = dmem[bfsd_waddr];
+#endif
+
+// Set single bit (bit_in_word counts from MSB, big-endian bit numbering)
+bfsd_mask = 16'h8000 >> bfsd_biw;
+bfsd_result = bfsd_mem | bfsd_mask;
+
+// Write back
+#ifdef MMU
+dmem[ea_pa] when (~m68k_exc_taken & ~data_exc_taken) = bfsd_result;
+#else
+dmem[bfsd_waddr] when (~m68k_exc_taken & ~data_exc_taken) = bfsd_result;
+#endif
+
+// Update CCR based on original bit value
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = ~((bfsd_mem >> (4'hF - bfsd_biw)) & 16'h0001);
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

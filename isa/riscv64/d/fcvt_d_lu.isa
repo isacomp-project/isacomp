@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V RV64D - FCVT.D.LU (Convert unsigned 64-bit integer to double)
+// Encoding: funct7=1101001, rs2=00011, rs1, rm, rd, opcode=1010011
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+isa_state frf[63:0][4:0];
+isa_state fcsr[31:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var rm[2:0];
+var eff_rm[2:0];  // Effective rounding mode (canonical IEEE 754)
+var r1[63:0];
+var cvt_result[63:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010011;
+assume instr[31:27] == 0b11010;   // FCVT.D funct5
+assume instr[26:25] == 0b01;      // fmt = D
+assume instr[24:20] == 0b00011;   // LU (unsigned 64-bit)
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+rm = instr[14:12];
+
+// Compute effective rounding mode (rm=111 means use fcsr[7:5])
+eff_rm = (rm == 3'b111) ? fcsr[7:5] : rm;
+
+r1 = rf[rs1];
+
+cvt_result = fp_cvt_d_lu(r1, eff_rm);
+
+frf[rd] = cvt_result;

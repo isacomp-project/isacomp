@@ -1,0 +1,132 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// M68000 MOVEM.L a3, d6, d5, d4, d3, d2,-(An) - predecrement (mask 0x3e10)
+// Generated ISA stub for MOVEM.L to memory with predecrement
+// Pushes 6 registers (24 bytes)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var addr_reg[2:0];
+var movem_predec_3e10_mask[15:0];
+var movem_predec_3e10_base[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:6] == 0b0100100011;  // MOVEM.L to memory opcode
+assume instr[5:3] == 0b100;          // Predecrement mode
+pc when (~m68k_exc_taken) = pc + 32'd2;
+
+addr_reg = instr[2:0];
+
+// Fetch register mask
+movem_predec_3e10_mask = dmem[pc + pc_pa_delta];
+assume movem_predec_3e10_mask == 16'h3e10;
+pc when (~m68k_exc_taken) = pc + 32'd2;
+
+movem_predec_3e10_base = aregs[addr_reg];
+
+// Store registers (predecrement order)
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = movem_predec_3e10_base;
+var is_write[0:0];
+is_write = 1'b1;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+dmem[ea_pa - 32'd4] when (~m68k_exc_taken & ~data_exc_taken) = aregs[3][31:16];
+#else
+dmem[movem_predec_3e10_base - 32'd4] when (~m68k_exc_taken & ~data_exc_taken) = aregs[3][31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd2] when (~m68k_exc_taken & ~data_exc_taken) = aregs[3][15:0];
+#else
+dmem[movem_predec_3e10_base - 32'd2] when (~m68k_exc_taken & ~data_exc_taken) = aregs[3][15:0];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd8] when (~m68k_exc_taken & ~data_exc_taken) = dregs[6][31:16];
+#else
+dmem[movem_predec_3e10_base - 32'd8] when (~m68k_exc_taken & ~data_exc_taken) = dregs[6][31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd6] when (~m68k_exc_taken & ~data_exc_taken) = dregs[6][15:0];
+#else
+dmem[movem_predec_3e10_base - 32'd6] when (~m68k_exc_taken & ~data_exc_taken) = dregs[6][15:0];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd12] when (~m68k_exc_taken & ~data_exc_taken) = dregs[5][31:16];
+#else
+dmem[movem_predec_3e10_base - 32'd12] when (~m68k_exc_taken & ~data_exc_taken) = dregs[5][31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd10] when (~m68k_exc_taken & ~data_exc_taken) = dregs[5][15:0];
+#else
+dmem[movem_predec_3e10_base - 32'd10] when (~m68k_exc_taken & ~data_exc_taken) = dregs[5][15:0];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd16] when (~m68k_exc_taken & ~data_exc_taken) = dregs[4][31:16];
+#else
+dmem[movem_predec_3e10_base - 32'd16] when (~m68k_exc_taken & ~data_exc_taken) = dregs[4][31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd14] when (~m68k_exc_taken & ~data_exc_taken) = dregs[4][15:0];
+#else
+dmem[movem_predec_3e10_base - 32'd14] when (~m68k_exc_taken & ~data_exc_taken) = dregs[4][15:0];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd20] when (~m68k_exc_taken & ~data_exc_taken) = dregs[3][31:16];
+#else
+dmem[movem_predec_3e10_base - 32'd20] when (~m68k_exc_taken & ~data_exc_taken) = dregs[3][31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd18] when (~m68k_exc_taken & ~data_exc_taken) = dregs[3][15:0];
+#else
+dmem[movem_predec_3e10_base - 32'd18] when (~m68k_exc_taken & ~data_exc_taken) = dregs[3][15:0];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd24] when (~m68k_exc_taken & ~data_exc_taken) = dregs[2][31:16];
+#else
+dmem[movem_predec_3e10_base - 32'd24] when (~m68k_exc_taken & ~data_exc_taken) = dregs[2][31:16];
+#endif
+#ifdef MMU
+dmem[ea_pa - 32'd22] when (~m68k_exc_taken & ~data_exc_taken) = dregs[2][15:0];
+#else
+dmem[movem_predec_3e10_base - 32'd22] when (~m68k_exc_taken & ~data_exc_taken) = dregs[2][15:0];
+#endif
+
+// Update address register: base - 24
+aregs[addr_reg] when (~m68k_exc_taken & ~data_exc_taken) = movem_predec_3e10_base - 32'd24;
+
+// MOVEM does not affect flags

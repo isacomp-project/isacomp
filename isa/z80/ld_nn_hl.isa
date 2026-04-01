@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 LD (nn),HL (0x22) - Store HL to memory at nn
+// (nn) = L, (nn+1) = H
+// Does not affect flags
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state H[7:0];
+isa_state L[7:0];
+mem mainmem[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var addr[15:0];
+var addr_plus_1[15:0];
+
+instr = mainmem[pc];
+assume instr == 0x22;
+pc_plus_1 = pc + 1;
+pc_plus_2 = pc_plus_1 + 1;
+
+addr = {mainmem[pc_plus_2], mainmem[pc_plus_1]};
+addr_plus_1 = addr + 1;
+mainmem[addr] = L;
+mainmem[addr_plus_1] = H;
+pc = pc_plus_2 + 1;

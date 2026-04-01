@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// FSQRT FRn - Floating-Point Square Root
+// FRn = sqrt(FRn)
+// Encoding: 1111nnnn01101101
+isa_state pc[31:0];
+var instr[15:0];
+mem umem[23:0];
+
+isa_state fr[31:0][3:0];
+isa_state fpscr[31:0];
+isa_state fpul[31:0];
+
+var frn[3:0];
+var FRn[31:0];
+var rm[2:0];
+var sqrt_result[31:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include interrupt aspect - checks for pending external interrupts
+aspect interrupt.isa gates pc, sr, ssr, spc, intevt;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+// Added AFTER delay_slot for higher precedence - exceptions override branches
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot, ssr, sr, expevt;
+#endif
+aspect exception.isa gates pc, sr, vbr, ssr, spc, expevt, tea, pteh;
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:8] == 0xF0;
+assume instr[7:0] == 0x6D;
+frn = instr[7:4];
+
+FRn = fr[frn];
+
+// FPSCR[1:0] is rounding mode (00=RNE, 01=RTZ)
+rm = {1'b0, fpscr[1:0]};
+
+// Square root using fp intrinsic
+sqrt_result = fp_sqrt(FRn, rm);
+
+fr[frn] when (~int_should_take & ~itlb_exc_actually_taken) = sqrt_result;
+pc = pc + 2;

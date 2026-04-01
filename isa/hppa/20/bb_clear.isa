@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 BB,>= instruction (64-bit)
+// BB,>= r,p,target - Branch on Bit Clear (bit p of r is 0)
+// Opcode: 0x31 (bits 31:26)
+// p[4:0]=instr[25:21], r=instr[20:16], p[5]=instr[5] (6-bit position in PA2.0)
+// 12-bit displacement. Tests if bit at position p (from MSB) is clear.
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var bb_r[4:0];
+var bb_p5[4:0];
+var bb_p6[5:0];
+var bb_d[0:0];
+var bb_src[63:0];
+var w[11:0];
+var target_offset[63:0];
+var target[63:0];
+var bb_taken[0:0];
+
+instr = umem[pc_pa];
+
+// BB,>= encoding: opcode=0x31, c=instr[15]=1 (clear)
+assume instr[31:26] == 0b110001;
+assume instr[15] == 1'b1;
+
+bb_r = instr[20:16];
+bb_p5 = instr[25:21];
+bb_d = instr[5];
+
+bb_src = (bb_r == 0) ? 64'h0 : rf[bb_r];
+
+// PA-RISC 2.0 BB: d=0 tests 32-bit (bit 31-p from MSB of word),
+// d=1 tests 64-bit (bit 63-p6 from MSB of doubleword, 6-bit position).
+// p[5] is at instr[5] (the d-bit doubles as the MSB of position in PA2.0).
+bb_p6 = {bb_d, bb_p5};
+var bb_mask[63:0];
+bb_mask = bb_d ? (64'h8000000000000000 >> bb_p6) : (64'h80000000 >> bb_p5);
+bb_taken = (bb_src & bb_mask) == 0;
+
+w = {instr[0], instr[2], instr[12:4], instr[3]};
+target_offset = {{50{w[11]}}, w, 2'b00};
+target = pc + 8 + target_offset;
+
+delay_slot when (bb_taken & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (bb_taken & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+
+var n_nullify[0:0];
+n_nullify = instr[1] & (bb_taken ^ w[11]);
+psw when (n_nullify & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+pc = pc + 4;

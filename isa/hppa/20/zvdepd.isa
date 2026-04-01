@@ -1,0 +1,87 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 ZVDEPD instruction (64-bit zero and variable deposit doubleword)
+// DEPD,Z,* r,len,t - Zero and Variable Deposit Doubleword: deposits 'len' low-order
+// bits of r into t at the position specified by SAR, zeros all other bits.
+// 64-bit doubleword variant of ZVDEP.
+// Opcode: 0x35 (bits 31:26), sub: bits[12:10]=000, bit[9]=1 (doubleword mode)
+// r=instr[20:16], t=instr[25:21], clen5=instr[4:0]
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state sar[5:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var zd_r[4:0];
+var zd_t[4:0];
+var zd_clen[4:0];
+var zd_len[6:0];
+var zd_pos[5:0];
+var zd_shift_amt[5:0];
+var zd_src[63:0];
+var zd_mask[63:0];
+var zd_deposited[63:0];
+var zd_res[63:0];
+var zd_cond_eq[0:0];
+var zd_cond_lt[0:0];
+var zd_cond_od[0:0];
+var zd_cond_base[0:0];
+var zd_cond_met[0:0];
+
+instr = umem[pc_pa];
+
+// ZVDEPD encoding: opcode=0x35, bits[12:10]=000, bit[9]=1 (64-bit doubleword)
+assume instr[31:26] == 0b110101;
+assume instr[12:10] == 0b000;
+assume instr[9] == 1;
+
+// Extract fields
+zd_r = instr[20:16];
+zd_t = instr[25:21];
+zd_clen = instr[4:0];
+
+// len = 64 - clen5 (64-bit SAR deposits use 64-based length, giving lengths 33-64)
+// len = 64 - {~instr[8], clen5} (6-bit clen for 64-bit SAR deposits, full range 1-64)
+// Equivalent: len = 1 + {1'b0, instr[8], ~clen5}
+zd_len = 7'b0000001 + {1'b0, instr[8], ~zd_clen};
+
+// Position from SAR (full 6 bits for 64-bit operation)
+zd_pos = sar[5:0];
+
+// shift_amt = 63 - pos
+zd_shift_amt = 6'b111111 - zd_pos;
+
+// Read source register
+zd_src = (zd_r == 0) ? 64'h0 : rf[zd_r];
+
+// Mask the low 'len' bits of source
+zd_mask = (64'h1 << zd_len) - 64'h1;
+zd_deposited = (zd_src & zd_mask) << zd_shift_amt;
+
+// Zero and deposit: result is full 64-bit (no truncation)
+zd_res = zd_deposited;
+
+// 3-bit conditional nullification (c=instr[15:13])
+zd_cond_eq = (zd_res == 0);
+zd_cond_lt = zd_res[63];
+zd_cond_od = zd_res[0];
+zd_cond_base = (instr[13] & ~instr[14] & zd_cond_eq) | (~instr[13] & instr[14] & zd_cond_lt) | (instr[13] & instr[14] & zd_cond_od);
+zd_cond_met = zd_cond_base ^ instr[15];
+psw when (zd_cond_met & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+// Write result to target
+rf[zd_t] when (zd_t != 0 & ~instr_trap_taken & ~in_nullified) = zd_res;
+
+// Advance PC
+pc = pc + 4;

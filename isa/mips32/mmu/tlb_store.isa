@@ -1,0 +1,230 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 TLB Lookup Aspect for Data Stores using CAM
+// This aspect provides address translation for data store operations (addr -> addr_pa)
+// Requires: addr variable must be defined before including this aspect
+// Generates TLB Refill, TLB Invalid, TLB Modified, or Address Error exceptions on failure
+
+// Physical address for data access (output of this aspect)
+var addr_pa[31:0];
+
+// Exception handling for stores
+var store_exception_taken[0:0];
+var store_exception_code[4:0];
+
+// Extract address components for TLB lookup
+var addr_vpn2[18:0];
+var addr_odd_page[0:0];
+var addr_offset[11:0];
+
+addr_vpn2 = addr[31:13];
+addr_odd_page = addr[12];
+addr_offset = addr[11:0];
+
+// Current ASID from EntryHi
+var store_current_asid[7:0];
+store_current_asid = cp0_entryhi[7:0];
+
+// ============================================================================
+// CAM Lookup - VPN2 Matching
+// ============================================================================
+var store_vpn2_matches[31:0];
+store_vpn2_matches = tlb_vpn2@[addr_vpn2];
+
+// ============================================================================
+// ASID/Global Filtering - Use precomputed tlb_g array
+// ============================================================================
+var st_g_0[0:0]; var st_g_1[0:0]; var st_g_2[0:0]; var st_g_3[0:0];
+var st_g_4[0:0]; var st_g_5[0:0]; var st_g_6[0:0]; var st_g_7[0:0];
+var st_g_8[0:0]; var st_g_9[0:0]; var st_g_10[0:0]; var st_g_11[0:0];
+var st_g_12[0:0]; var st_g_13[0:0]; var st_g_14[0:0]; var st_g_15[0:0];
+var st_g_16[0:0]; var st_g_17[0:0]; var st_g_18[0:0]; var st_g_19[0:0];
+var st_g_20[0:0]; var st_g_21[0:0]; var st_g_22[0:0]; var st_g_23[0:0];
+var st_g_24[0:0]; var st_g_25[0:0]; var st_g_26[0:0]; var st_g_27[0:0];
+var st_g_28[0:0]; var st_g_29[0:0]; var st_g_30[0:0]; var st_g_31[0:0];
+
+st_g_0 = tlb_g[0]; st_g_1 = tlb_g[1]; st_g_2 = tlb_g[2]; st_g_3 = tlb_g[3];
+st_g_4 = tlb_g[4]; st_g_5 = tlb_g[5]; st_g_6 = tlb_g[6]; st_g_7 = tlb_g[7];
+st_g_8 = tlb_g[8]; st_g_9 = tlb_g[9]; st_g_10 = tlb_g[10]; st_g_11 = tlb_g[11];
+st_g_12 = tlb_g[12]; st_g_13 = tlb_g[13]; st_g_14 = tlb_g[14]; st_g_15 = tlb_g[15];
+st_g_16 = tlb_g[16]; st_g_17 = tlb_g[17]; st_g_18 = tlb_g[18]; st_g_19 = tlb_g[19];
+st_g_20 = tlb_g[20]; st_g_21 = tlb_g[21]; st_g_22 = tlb_g[22]; st_g_23 = tlb_g[23];
+st_g_24 = tlb_g[24]; st_g_25 = tlb_g[25]; st_g_26 = tlb_g[26]; st_g_27 = tlb_g[27];
+st_g_28 = tlb_g[28]; st_g_29 = tlb_g[29]; st_g_30 = tlb_g[30]; st_g_31 = tlb_g[31];
+
+// ASID match or Global for each entry
+var st_ag_0[0:0]; var st_ag_1[0:0]; var st_ag_2[0:0]; var st_ag_3[0:0];
+var st_ag_4[0:0]; var st_ag_5[0:0]; var st_ag_6[0:0]; var st_ag_7[0:0];
+var st_ag_8[0:0]; var st_ag_9[0:0]; var st_ag_10[0:0]; var st_ag_11[0:0];
+var st_ag_12[0:0]; var st_ag_13[0:0]; var st_ag_14[0:0]; var st_ag_15[0:0];
+var st_ag_16[0:0]; var st_ag_17[0:0]; var st_ag_18[0:0]; var st_ag_19[0:0];
+var st_ag_20[0:0]; var st_ag_21[0:0]; var st_ag_22[0:0]; var st_ag_23[0:0];
+var st_ag_24[0:0]; var st_ag_25[0:0]; var st_ag_26[0:0]; var st_ag_27[0:0];
+var st_ag_28[0:0]; var st_ag_29[0:0]; var st_ag_30[0:0]; var st_ag_31[0:0];
+
+st_ag_0 = st_g_0 | (tlb_asid[0] == store_current_asid);
+st_ag_1 = st_g_1 | (tlb_asid[1] == store_current_asid);
+st_ag_2 = st_g_2 | (tlb_asid[2] == store_current_asid);
+st_ag_3 = st_g_3 | (tlb_asid[3] == store_current_asid);
+st_ag_4 = st_g_4 | (tlb_asid[4] == store_current_asid);
+st_ag_5 = st_g_5 | (tlb_asid[5] == store_current_asid);
+st_ag_6 = st_g_6 | (tlb_asid[6] == store_current_asid);
+st_ag_7 = st_g_7 | (tlb_asid[7] == store_current_asid);
+st_ag_8 = st_g_8 | (tlb_asid[8] == store_current_asid);
+st_ag_9 = st_g_9 | (tlb_asid[9] == store_current_asid);
+st_ag_10 = st_g_10 | (tlb_asid[10] == store_current_asid);
+st_ag_11 = st_g_11 | (tlb_asid[11] == store_current_asid);
+st_ag_12 = st_g_12 | (tlb_asid[12] == store_current_asid);
+st_ag_13 = st_g_13 | (tlb_asid[13] == store_current_asid);
+st_ag_14 = st_g_14 | (tlb_asid[14] == store_current_asid);
+st_ag_15 = st_g_15 | (tlb_asid[15] == store_current_asid);
+st_ag_16 = st_g_16 | (tlb_asid[16] == store_current_asid);
+st_ag_17 = st_g_17 | (tlb_asid[17] == store_current_asid);
+st_ag_18 = st_g_18 | (tlb_asid[18] == store_current_asid);
+st_ag_19 = st_g_19 | (tlb_asid[19] == store_current_asid);
+st_ag_20 = st_g_20 | (tlb_asid[20] == store_current_asid);
+st_ag_21 = st_g_21 | (tlb_asid[21] == store_current_asid);
+st_ag_22 = st_g_22 | (tlb_asid[22] == store_current_asid);
+st_ag_23 = st_g_23 | (tlb_asid[23] == store_current_asid);
+st_ag_24 = st_g_24 | (tlb_asid[24] == store_current_asid);
+st_ag_25 = st_g_25 | (tlb_asid[25] == store_current_asid);
+st_ag_26 = st_g_26 | (tlb_asid[26] == store_current_asid);
+st_ag_27 = st_g_27 | (tlb_asid[27] == store_current_asid);
+st_ag_28 = st_g_28 | (tlb_asid[28] == store_current_asid);
+st_ag_29 = st_g_29 | (tlb_asid[29] == store_current_asid);
+st_ag_30 = st_g_30 | (tlb_asid[30] == store_current_asid);
+st_ag_31 = st_g_31 | (tlb_asid[31] == store_current_asid);
+
+var store_asid_or_global[31:0];
+store_asid_or_global = {st_ag_31, st_ag_30, st_ag_29, st_ag_28, st_ag_27, st_ag_26, st_ag_25, st_ag_24,
+                        st_ag_23, st_ag_22, st_ag_21, st_ag_20, st_ag_19, st_ag_18, st_ag_17, st_ag_16,
+                        st_ag_15, st_ag_14, st_ag_13, st_ag_12, st_ag_11, st_ag_10, st_ag_9, st_ag_8,
+                        st_ag_7, st_ag_6, st_ag_5, st_ag_4, st_ag_3, st_ag_2, st_ag_1, st_ag_0};
+
+// ============================================================================
+// Final Match: VPN2 match AND (Global OR ASID match)
+// ============================================================================
+var store_final_matches[31:0];
+store_final_matches = store_vpn2_matches & store_asid_or_global;
+
+var store_any_match[0:0];
+var store_tlb_idx[5:0];
+store_any_match = |store_final_matches;
+store_tlb_idx = ctz(store_final_matches);
+
+// ============================================================================
+// Read Matched Entry - Use separate arrays to avoid mux conflicts
+// ============================================================================
+var store_tlb_idx5[4:0];
+store_tlb_idx5 = store_tlb_idx[4:0];
+
+// Read from separate PFN/V/D arrays instead of tlb_lo0/tlb_lo1
+var store_pfn[19:0];
+var store_v[0:0];
+var store_d[0:0];  // Dirty (writable) bit
+
+store_pfn = addr_odd_page ? tlb_pfn1[store_tlb_idx5] : tlb_pfn0[store_tlb_idx5];
+store_v = addr_odd_page ? tlb_v1[store_tlb_idx5] : tlb_v0[store_tlb_idx5];
+store_d = addr_odd_page ? tlb_d1[store_tlb_idx5] : tlb_d0[store_tlb_idx5];
+
+// ============================================================================
+// Address Space Handling
+// ============================================================================
+var st_addr_is_kuseg[0:0];
+var st_addr_is_kseg0[0:0];
+var st_addr_is_kseg1[0:0];
+var st_addr_is_kseg2[0:0];
+var st_addr_is_unmapped[0:0];
+
+st_addr_is_kuseg = (addr[31] == 0);
+st_addr_is_kseg0 = (addr[31:29] == 3'b100);
+st_addr_is_kseg1 = (addr[31:29] == 3'b101);
+st_addr_is_kseg2 = (addr[31:30] == 2'b11);
+st_addr_is_unmapped = st_addr_is_kseg0 | st_addr_is_kseg1;
+
+// Check kernel mode
+var store_is_kernel[0:0];
+var store_status_exl[0:0];
+var not_store_status_exl[0:0];
+var store_status_erl[0:0];
+var store_status_ksu[1:0];
+
+store_status_exl = cp0_status[1];
+not_store_status_exl = ~store_status_exl;
+store_status_erl = cp0_status[2];
+store_status_ksu = cp0_status[4:3];
+store_is_kernel = (store_status_ksu == 0) | store_status_exl | store_status_erl;
+
+// Physical addresses
+var store_unmapped_pa[31:0];
+var store_tlb_pa[31:0];
+
+store_unmapped_pa = {3'b000, addr[28:0]};
+store_tlb_pa = {store_pfn, addr_offset};
+
+// ============================================================================
+// Exception Handling
+// ============================================================================
+// For stores, we also check the D (dirty) bit
+var store_addr_error[0:0];
+var store_needs_tlb[0:0];
+var store_tlb_refill[0:0];
+var store_tlb_invalid[0:0];
+var store_tlb_modified[0:0];  // TLB match, V=1, but D=0
+
+store_addr_error = (~store_is_kernel) & (st_addr_is_kseg0 | st_addr_is_kseg1 | st_addr_is_kseg2);
+store_needs_tlb = st_addr_is_kuseg | (store_is_kernel & st_addr_is_kseg2);
+store_tlb_refill = store_needs_tlb & (~store_any_match);
+store_tlb_invalid = store_needs_tlb & store_any_match & (~store_v);
+store_tlb_modified = store_needs_tlb & store_any_match & store_v & (~store_d);
+
+store_exception_taken = store_addr_error | store_tlb_refill | store_tlb_invalid | store_tlb_modified;
+
+// Exception codes: 1 = Mod, 3 = TLBS, 5 = AdES
+// Priority: Address error > TLB refill/invalid > TLB modified
+var store_is_tlb_exc[0:0];
+store_is_tlb_exc = store_tlb_refill | store_tlb_invalid;
+store_exception_code = store_addr_error ? 0x5 :
+                       (store_is_tlb_exc ? 0x3 : 0x1);
+
+// Exception vector selection
+var store_status_bev[0:0];
+var store_refill_vector[31:0];
+var store_general_vector[31:0];
+var store_exc_vector[31:0];
+
+store_status_bev = cp0_status[22];
+store_refill_vector = store_status_bev ? 0xBFC00200 : 0x80000000;
+store_general_vector = store_status_bev ? 0xBFC00380 : 0x80000180;
+// TLB refill uses special vector, others (including Mod) use general vector
+store_exc_vector = store_tlb_refill ? store_refill_vector : store_general_vector;
+
+// Update CP0 registers on store exception
+cp0_badvaddr when (store_exception_taken) = addr;
+cp0_cause when (store_exception_taken) = {cp0_cause[31:7], store_exception_code, cp0_cause[1:0]};
+cp0_epc when (store_exception_taken & not_store_status_exl) = pc;
+
+// Set EXL bit
+var store_new_status[31:0];
+store_new_status = cp0_status | 0x2;
+cp0_status when (store_exception_taken) = store_new_status;
+
+// Update Context and EntryHi
+var store_new_context[31:0];
+var store_new_entryhi[31:0];
+store_new_context = {cp0_context[31:23], addr_vpn2, 4'b0000};
+store_new_entryhi = {addr_vpn2, 5'b00000, cp0_entryhi[7:0]};
+cp0_context when (store_exception_taken) = store_new_context;
+cp0_entryhi when (store_exception_taken) = store_new_entryhi;
+
+// Redirect PC
+pc when (store_exception_taken) = store_exc_vector;
+
+// ============================================================================
+// Compute Physical Address
+// ============================================================================
+var store_translated_pa[31:0];
+store_translated_pa = st_addr_is_unmapped ? store_unmapped_pa : store_tlb_pa;
+
+// Always use translated_pa for data access.
+// On exception, the PC update handles redirection, and the store won't commit.
+addr_pa = store_translated_pa;

@@ -1,0 +1,46 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+
+var rA[4:0];
+var rB[4:0];
+var imm_high[4:0];
+var imm_low[10:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var base[31:0];
+var data[31:0];
+var mem_data[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x36;
+pc = pc + 4;
+imm_high = instr[25:21];
+rA = instr[20:16];
+rB = instr[15:11];
+imm_low = instr[10:0];
+
+imm = {imm_high, imm_low};
+base = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+addr = base + sign_ext_imm;
+
+data = rf[rB];
+mem_data = dmem[addr];
+
+// Big-endian byte position from addr[1:0]:
+//   00 -> bits[31:24], 01 -> bits[23:16], 10 -> bits[15:8], 11 -> bits[7:0]
+var byte_offset[1:0];
+byte_offset = addr[1:0];
+
+var write_data[31:0];
+write_data = (byte_offset == 2'b00) ? {data[7:0], mem_data[23:0]} :
+             ((byte_offset == 2'b01) ? {mem_data[31:24], data[7:0], mem_data[15:0]} :
+              ((byte_offset == 2'b10) ? {mem_data[31:16], data[7:0], mem_data[7:0]} :
+                                        {mem_data[31:8], data[7:0]}));
+
+dmem[addr] = write_data;

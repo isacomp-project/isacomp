@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BT r/m32, r32 with 66 prefix (0x66 0x0F 0xA3) - Bit Test
+// Test bit in r/m32 (rm), bit index in r32 (reg)
+// CF = bit value, OF/SF/ZF/AF/PF undefined
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var base_val[31:0];
+var bit_idx[31:0];
+var bit_pos[4:0];
+var bit_val[0:0];
+
+// Fetch and verify 66 prefix
+prefix = imem[eip];
+assume prefix == 0x66;
+
+// Fetch first opcode byte
+instr = imem[eip + 1];
+assume instr == 0x0F;
+
+// Fetch second opcode byte
+instr2 = imem[eip + 2];
+assume instr2 == 0xA3;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 3];
+
+eip = eip + 4;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Register-direct mode only
+assume mod_bits == 0b11;
+
+// Read values (full 32 bits)
+base_val = xregs[rm_bits];
+bit_idx = xregs[reg_idx];
+
+// Compute bit position (modulo 32)
+bit_pos = bit_idx[4:0];
+
+// Extract bit value
+bit_val = base_val[bit_pos];
+
+// Set CF to bit value
+flag_CF = bit_val;
+
+// OF, SF, ZF, AF, PF are undefined (not modified in this implementation)

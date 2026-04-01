@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 POP r16 - WITH PROPER SEGMENTATION
+// Opcodes: 0x58-0x5F (POP AX/CX/DX/BX/SP/BP/SI/DI)
+// Uses SS segment for stack access
+
+isa_state ip[15:0];
+var instr[7:0];
+
+// Word register file: AX, CX, DX, BX, SP, BP, SI, DI
+isa_state xregs[15:0][2:0];
+
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state SS[15:0];            // Stack segment register
+
+var reg_idx[2:0];
+var offset_lo[15:0];             // 16-bit stack offset
+var offset_hi[15:0];             // 16-bit stack offset + 1
+var physical_addr_lo[19:0];      // 20-bit physical address
+var physical_addr_hi[19:0];      // 20-bit physical address
+var data_lo[7:0];
+var data_hi[7:0];
+var popped_value[15:0];
+
+// Fetch instruction
+instr = imem[ip];
+
+// Check this is a POP r16 instruction (0x58-0x5F)
+assume instr[7:3] == 0b01011;  // Upper 5 bits must be 01011
+
+ip = ip + 1;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Calculate stack offsets (SP and SP+1, with wraparound at 16 bits)
+// SP is xregs[4]
+offset_lo = xregs[4];
+offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using SS segment (20-bit)
+// Use concatenation instead of shift to ensure 20-bit result
+physical_addr_lo = {SS, 4'b0} + {4'b0, offset_lo};
+physical_addr_hi = {SS, 4'b0} + {4'b0, offset_hi};
+
+// Read from stack (little-endian: low byte at lower address)
+data_lo = dmem[physical_addr_lo];
+data_hi = dmem[physical_addr_hi];
+
+// Combine bytes into 16-bit value
+popped_value = {data_hi, data_lo};
+
+// Write to the register using indexed access
+xregs[reg_idx] = popped_value;
+
+// Increment SP by 2 (word size) - stack shrinks
+xregs[4] = xregs[4] + 16'h0002;

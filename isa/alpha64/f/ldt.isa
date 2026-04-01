@@ -1,0 +1,34 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 - LDT (Load T_floating, IEEE double-precision)
+// Opcode: 0x23 (35)
+// Format: LDT Fa, disp(Rb)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];       // Integer register file
+isa_state frf[63:0][4:0];      // FP register file (64-bit)
+isa_state fpcr[63:0];          // FP control register
+mem umem[13:0];
+
+var fa[4:0];
+var rb[4:0];
+var disp[15:0];
+var addr[63:0];
+var data[63:0];
+
+instr = umem[pc];
+assume instr[31:26] == 35;     // Opcode 0x23 = LDT
+
+fa = instr[25:21];
+rb = instr[20:16];
+disp = instr[15:0];
+
+// Compute effective address
+addr = rf[rb] + {{48{disp[15]}}, disp};
+
+// Load 64-bit value from memory
+data = umem[addr];
+
+// Write to FP register
+frf[fa] when (fa != 31) = data;
+pc = pc + 4;

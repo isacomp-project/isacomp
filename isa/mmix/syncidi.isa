@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX SYNCIDI - Synchronize Instructions and Data Immediate
+// SYNCIDI X,$Y,Z: ensure instructions and data at $Y+Z are coherent
+// Opcode: 0xBD
+// Note: No-op in simple model
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xBD;
+
+pc = pc + 4;

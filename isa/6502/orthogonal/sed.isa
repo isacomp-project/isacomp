@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 6502 SED (0xF8) - Set Decimal Mode Flag
+// Sets the decimal mode flag to 1 (BCD arithmetic mode)
+// Does not affect any other flags
+// Note: This implementation doesn't support BCD arithmetic, but flag is tracked
+// Instruction format: SED (1 byte)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state flag_D[0:0];
+isa_state mainmem[7:0][15:0];
+
+instr = mainmem[pc];
+assume instr == 0xF8;
+pc = pc + 1;
+
+flag_D = 1'b1;

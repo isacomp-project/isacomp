@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC l.sfgeui - Set Flag if Greater or Equal Than Unsigned Immediate
+// Format: l.sfgeui rA, I
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state flag[0:0];
+
+var rA[4:0];
+var imm[15:0];
+var sign_ext_imm[31:0];
+var r1[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x2F;
+assume instr[25:21] == 0x03;
+pc = pc + 4;
+rA = instr[20:16];
+imm = instr[15:0];
+
+r1 = rf[rA];
+sign_ext_imm = {{16{imm[15]}}, imm};
+
+flag = (r1 >= sign_ext_imm);

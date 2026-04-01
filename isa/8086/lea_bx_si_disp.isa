@@ -1,0 +1,41 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 LEA BX, [SI+disp] (0x8D with modrm 0x5C) - WITH PROPER SEGMENTATION
+// Load Effective Address - computes offset [SI+disp8] and stores in BX
+// Does NOT access memory, just calculates the offset portion of the address
+// Note: LEA never applies segment registers - it only calculates offsets
+
+isa_state ip[15:0];
+var instr[7:0];
+isa_state modrm[7:0];
+isa_state xregs[15:0][2:0];
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+
+var si_val[15:0];
+var disp[7:0];
+var signed_disp[15:0];
+var effective_addr[15:0];
+
+instr = imem[ip];
+assume instr == 0x8D;
+ip = ip + 1;
+
+modrm = imem[ip];
+assume modrm == 0x5C;  // mod=01, reg=011 (BX), rm=100 (SI+disp8)
+ip = ip + 1;
+
+// Read 8-bit displacement
+disp = imem[ip];
+ip = ip + 1;
+
+// Sign-extend displacement to 16 bits
+signed_disp = {{8{disp[7]}}, disp};
+
+// Read SI (xregs[6])
+si_val = xregs[6];
+
+// Calculate effective address (just the 16-bit offset)
+effective_addr = si_val + signed_disp;
+
+// Store offset in BX (xregs[3])
+xregs[3] = effective_addr;

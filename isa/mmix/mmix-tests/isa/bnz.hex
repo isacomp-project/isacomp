@@ -1,0 +1,17 @@
+// MMIX BNZ (Branch if Non-Zero) instruction test
+// Test: BNZ branches when register is non-zero
+
+// Address 0x00: SETL $1, 5       (E3 01 00 05)
+E3010005
+// Address 0x04: BNZ $1, +3       (4A 01 00 03) - should branch to 0x10
+4A010003
+// Address 0x08: JMP +4           (F0 00 00 04) - skip to fail if not taken
+F0000004
+// Address 0x0C: nop              (C0 00 00 00)
+C0000000
+// Address 0x10: JMP +1           (F0 00 00 01) - go to pass
+F0000001
+// Address 0x14: pass
+F0000000
+// Address 0x18: fail
+F0000000

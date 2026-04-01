@@ -1,0 +1,81 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68040 PFLUSH (An) - Flush ATC entries matching address in An
+// Opcode: 1111 0101 000 01 AAA - 2 bytes total
+// Handles pflush (A0) through pflush (A7)
+// Invalidates ATC entries whose VPN matches the page containing (An)
+// Privileged instruction (must be in supervisor mode)
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+isa_state sr[15:0];
+
+// ATC arrays (22 entries)
+isa_state cam atc_va[19:0]@[4:0][];
+isa_state atc_v[0:0][4:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:5] == 0b11110101000;  // PFLUSH 68040
+assume instr[4:3] == 0b01;            // non-global flush
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Must be in supervisor mode
+assume sr[13] == 1'b1;
+
+// Extract address register number
+var an[2:0];
+an = instr[2:0];
+
+// Get address and extract VPN (page number for 4KB pages)
+var addr[31:0];
+var vpn[19:0];
+addr = aregs[an];
+vpn = addr[31:12];
+
+// CAM lookup: find all entries matching this VPN
+var vpn_matches[21:0];
+vpn_matches = atc_va@[vpn];
+
+// Invalidate all matching entries
+atc_v[0] when (vpn_matches[0] & ~m68k_exc_taken) = 1'b0;
+atc_v[1] when (vpn_matches[1] & ~m68k_exc_taken) = 1'b0;
+atc_v[2] when (vpn_matches[2] & ~m68k_exc_taken) = 1'b0;
+atc_v[3] when (vpn_matches[3] & ~m68k_exc_taken) = 1'b0;
+atc_v[4] when (vpn_matches[4] & ~m68k_exc_taken) = 1'b0;
+atc_v[5] when (vpn_matches[5] & ~m68k_exc_taken) = 1'b0;
+atc_v[6] when (vpn_matches[6] & ~m68k_exc_taken) = 1'b0;
+atc_v[7] when (vpn_matches[7] & ~m68k_exc_taken) = 1'b0;
+atc_v[8] when (vpn_matches[8] & ~m68k_exc_taken) = 1'b0;
+atc_v[9] when (vpn_matches[9] & ~m68k_exc_taken) = 1'b0;
+atc_v[10] when (vpn_matches[10] & ~m68k_exc_taken) = 1'b0;
+atc_v[11] when (vpn_matches[11] & ~m68k_exc_taken) = 1'b0;
+atc_v[12] when (vpn_matches[12] & ~m68k_exc_taken) = 1'b0;
+atc_v[13] when (vpn_matches[13] & ~m68k_exc_taken) = 1'b0;
+atc_v[14] when (vpn_matches[14] & ~m68k_exc_taken) = 1'b0;
+atc_v[15] when (vpn_matches[15] & ~m68k_exc_taken) = 1'b0;
+atc_v[16] when (vpn_matches[16] & ~m68k_exc_taken) = 1'b0;
+atc_v[17] when (vpn_matches[17] & ~m68k_exc_taken) = 1'b0;
+atc_v[18] when (vpn_matches[18] & ~m68k_exc_taken) = 1'b0;
+atc_v[19] when (vpn_matches[19] & ~m68k_exc_taken) = 1'b0;
+atc_v[20] when (vpn_matches[20] & ~m68k_exc_taken) = 1'b0;
+atc_v[21] when (vpn_matches[21] & ~m68k_exc_taken) = 1'b0;

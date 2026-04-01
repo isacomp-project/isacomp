@@ -1,0 +1,114 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Alpha64 DTB (Data TLB) Translation Aspect for Store Operations - CAM Version
+//
+// Uses CAM (Content-Addressable Memory) syntax for TLB lookup.
+// Replaces ~100 lines of manual unrolling with ~60 lines.
+//
+// Requires: addr variable must be defined before including this aspect
+//
+// Provides:
+//   store_pa        - Physical address for data store
+//   dtb_store_miss  - Set if DTB miss occurs (triggers PAL exception)
+//
+// Requires gates: addr, pal_mode, pal_base
+
+// Physical address output
+var store_pa[63:0];
+var dtb_store_miss[0:0];
+
+// Extract virtual page number and offset from address
+var store_vpn[29:0];
+var store_offset[12:0];
+store_vpn = addr[42:13];
+store_offset = addr[12:0];
+
+// ============================================================================
+// DTB CAM Lookup (8 entries, fully associative)
+// ============================================================================
+// Step 1: Get VPN matches using CAM lookup
+var store_vpn_matches[7:0];
+store_vpn_matches = dtb_tag@[store_vpn];
+
+// Step 2: Filter by Valid bit and ASN matching
+// Entry matches if: VPN match AND Valid AND (ASM set OR ASN matches)
+var sv_0[0:0]; var sv_1[0:0]; var sv_2[0:0]; var sv_3[0:0];
+var sv_4[0:0]; var sv_5[0:0]; var sv_6[0:0]; var sv_7[0:0];
+
+sv_0 = dtb_valid[0] & (dtb_pte[0][4] | (dtb_asn_entry[0] == dtb_asn[7:0]));
+sv_1 = dtb_valid[1] & (dtb_pte[1][4] | (dtb_asn_entry[1] == dtb_asn[7:0]));
+sv_2 = dtb_valid[2] & (dtb_pte[2][4] | (dtb_asn_entry[2] == dtb_asn[7:0]));
+sv_3 = dtb_valid[3] & (dtb_pte[3][4] | (dtb_asn_entry[3] == dtb_asn[7:0]));
+sv_4 = dtb_valid[4] & (dtb_pte[4][4] | (dtb_asn_entry[4] == dtb_asn[7:0]));
+sv_5 = dtb_valid[5] & (dtb_pte[5][4] | (dtb_asn_entry[5] == dtb_asn[7:0]));
+sv_6 = dtb_valid[6] & (dtb_pte[6][4] | (dtb_asn_entry[6] == dtb_asn[7:0]));
+sv_7 = dtb_valid[7] & (dtb_pte[7][4] | (dtb_asn_entry[7] == dtb_asn[7:0]));
+
+var store_valid_mask[7:0];
+store_valid_mask = {sv_7, sv_6, sv_5, sv_4, sv_3, sv_2, sv_1, sv_0};
+
+// Final match: VPN match AND Valid AND ASN match
+var dtb_store_match[7:0];
+dtb_store_match = store_vpn_matches & store_valid_mask;
+
+// Get hit status and index using ctz
+var dtb_store_hit[0:0];
+var dtb_store_hit_idx[3:0];
+dtb_store_hit = |dtb_store_match;
+dtb_store_hit_idx = ctz(dtb_store_match);
+
+// ============================================================================
+// Read Matched Entry
+// ============================================================================
+// Extract 3-bit index (ctz returns 4 bits to encode "no match" as 8)
+var dtb_store_idx3[2:0];
+dtb_store_idx3 = dtb_store_hit_idx[2:0];
+
+var dtb_store_pte_sel[63:0];
+dtb_store_pte_sel = dtb_pte[dtb_store_idx3];
+
+// Extract PFN from selected PTE
+var store_pfn[31:0];
+store_pfn = dtb_store_pte_sel[63:32];
+
+// Permission checking for stores (write access)
+var dtb_fow[0:0];
+var dtb_store_kwe[0:0];
+var dtb_store_uwe[0:0];
+dtb_fow = dtb_store_pte_sel[2];
+dtb_store_kwe = dtb_store_pte_sel[12];
+dtb_store_uwe = dtb_store_pte_sel[13];
+var dtb_store_is_user[0:0];
+dtb_store_is_user = ps[3];
+var dtb_store_perm_ok[0:0];
+dtb_store_perm_ok = dtb_fow ? 1'b0 : (dtb_store_is_user ? dtb_store_uwe : dtb_store_kwe);
+var dtb_store_acv[0:0];
+dtb_store_acv = not_pal_mode ? (dtb_store_hit ? (~dtb_store_perm_ok) : 1'b0) : 1'b0;
+
+// Compute translated address
+var store_xlated[63:0];
+store_xlated = {store_pfn, store_offset};
+
+// ============================================================================
+// Translation Control
+// ============================================================================
+// Note: not_pal_mode may already be defined by itb.isa aspect
+var dtb_store_no_hit[0:0];
+dtb_store_no_hit = (dtb_store_hit == 0);
+dtb_store_miss = not_pal_mode ? dtb_store_no_hit : 1'b0;
+
+// Physical address: PAL=addr, TLB hit=translated, else=addr (will raise DTB miss)
+store_pa = not_pal_mode ? (dtb_store_hit ? store_xlated : addr) : addr;
+
+// DTB miss exception entry point
+var dtb_store_miss_entry[63:0];
+dtb_store_miss_entry = pal_base + 64'h200;
+
+// Compute store fault condition (DTB miss or ACV when no ITB fault)
+var no_itb_fault_st[0:0];
+no_itb_fault_st = (itb_fault == 0);
+var dtb_store_fault[0:0];
+dtb_store_fault = (dtb_store_miss | dtb_store_acv) ? no_itb_fault_st : 1'b0;
+
+// MM_STAT encoding: bit 0 = WR (1=write), bit 1 = ACV (1=acv, 0=miss)
+var dtb_store_mm_stat[63:0];
+dtb_store_mm_stat = dtb_store_acv ? 64'd3 : 64'd1;

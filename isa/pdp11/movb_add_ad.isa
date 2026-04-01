@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// PDP-11 MOVB instruction - Autodecrement Deferred to Autodecrement
+// Source: mode 5, Dest: mode 4
+
+isa_state pc[15:0];
+var instr[15:0];
+isa_state rf[15:0][2:0];  // 8 registers, R7 is PC
+isa_state umem[7:0][15:0];      // Byte-addressable memory
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_val[7:0];
+var dst_val[7:0];
+var result[7:0];
+var ptr_addr[15:0];
+var src_addr[15:0];
+var ptr_lo[7:0];
+var ptr_hi[7:0];
+var dst_addr[15:0];
+
+
+// Fetch instruction (little-endian)
+var instr_lo[7:0];
+var instr_hi[7:0];
+instr_lo = umem[pc];
+instr_hi = umem[pc + 1];
+instr = {instr_hi, instr_lo};
+
+
+assume instr[15:12] == 0b1001;  // MOVB opcode
+assume instr[11:9] == 0b101;    // Source mode 5 (autodecrement deferred)
+assume instr[5:3] == 0b100;     // Dest mode 4 (autodecrement)
+
+src_reg = instr[8:6];
+dst_reg = instr[2:0];
+
+pc = pc + 2;
+
+// Fetch source operand
+// Decrement by 2 (always word for pointer), get pointer address
+ptr_addr = rf[src_reg] - 2;
+rf[src_reg] when (src_reg != 7) = ptr_addr;
+// Fetch actual address from pointer
+ptr_lo = umem[ptr_addr];
+ptr_hi = umem[ptr_addr + 1];
+src_addr = {ptr_hi, ptr_lo};
+src_val = umem[src_addr];
+
+// Fetch destination operand
+dst_addr = rf[dst_reg] - ((dst_reg == 6) ? 2 : 1);
+rf[dst_reg] when (dst_reg != 7) = dst_addr;
+dst_val = umem[dst_addr];
+
+result = src_val;
+
+// Write result
+umem[dst_addr] = result;
+
+flag_N = result[7];
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+flag_V = 0;

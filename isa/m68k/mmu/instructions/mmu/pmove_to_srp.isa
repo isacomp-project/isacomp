@@ -1,0 +1,96 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030/68851 PMOVE to SRP - Move to Supervisor Root Pointer
+// Opcode: 1111 000 000 mmm rrr followed by extension word
+// Extension: 010 010 0 0 0000 0000 (4800) - PMOVE <ea>,SRP (write to SRP, no flush)
+// Loads 64-bit SRP from memory
+
+isa_state pc[31:0];
+var instr[15:0];
+var psrp_extw[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[23:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+
+isa_state sr[15:0];
+
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var psrp_ea_reg[2:0];
+var psrp_addr[31:0];
+var psrp_w0[15:0];
+var psrp_w1[15:0];
+var psrp_w2[15:0];
+var psrp_w3[15:0];
+
+// Include interrupt and exception handling aspects
+aspect ../m68k_exception.isa gates pc, sr, ssp, aregs, dmem, flag_C, flag_N, flag_Z, flag_V, flag_X, usp;
+aspect ../m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+instr = dmem[pc_pa];
+assume instr[15:6] == 10'b1111000000;
+assume instr[5:3] == 3'b010;
+pc when (~m68k_exc_taken) = pc + 2;
+
+psrp_ea_reg = instr[2:0];
+
+psrp_extw = dmem[pc + pc_pa_delta];
+assume psrp_extw == 16'h4800;  // PMOVE to SRP (write to SRP)
+pc when (~m68k_exc_taken) = pc + 2;
+
+assume sr[13] == 1'b1;
+
+psrp_addr = aregs[psrp_ea_reg];
+
+// Read 64-bit SRP (big-endian)
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = psrp_addr;
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+psrp_w0 = dmem[ea_pa];
+#else
+psrp_w0 = dmem[psrp_addr];
+#endif
+#ifdef MMU
+psrp_w1 = dmem[ea_pa + 32'd2];
+#else
+psrp_w1 = dmem[psrp_addr + 32'd2];
+#endif
+#ifdef MMU
+psrp_w2 = dmem[ea_pa + 32'd4];
+#else
+psrp_w2 = dmem[psrp_addr + 32'd4];
+#endif
+#ifdef MMU
+psrp_w3 = dmem[ea_pa + 32'd6];
+#else
+psrp_w3 = dmem[psrp_addr + 32'd6];
+#endif
+srp when (~m68k_exc_taken & ~data_exc_taken) = {psrp_w0, psrp_w1, psrp_w2, psrp_w3};

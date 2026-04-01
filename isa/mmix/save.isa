@@ -1,0 +1,22 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX SAVE - Save Process State
+// SAVE $X,0: save all state to memory
+// Opcode: 0xFA
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+isa_state rO[63:0];  // Register stack offset
+mem umem[14:0];
+
+var x[7:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xFA;
+
+x = instr[23:16];
+
+// Store the current stack offset to $X
+rf[x] = rO;
+
+pc = pc + 4;

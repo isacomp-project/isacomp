@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD 76 - FD prefix passthrough HALT
+// FD prefix consumed, HALT executes unchanged
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state halted[0:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'h76FD;
+pc = pc + 2;
+
+halted = 1'b1;

@@ -1,0 +1,133 @@
+# GitHub Copilot Setup Steps for ISAComp
+# This file defines the steps needed to set up a development environment for ISAComp
+# It helps GitHub Copilot understand the project dependencies and build process
+
+# System dependencies
+system_packages:
+  description: "Install required system packages for ISAComp development"
+  commands:
+    - sudo apt-get update
+    - |
+      sudo apt-get install -y \
+        build-essential gcc g++ make cmake autoconf automake libtool pkg-config \
+        git git-lfs \
+        python3 python3-pip python3-dev python3-tk \
+        libelf-dev \
+        iverilog verilator gtkwave \
+        ghdl \
+        gcc-mips-linux-gnu binutils-mips-linux-gnu \
+        z3 \
+        libboost-all-dev \
+        wget curl unzip bzip2 xz-utils
+
+# Python dependencies
+python_dependencies:
+  description: "Install Python packages required by ISAComp"
+  commands:
+    - pip3 install --user z3-solver fusesoc pytest pytest-timeout
+
+# Initialize git submodules
+git_submodules:
+  description: "Initialize riscv-tests submodule for ISA test suite"
+  commands:
+    - git submodule update --init isa/riscv32/riscv-tests
+
+# RISC-V toolchain
+riscv_toolchain:
+  description: "Install RISC-V GNU toolchain for building RISC-V test programs"
+  commands:
+    - sudo apt-get update
+    - sudo apt-get install -y gcc-riscv64-unknown-elf binutils-riscv64-unknown-elf
+  note: "Ubuntu provides gcc-riscv64-unknown-elf as a package. For CI/Docker, see workflows or Dockerfile for prebuilt binary approach."
+
+# Environment setup
+environment:
+  description: "Set up environment variables for ISAComp"
+  variables:
+    PYTHONPATH: "${PWD}"
+
+# Verification of setup
+verify_setup:
+  description: "Verify that all dependencies are correctly installed"
+  commands:
+    - python3 --version
+    - z3 --version
+    - iverilog -v
+    - verilator --version
+    - riscv64-unknown-elf-gcc --version || echo "RISC-V toolchain not in PATH"
+    - mips-linux-gnu-gcc --version
+    - python3 -c "import sys; sys.path.insert(0, '.'); import z3; import resource_graph; import isa_parser"
+
+# Quick start commands
+quick_start:
+  description: "Common commands to get started with ISAComp"
+  examples:
+    - description: "Generate a complete RISC-V32I processor"
+      command: "python3 riscv32/generators/generate_riscv32i_complete.py"
+    
+    - description: "Generate a 5-stage pipelined RISC-V32I processor with bypassing"
+      command: "python3 riscv32/generators/create_rv32i_pipeline.py --stages 5 --hazard-resolution bypass"
+    
+    - description: "Generate a complete MIPS32 processor"
+      command: "python3 isa/mips32/generators/generate_mips32_complete.py"
+    
+    - description: "Build RISC-V test binaries"
+      command: "./build_riscv_tests.sh"
+    
+    - description: "Run ISA integration validation"
+      command: "python3 validate_isa_integration.py"
+    
+    - description: "Run SMT verification tests"
+      command: "python3 verif/smt/riscv32/test_riscv32_smt_comprehensive.py"
+    
+    - description: "Visualize resource graphs (requires X11)"
+      command: "python3 graph_visualizer.py"
+
+# Build and test
+build_and_test:
+  description: "Build test binaries and run tests"
+  commands:
+    - description: "Build RISC-V32 tests"
+      command: "./build_riscv_tests.sh"
+    
+    - description: "Build RISC-V64 tests"
+      command: "cd riscv64 && ./build_riscv64_tests.sh"
+    
+    - description: "Build MIPS32 tests"
+      command: "cd isa/mips32/mips-tests && ./build_tests.sh"
+    
+    - description: "Run SMT verification for RISC-V32"
+      command: "python3 verif/smt/riscv32/test_riscv32_smt_comprehensive.py"
+    
+    - description: "Run SMT verification for MIPS32"
+      command: "python3 verif/smt/mips32_generated/test_mips32_smt_comprehensive.py"
+
+# Docker alternative
+docker_setup:
+  description: "Alternative: Use Docker for a complete pre-configured environment"
+  commands:
+    - docker build -t isacomp .
+    - docker run -it -v $(pwd):/workspace/isacomp isacomp /bin/bash
+  note: "See DOCKER.md for more details on using the Docker environment"
+
+# Key project files
+key_files:
+  - "isa_parser.py: Core ISA parser that reads .isa files"
+  - "resource_graph.py: Resource graph data structure"
+  - "graph_merger.py: Merges multiple instructions into a unified processor"
+  - "backends/verilog/verilog_generator.py: Generates Verilog from resource graphs"
+  - "hazard_resolution.py: Pipeline hazard detection and resolution"
+  - "graph_optimizer.py: Various hardware optimizations"
+  - "smt_verification.py: SMT-based formal verification"
+
+# Supported ISAs
+supported_isas:
+  - "riscv32: 32-bit RISC-V (RV32I base + extensions)"
+  - "riscv64: 64-bit RISC-V (RV64I base + extensions)"
+  - "mips32: 32-bit MIPS architecture"
+  - "6502: MOS Technology 6502 (8-bit)"
+  - "8086: Intel 8086 (16-bit x86)"
+  - "i486: Intel i486 (32-bit x86)"
+  - "alpha64: DEC Alpha 64-bit"
+  - "or1k: OpenRISC 1000"
+  - "subleq: One instruction set computer (OISC)"

@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER rldcl - Rotate Left Doubleword then Clear Left (MDS-Form)
+// rldcl rA, rS, rB, mb
+// Primary opcode 30, MDS-form (XO bits 4:1 = 1000 = 8)
+// n <- rB[58:63]; r <- ROTL64(rS, n); b <- mb; m <- MASK(b, 63); rA <- r & m
+// Like rldicl but shift amount comes from register rB (low 6 bits)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+
+var rs[4:0];
+var ra[4:0];
+var rb[4:0];
+var mb[5:0];
+var rs_val[63:0];
+var rb_val[63:0];
+var sh[5:0];
+var rotated[63:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 30
+assume instr[31:26] == 30;
+// MDS-form with XO bits 4:1 = 1000 (8) for rldcl
+assume instr[4:1] == 8;
+// Rc = 0 (non-recording form)
+assume instr[0] == 0;
+
+// Extract fields
+rs = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+// mb = mb5 (bit 5) || mb0:4 (bits 10:6)
+mb = {instr[5], instr[10:6]};
+
+// Read registers
+rs_val = rf[rs];
+rb_val = rf[rb];
+
+// Extract shift amount from low 6 bits of rB
+sh = rb_val[5:0];
+
+// Rotate left by sh (handles 0 shift case)
+rotated = sh[5:0] == 0 ? rs_val : ((rs_val << sh) | (rs_val >> (64 - sh)));
+
+// MASK(mb, 63) clears bits 0 through (mb-1), keeping bits mb through 63
+result = rotated & (64'hFFFFFFFFFFFFFFFF >> mb);
+
+// Write result
+#ifdef VM
+rf[ra] when (~instr_trap_taken) = result;
+#else
+rf[ra] = result;
+#endif
+
+pc = pc + 4;

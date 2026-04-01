@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 ROR r/m32, CL (0xD3 /1 with mod=11)
+// Rotate Right by CL bits
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state ECX[31:0] of xregs[1];
+isa_state CL[7:0] of xregs[1][7:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_OF[0:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_val[31:0];
+var count[4:0];
+var result[31:0];
+
+// Fetch instruction and ModR/M using offset-based addressing
+instr = imem[eip];
+assume instr == 0xD3;
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Verify this is ROR (reg_bits = 001)
+assume reg_bits == 0b001;
+
+// Register-direct mode
+assume mod_bits == 0b11;
+
+// Read destination value
+dst_val = xregs[rm_bits];
+
+// Get count from CL, masked to 5 bits for 32-bit operands
+count = CL[4:0];
+
+// Perform rotate right
+// ROR: bits shifted out on right (LSB) wrap to left (MSB)
+result = (dst_val >> count) | (dst_val << (32 - count));
+
+// Write result
+xregs[rm_bits] = result;
+
+// Update flags if count != 0
+// CF = MSB of result (the bit that was rotated from LSB)
+flag_CF = count == 0 ? flag_CF : result[31];
+
+// OF is defined only for count=1: XOR of two most significant bits
+flag_OF = count == 1 ? (result[31] ^ result[30]) : flag_OF;
+
+// Update EIP after all processing
+eip = eip + 2;

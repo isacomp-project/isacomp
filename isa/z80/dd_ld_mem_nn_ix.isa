@@ -1,0 +1,29 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD 22 - LD (nn),IX (Store IX to memory address nn)
+// Does not affect flags
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+var pc_plus_2[15:0];
+var pc_plus_3[15:0];
+isa_state IXH[7:0];
+isa_state IXL[7:0];
+mem mainmem[15:0];
+var st_ix_addr[15:0];
+var st_ix_addr_plus_1[15:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'h22DD;
+
+pc_plus_2 = pc_plus_1 + 1;
+pc_plus_3 = pc_plus_2 + 1;
+
+st_ix_addr = {mainmem[pc_plus_3], mainmem[pc_plus_2]};
+st_ix_addr_plus_1 = st_ix_addr + 1;
+
+mainmem[st_ix_addr] = IXL;
+mainmem[st_ix_addr_plus_1] = IXH;
+
+pc = pc_plus_3 + 1;

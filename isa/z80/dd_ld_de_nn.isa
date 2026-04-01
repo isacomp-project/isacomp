@@ -1,0 +1,27 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD 11 - DD prefix passthrough
+// DD prefix consumed, base opcode 11 executes unchanged
+
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state D[7:0];
+isa_state E[7:0];
+mem mainmem[15:0];
+
+var imm_lo[7:0];
+var imm_hi[7:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'h11DD;
+pc = pc + 2;
+
+imm_lo = mainmem[pc];
+pc = pc + 1;
+imm_hi = mainmem[pc];
+pc = pc + 1;
+
+E = imm_lo;
+D = imm_hi;

@@ -1,0 +1,152 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68030/68851 PMMU (Paged Memory Management Unit) Registers and ATC
+// This file defines the MMU state for the m68k architecture.
+// The 68030 has an on-chip MMU; the 68020 uses the external 68851 PMMU.
+//
+// Features:
+// - 32-bit virtual address, 32-bit physical address
+// - Page sizes: 256B, 512B, 1KB, 2KB, 4KB, 8KB, 16KB, 32KB
+// - 22-entry ATC (Address Translation Cache)
+// - 8-bit function code for address space selection
+
+// ============================================================================
+// MMU Control Registers
+// ============================================================================
+
+// Translation Control Register (TC) - 32 bits
+// Controls overall MMU operation and page table structure
+// Bit layout:
+//   [31]    E     - Enable (1 = MMU enabled)
+//   [30]    SRE   - Supervisor Root Pointer Enable
+//   [29:25] -     - Reserved
+//   [24:20] IS    - Initial Shift (bits to ignore in virtual address)
+//   [19:16] TIA   - Table Index A bits
+//   [15:12] TIB   - Table Index B bits
+//   [11:8]  TIC   - Table Index C bits
+//   [7:4]   TID   - Table Index D bits
+//   [3:0]   PS    - Page Size (encoded)
+isa_state tc[31:0];
+
+// CPU Root Pointer (CRP) - 64 bits
+// Points to root of page table hierarchy (used when SRE=0 or user mode)
+//   [63:48] Limit - Table limit
+//   [47:32] Reserved
+//   [31:2]  Table Address (physical)
+//   [1:0]   Descriptor Type (01=valid)
+isa_state crp[63:0];
+
+// Supervisor Root Pointer (SRP) - 64 bits
+// Points to supervisor page tables (used when SRE=1 and supervisor mode)
+isa_state srp[63:0];
+
+// Transparent Translation Registers (68030+)
+// Allow regions to bypass translation
+// Bit layout:
+//   [31:24] Base Address (bits 31:24 of address to match)
+//   [23:16] Address Mask (1 = ignore this bit for matching)
+//   [15]    E     - Enable
+//   [14]    -     - Reserved
+//   [13:10] S     - Supervisor mode field
+//   [9:5]   -     - Reserved
+//   [4:2]   FC Base - Function Code to match
+//   [1:0]   FC Mask - Function Code mask
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+
+// MMU Status Register (MMUSR) - 16 bits
+// Results from PTEST instruction
+//   [15]    B     - Bus Error
+//   [14]    L     - Limit violation
+//   [13]    S     - Supervisor only
+//   [12]    A     - ATC entry (1 if in ATC)
+//   [11:10] -     - Reserved
+//   [9]     W     - Write Protected
+//   [8]     I     - Invalid
+//   [7]     M     - Modified
+//   [6]     -     - Reserved
+//   [5:3]   N     - Number of levels searched
+//   [2]     T     - Transparent translation
+//   [1]     R     - Resident (in memory)
+//   [0]     -     - Reserved
+isa_state mmusr[15:0];
+
+// ============================================================================
+// ATC (Address Translation Cache) - 22 entries on 68030
+// Fully associative cache with CAM for VA lookup
+// ============================================================================
+
+// Virtual address tag (bits 31:12 for 4KB pages, adjusted for page size)
+isa_state cam atc_va[19:0]@[4:0][];  // 22 entries, 20-bit VPN for 4KB
+
+// Function code tag (3 bits)
+isa_state atc_fc[2:0][4:0];
+
+// Valid bit
+isa_state atc_v[0:0][4:0];
+
+// Physical page number (bits 31:12)
+isa_state atc_pa[19:0][4:0];
+
+// Access control bits
+isa_state atc_wp[0:0][4:0];    // Write Protect
+isa_state atc_m[0:0][4:0];     // Modified (dirty)
+isa_state atc_u[0:0][4:0];     // Used (referenced)
+isa_state atc_s[0:0][4:0];     // Supervisor only
+isa_state atc_cm[1:0][4:0];    // Cache Mode (00=WT, 01=CB, 10=NCS, 11=NCI)
+isa_state atc_g[0:0][4:0];     // Global (68040+)
+
+// ATC replacement pointer (round-robin)
+isa_state atc_next[4:0];
+
+// ============================================================================
+// Page Table Entry Formats
+// ============================================================================
+//
+// Short Format Descriptor (4 bytes):
+//   [31:8]  Page Frame Address / Table Address
+//   [7]     -     Reserved
+//   [6]     CI    Cache Inhibit
+//   [5]     -     Reserved
+//   [4]     M     Modified (for page descriptors)
+//   [3]     U     Used
+//   [2]     WP    Write Protect
+//   [1:0]   DT    Descriptor Type:
+//                 00 = Invalid
+//                 01 = Page Descriptor (maps a page)
+//                 10 = Valid 4-byte Table Descriptor
+//                 11 = Valid 8-byte Table Descriptor
+//
+// Long Format Descriptor (8 bytes):
+//   Similar to short format with additional control fields
+//
+// ============================================================================
+
+// ============================================================================
+// Function Codes (FC)
+// ============================================================================
+// FC values define the address space being accessed:
+//   000 = Reserved
+//   001 = User Data
+//   010 = User Program (instruction fetch)
+//   011 = Reserved (MMU space on 68851)
+//   100 = Reserved
+//   101 = Supervisor Data
+//   110 = Supervisor Program
+//   111 = CPU Space (interrupt acknowledge, breakpoint, etc.)
+//
+// Current function code (derived from SR[S] and access type)
+// For instruction fetch: FC = S ? 6 : 2
+// For data access: FC = S ? 5 : 1
+
+// ============================================================================
+// Page Size Encoding (PS field of TC)
+// ============================================================================
+// PS value = log2(page_size) - 8
+// 0000 = 256 bytes (2^8)
+// 0001 = 512 bytes (2^9)
+// 0010 = 1KB (2^10)
+// 0011 = 2KB (2^11)
+// 0100 = 4KB (2^12) - most common for Linux
+// 0101 = 8KB (2^13)
+// 0110 = 16KB (2^14)
+// 0111 = 32KB (2^15)

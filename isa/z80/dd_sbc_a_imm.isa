@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD DE - DD prefix passthrough
+// DD prefix consumed, base opcode DE executes unchanged
+
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_S[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_H[0:0];
+isa_state flag_PV[0:0];
+isa_state flag_N[0:0];
+isa_state flag_C[0:0];
+
+var imm[7:0];
+var carry_in[0:0];
+var result[8:0];
+var borrow[8:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'hDEDD;
+pc = pc + 2;
+imm = mainmem[pc];
+pc = pc + 1;
+
+carry_in = flag_C;
+borrow = imm + carry_in;
+result = A - borrow;
+
+// Flags
+flag_S = result[7];
+flag_Z = result[7:0] == 0 ? 1'b1 : 1'b0;
+flag_H = (A[3:0] < (imm[3:0] + carry_in)) ? 1'b1 : 1'b0;
+flag_PV = (A[7] != imm[7]) & (A[7] != result[7]) ? 1'b1 : 1'b0;
+flag_N = 1'b1;
+flag_C = A < borrow ? 1'b1 : 1'b0;
+
+A = result[7:0];

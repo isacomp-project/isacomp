@@ -1,0 +1,24 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX SETML - Set Medium Low Wyde
+// SETML $X,YZ: $X = YZ << 16
+// Opcode: 0xE2
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var yz[15:0];
+var result[63:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0xE2;
+
+x = instr[23:16];
+yz = instr[15:0];
+
+result = {32'b0, yz, 16'b0};
+
+rf[x] = result;
+pc = pc + 4;

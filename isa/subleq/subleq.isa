@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+mem data[9:0];
+
+var instr_word_0[31:0];
+var instr_word_1[31:0];
+var instr_word_2[31:0];
+var a_addr[31:0];
+var b_addr[31:0];
+var c_addr[31:0];
+var a_val[31:0];
+var b_val[31:0];
+var result[31:0];
+var is_negative_or_zero[0:0];
+
+// SUBLEQ: SUBtract and Branch if Less than or EQual to zero
+// Instruction format: mem[pc] = a, mem[pc+1] = b, mem[pc+2] = c
+// Semantics: mem[b] = mem[b] - mem[a]; if (mem[b] <= 0) pc = c else pc = pc + 3
+
+// Fetch the three instruction words from memory
+instr_word_0 = data[pc];
+instr_word_1 = data[pc + 1];
+instr_word_2 = data[pc + 2];
+
+// Decode: extract addresses from instruction words
+a_addr = instr_word_0;
+b_addr = instr_word_1;
+c_addr = instr_word_2;
+
+// Load the values from memory
+a_val = data[a_addr];
+b_val = data[b_addr];
+
+// Perform the subtraction
+result = b_val - a_val;
+
+// Store the result back to memory
+data[b_addr] = result;
+
+// Check if result is less than or equal to zero
+// In two's complement, MSB = 1 means negative, or all zeros means zero
+is_negative_or_zero = (result[31] == 1) | (result == 0);
+
+// Update PC: branch to c if result <= 0, otherwise increment by 3
+pc = is_negative_or_zero ? c_addr : pc + 3;

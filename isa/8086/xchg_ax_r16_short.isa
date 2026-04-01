@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 XCHG AX, r16 (0x90-0x97) - SHORT FORM CONSOLIDATED
+// Single-byte encoding for register exchange with AX
+
+isa_state xregs[15:0][7:0];
+isa_state ip[15:0];
+var instr[7:0];
+isa_state imem[7:0][15:0];
+
+var reg_idx[2:0];
+var ax_val[15:0];
+var reg_val[15:0];
+var temp[15:0];
+
+instr = imem[ip];
+// Opcodes 0x90-0x97: XCHG AX, AX/CX/DX/BX/SP/BP/SI/DI
+// Note: 0x90 is XCHG AX,AX which is effectively NOP
+reg_idx = instr[2:0];
+ip = ip + 1;
+
+ax_val = xregs[0];  // AX is always register 0
+reg_val = xregs[reg_idx];
+
+// Swap the values
+temp = ax_val;
+xregs[0] = reg_val;
+xregs[reg_idx] = temp;
+// No flags affected by XCHG

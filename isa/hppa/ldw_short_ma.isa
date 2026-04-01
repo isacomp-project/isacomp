@@ -1,0 +1,69 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA LDW short modify-after instruction (IM5 format)
+// LDW,MA d(b),t — Load Word Modify After:
+//   t = mem[b];  then b += low_sign5(d)
+// Opcode: 0x03 (bits 31:26), bit12=1 (short), bit9=0 (load),
+//         bits7:6=10 (word), bit5=1 (modify), bit13=0 (after)
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17:2, cr17_back:2, cr18:2, cr18_back:2, cr19:2, cr20:2, cr21:2, cr22:2, priv_level:2, shadow_r1:2, shadow_r8:2, shadow_r9:2, shadow_r16:2, shadow_r17:2, shadow_r24:2, shadow_r25:2, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+aspect mmu/data_trap_load.isa gates pc:1, psw:1, cr17:1, cr17_back:1, cr18:1, cr18_back:1, cr19:1, cr20:1, cr21:1, cr22:1, priv_level:1, shadow_r1:1, shadow_r8:1, shadow_r9:1, shadow_r16:1, shadow_r17:1, shadow_r24:1, shadow_r25:1, delay_slot:1, code_iasq:1;
+
+var instr[31:0];
+var b[4:0];
+var t[4:0];
+var disp_sign[0:0];
+var disp_mag[3:0];
+var sign_ext_disp[31:0];
+var base[31:0];
+var data[31:0];
+
+instr = umem[pc_pa];
+
+// LDW short MA encoding: opcode=0x03, bit12=1, bit9=0, bits7:6=10, bit5=1, bit13=0
+assume instr[31:26] == 0b000011;
+assume instr[12] == 1'b1;
+assume instr[9] == 1'b0;
+assume instr[7:6] == 2'b10;
+assume instr[5] == 1'b1;
+assume instr[13] == 1'b0;
+
+// Extract register fields
+b = instr[25:21];
+t = instr[4:0];
+
+// 5-bit low_sign displacement in bits[20:16]: bit[16]=sign, bits[20:17]=magnitude
+disp_sign = instr[16];
+disp_mag = instr[20:17];
+
+// Sign-extend: 28 copies of sign + 4-bit magnitude = 32 bits
+sign_ext_disp = {{28{disp_sign}}, disp_mag};
+
+// Effective address = original base (MA: load from base, then update base)
+base = (b == 0) ? 32'h0 : rf[b];
+var addr[31:0];
+addr = base;
+
+// Load word from memory at base address
+
+data = umem[da_pa];
+
+// Write result to target
+rf[t] when (t != 0 & ~instr_trap_taken & ~data_trap_taken & ~in_nullified) = data;
+
+// Write back: base register += displacement (modify after)
+rf[b] when (~instr_trap_taken & ~data_trap_taken & ~in_nullified & (b != 0)) = base + sign_ext_disp;
+
+// Advance PC by 4
+pc = pc + 4;

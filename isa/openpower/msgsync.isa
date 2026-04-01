@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER msgsync - Message Synchronize (X-Form)
+// msgsync
+// Primary opcode 31, XO=838
+// Ensures all prior msgsnd (message send) operations have completed.
+// POWER9+ instruction used in multi-core messaging.
+// In single-core, in-order implementation: modeled as no-op
+
+isa_state pc[63:0];
+var instr[31:0];
+mem umem[14:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 838 (bits 10:1 in Verilog notation)
+assume instr[10:1] == 838;
+
+// msgsync execution: message barrier
+// For single-core implementation, this is a no-op
+pc = pc + 4;

@@ -1,0 +1,227 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 TLBP - TLB Probe
+// Searches TLB for entry matching EntryHi, writes result to Index
+// If found: Index = matching entry index
+// If not found: Index[31] = 1 (probe failure)
+// Encoding: 010000 1 0000000000000000000 001000
+//           COP0   CO                    TLBP
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0/TLB state
+#ifdef MMU
+aspect ../tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// TLBP encoding
+assume instr[31:26] == 6'b010000;  // COP0 opcode
+assume instr[25] == 1'b1;          // CO bit
+assume instr[5:0] == 6'b001000;    // TLBP function
+
+// Extract VPN2 and ASID from EntryHi for matching
+var probe_vpn2[18:0];
+var probe_asid[7:0];
+
+probe_vpn2 = cp0_entryhi[31:13];
+probe_asid = cp0_entryhi[7:0];
+
+// Check each TLB entry for match
+var match_0[0:0]; var match_1[0:0]; var match_2[0:0]; var match_3[0:0];
+var match_4[0:0]; var match_5[0:0]; var match_6[0:0]; var match_7[0:0];
+var match_8[0:0]; var match_9[0:0]; var match_10[0:0]; var match_11[0:0];
+var match_12[0:0]; var match_13[0:0]; var match_14[0:0]; var match_15[0:0];
+var match_16[0:0]; var match_17[0:0]; var match_18[0:0]; var match_19[0:0];
+var match_20[0:0]; var match_21[0:0]; var match_22[0:0]; var match_23[0:0];
+var match_24[0:0]; var match_25[0:0]; var match_26[0:0]; var match_27[0:0];
+var match_28[0:0]; var match_29[0:0]; var match_30[0:0]; var match_31[0:0];
+
+// Extract VPN2, G, and ASID from each TLB entry
+var p_vpn2_0[18:0]; var p_g_0[0:0]; var p_asid_0[7:0];
+var p_vpn2_1[18:0]; var p_g_1[0:0]; var p_asid_1[7:0];
+var p_vpn2_2[18:0]; var p_g_2[0:0]; var p_asid_2[7:0];
+var p_vpn2_3[18:0]; var p_g_3[0:0]; var p_asid_3[7:0];
+var p_vpn2_4[18:0]; var p_g_4[0:0]; var p_asid_4[7:0];
+var p_vpn2_5[18:0]; var p_g_5[0:0]; var p_asid_5[7:0];
+var p_vpn2_6[18:0]; var p_g_6[0:0]; var p_asid_6[7:0];
+var p_vpn2_7[18:0]; var p_g_7[0:0]; var p_asid_7[7:0];
+var p_vpn2_8[18:0]; var p_g_8[0:0]; var p_asid_8[7:0];
+var p_vpn2_9[18:0]; var p_g_9[0:0]; var p_asid_9[7:0];
+var p_vpn2_10[18:0]; var p_g_10[0:0]; var p_asid_10[7:0];
+var p_vpn2_11[18:0]; var p_g_11[0:0]; var p_asid_11[7:0];
+var p_vpn2_12[18:0]; var p_g_12[0:0]; var p_asid_12[7:0];
+var p_vpn2_13[18:0]; var p_g_13[0:0]; var p_asid_13[7:0];
+var p_vpn2_14[18:0]; var p_g_14[0:0]; var p_asid_14[7:0];
+var p_vpn2_15[18:0]; var p_g_15[0:0]; var p_asid_15[7:0];
+var p_vpn2_16[18:0]; var p_g_16[0:0]; var p_asid_16[7:0];
+var p_vpn2_17[18:0]; var p_g_17[0:0]; var p_asid_17[7:0];
+var p_vpn2_18[18:0]; var p_g_18[0:0]; var p_asid_18[7:0];
+var p_vpn2_19[18:0]; var p_g_19[0:0]; var p_asid_19[7:0];
+var p_vpn2_20[18:0]; var p_g_20[0:0]; var p_asid_20[7:0];
+var p_vpn2_21[18:0]; var p_g_21[0:0]; var p_asid_21[7:0];
+var p_vpn2_22[18:0]; var p_g_22[0:0]; var p_asid_22[7:0];
+var p_vpn2_23[18:0]; var p_g_23[0:0]; var p_asid_23[7:0];
+var p_vpn2_24[18:0]; var p_g_24[0:0]; var p_asid_24[7:0];
+var p_vpn2_25[18:0]; var p_g_25[0:0]; var p_asid_25[7:0];
+var p_vpn2_26[18:0]; var p_g_26[0:0]; var p_asid_26[7:0];
+var p_vpn2_27[18:0]; var p_g_27[0:0]; var p_asid_27[7:0];
+var p_vpn2_28[18:0]; var p_g_28[0:0]; var p_asid_28[7:0];
+var p_vpn2_29[18:0]; var p_g_29[0:0]; var p_asid_29[7:0];
+var p_vpn2_30[18:0]; var p_g_30[0:0]; var p_asid_30[7:0];
+var p_vpn2_31[18:0]; var p_g_31[0:0]; var p_asid_31[7:0];
+
+p_vpn2_0 = tlb_hi[0][31:13]; p_g_0 = tlb_lo0[0][0] & tlb_lo1[0][0]; p_asid_0 = tlb_hi[0][7:0];
+p_vpn2_1 = tlb_hi[1][31:13]; p_g_1 = tlb_lo0[1][0] & tlb_lo1[1][0]; p_asid_1 = tlb_hi[1][7:0];
+p_vpn2_2 = tlb_hi[2][31:13]; p_g_2 = tlb_lo0[2][0] & tlb_lo1[2][0]; p_asid_2 = tlb_hi[2][7:0];
+p_vpn2_3 = tlb_hi[3][31:13]; p_g_3 = tlb_lo0[3][0] & tlb_lo1[3][0]; p_asid_3 = tlb_hi[3][7:0];
+p_vpn2_4 = tlb_hi[4][31:13]; p_g_4 = tlb_lo0[4][0] & tlb_lo1[4][0]; p_asid_4 = tlb_hi[4][7:0];
+p_vpn2_5 = tlb_hi[5][31:13]; p_g_5 = tlb_lo0[5][0] & tlb_lo1[5][0]; p_asid_5 = tlb_hi[5][7:0];
+p_vpn2_6 = tlb_hi[6][31:13]; p_g_6 = tlb_lo0[6][0] & tlb_lo1[6][0]; p_asid_6 = tlb_hi[6][7:0];
+p_vpn2_7 = tlb_hi[7][31:13]; p_g_7 = tlb_lo0[7][0] & tlb_lo1[7][0]; p_asid_7 = tlb_hi[7][7:0];
+p_vpn2_8 = tlb_hi[8][31:13]; p_g_8 = tlb_lo0[8][0] & tlb_lo1[8][0]; p_asid_8 = tlb_hi[8][7:0];
+p_vpn2_9 = tlb_hi[9][31:13]; p_g_9 = tlb_lo0[9][0] & tlb_lo1[9][0]; p_asid_9 = tlb_hi[9][7:0];
+p_vpn2_10 = tlb_hi[10][31:13]; p_g_10 = tlb_lo0[10][0] & tlb_lo1[10][0]; p_asid_10 = tlb_hi[10][7:0];
+p_vpn2_11 = tlb_hi[11][31:13]; p_g_11 = tlb_lo0[11][0] & tlb_lo1[11][0]; p_asid_11 = tlb_hi[11][7:0];
+p_vpn2_12 = tlb_hi[12][31:13]; p_g_12 = tlb_lo0[12][0] & tlb_lo1[12][0]; p_asid_12 = tlb_hi[12][7:0];
+p_vpn2_13 = tlb_hi[13][31:13]; p_g_13 = tlb_lo0[13][0] & tlb_lo1[13][0]; p_asid_13 = tlb_hi[13][7:0];
+p_vpn2_14 = tlb_hi[14][31:13]; p_g_14 = tlb_lo0[14][0] & tlb_lo1[14][0]; p_asid_14 = tlb_hi[14][7:0];
+p_vpn2_15 = tlb_hi[15][31:13]; p_g_15 = tlb_lo0[15][0] & tlb_lo1[15][0]; p_asid_15 = tlb_hi[15][7:0];
+p_vpn2_16 = tlb_hi[16][31:13]; p_g_16 = tlb_lo0[16][0] & tlb_lo1[16][0]; p_asid_16 = tlb_hi[16][7:0];
+p_vpn2_17 = tlb_hi[17][31:13]; p_g_17 = tlb_lo0[17][0] & tlb_lo1[17][0]; p_asid_17 = tlb_hi[17][7:0];
+p_vpn2_18 = tlb_hi[18][31:13]; p_g_18 = tlb_lo0[18][0] & tlb_lo1[18][0]; p_asid_18 = tlb_hi[18][7:0];
+p_vpn2_19 = tlb_hi[19][31:13]; p_g_19 = tlb_lo0[19][0] & tlb_lo1[19][0]; p_asid_19 = tlb_hi[19][7:0];
+p_vpn2_20 = tlb_hi[20][31:13]; p_g_20 = tlb_lo0[20][0] & tlb_lo1[20][0]; p_asid_20 = tlb_hi[20][7:0];
+p_vpn2_21 = tlb_hi[21][31:13]; p_g_21 = tlb_lo0[21][0] & tlb_lo1[21][0]; p_asid_21 = tlb_hi[21][7:0];
+p_vpn2_22 = tlb_hi[22][31:13]; p_g_22 = tlb_lo0[22][0] & tlb_lo1[22][0]; p_asid_22 = tlb_hi[22][7:0];
+p_vpn2_23 = tlb_hi[23][31:13]; p_g_23 = tlb_lo0[23][0] & tlb_lo1[23][0]; p_asid_23 = tlb_hi[23][7:0];
+p_vpn2_24 = tlb_hi[24][31:13]; p_g_24 = tlb_lo0[24][0] & tlb_lo1[24][0]; p_asid_24 = tlb_hi[24][7:0];
+p_vpn2_25 = tlb_hi[25][31:13]; p_g_25 = tlb_lo0[25][0] & tlb_lo1[25][0]; p_asid_25 = tlb_hi[25][7:0];
+p_vpn2_26 = tlb_hi[26][31:13]; p_g_26 = tlb_lo0[26][0] & tlb_lo1[26][0]; p_asid_26 = tlb_hi[26][7:0];
+p_vpn2_27 = tlb_hi[27][31:13]; p_g_27 = tlb_lo0[27][0] & tlb_lo1[27][0]; p_asid_27 = tlb_hi[27][7:0];
+p_vpn2_28 = tlb_hi[28][31:13]; p_g_28 = tlb_lo0[28][0] & tlb_lo1[28][0]; p_asid_28 = tlb_hi[28][7:0];
+p_vpn2_29 = tlb_hi[29][31:13]; p_g_29 = tlb_lo0[29][0] & tlb_lo1[29][0]; p_asid_29 = tlb_hi[29][7:0];
+p_vpn2_30 = tlb_hi[30][31:13]; p_g_30 = tlb_lo0[30][0] & tlb_lo1[30][0]; p_asid_30 = tlb_hi[30][7:0];
+p_vpn2_31 = tlb_hi[31][31:13]; p_g_31 = tlb_lo0[31][0] & tlb_lo1[31][0]; p_asid_31 = tlb_hi[31][7:0];
+
+// Compute matches
+match_0 = (p_vpn2_0 == probe_vpn2) & (p_g_0 | (p_asid_0 == probe_asid));
+match_1 = (p_vpn2_1 == probe_vpn2) & (p_g_1 | (p_asid_1 == probe_asid));
+match_2 = (p_vpn2_2 == probe_vpn2) & (p_g_2 | (p_asid_2 == probe_asid));
+match_3 = (p_vpn2_3 == probe_vpn2) & (p_g_3 | (p_asid_3 == probe_asid));
+match_4 = (p_vpn2_4 == probe_vpn2) & (p_g_4 | (p_asid_4 == probe_asid));
+match_5 = (p_vpn2_5 == probe_vpn2) & (p_g_5 | (p_asid_5 == probe_asid));
+match_6 = (p_vpn2_6 == probe_vpn2) & (p_g_6 | (p_asid_6 == probe_asid));
+match_7 = (p_vpn2_7 == probe_vpn2) & (p_g_7 | (p_asid_7 == probe_asid));
+match_8 = (p_vpn2_8 == probe_vpn2) & (p_g_8 | (p_asid_8 == probe_asid));
+match_9 = (p_vpn2_9 == probe_vpn2) & (p_g_9 | (p_asid_9 == probe_asid));
+match_10 = (p_vpn2_10 == probe_vpn2) & (p_g_10 | (p_asid_10 == probe_asid));
+match_11 = (p_vpn2_11 == probe_vpn2) & (p_g_11 | (p_asid_11 == probe_asid));
+match_12 = (p_vpn2_12 == probe_vpn2) & (p_g_12 | (p_asid_12 == probe_asid));
+match_13 = (p_vpn2_13 == probe_vpn2) & (p_g_13 | (p_asid_13 == probe_asid));
+match_14 = (p_vpn2_14 == probe_vpn2) & (p_g_14 | (p_asid_14 == probe_asid));
+match_15 = (p_vpn2_15 == probe_vpn2) & (p_g_15 | (p_asid_15 == probe_asid));
+match_16 = (p_vpn2_16 == probe_vpn2) & (p_g_16 | (p_asid_16 == probe_asid));
+match_17 = (p_vpn2_17 == probe_vpn2) & (p_g_17 | (p_asid_17 == probe_asid));
+match_18 = (p_vpn2_18 == probe_vpn2) & (p_g_18 | (p_asid_18 == probe_asid));
+match_19 = (p_vpn2_19 == probe_vpn2) & (p_g_19 | (p_asid_19 == probe_asid));
+match_20 = (p_vpn2_20 == probe_vpn2) & (p_g_20 | (p_asid_20 == probe_asid));
+match_21 = (p_vpn2_21 == probe_vpn2) & (p_g_21 | (p_asid_21 == probe_asid));
+match_22 = (p_vpn2_22 == probe_vpn2) & (p_g_22 | (p_asid_22 == probe_asid));
+match_23 = (p_vpn2_23 == probe_vpn2) & (p_g_23 | (p_asid_23 == probe_asid));
+match_24 = (p_vpn2_24 == probe_vpn2) & (p_g_24 | (p_asid_24 == probe_asid));
+match_25 = (p_vpn2_25 == probe_vpn2) & (p_g_25 | (p_asid_25 == probe_asid));
+match_26 = (p_vpn2_26 == probe_vpn2) & (p_g_26 | (p_asid_26 == probe_asid));
+match_27 = (p_vpn2_27 == probe_vpn2) & (p_g_27 | (p_asid_27 == probe_asid));
+match_28 = (p_vpn2_28 == probe_vpn2) & (p_g_28 | (p_asid_28 == probe_asid));
+match_29 = (p_vpn2_29 == probe_vpn2) & (p_g_29 | (p_asid_29 == probe_asid));
+match_30 = (p_vpn2_30 == probe_vpn2) & (p_g_30 | (p_asid_30 == probe_asid));
+match_31 = (p_vpn2_31 == probe_vpn2) & (p_g_31 | (p_asid_31 == probe_asid));
+
+// Any match?
+var any_match[0:0];
+any_match = match_0 | match_1 | match_2 | match_3 |
+            match_4 | match_5 | match_6 | match_7 |
+            match_8 | match_9 | match_10 | match_11 |
+            match_12 | match_13 | match_14 | match_15 |
+            match_16 | match_17 | match_18 | match_19 |
+            match_20 | match_21 | match_22 | match_23 |
+            match_24 | match_25 | match_26 | match_27 |
+            match_28 | match_29 | match_30 | match_31;
+
+// Priority encoder to find matching index
+var idx_01[4:0]; var idx_23[4:0]; var idx_45[4:0]; var idx_67[4:0];
+var idx_89[4:0]; var idx_ab[4:0]; var idx_cd[4:0]; var idx_ef[4:0];
+var idx_1011[4:0]; var idx_1213[4:0]; var idx_1415[4:0]; var idx_1617[4:0];
+var idx_1819[4:0]; var idx_1a1b[4:0]; var idx_1c1d[4:0]; var idx_1e1f[4:0];
+var idx_0123[4:0]; var idx_4567[4:0]; var idx_89ab[4:0]; var idx_cdef[4:0];
+var idx_1013[4:0]; var idx_1417[4:0]; var idx_181b[4:0]; var idx_1c1f[4:0];
+var idx_07[4:0]; var idx_8f[4:0]; var idx_1017[4:0]; var idx_181f[4:0];
+var idx_0f[4:0]; var idx_101f[4:0];
+var matched_idx[4:0];
+
+idx_01 = match_0 ? 0 : 1;
+idx_23 = match_2 ? 2 : 3;
+idx_45 = match_4 ? 4 : 5;
+idx_67 = match_6 ? 6 : 7;
+idx_89 = match_8 ? 8 : 9;
+idx_ab = match_10 ? 10 : 11;
+idx_cd = match_12 ? 12 : 13;
+idx_ef = match_14 ? 14 : 15;
+idx_1011 = match_16 ? 16 : 17;
+idx_1213 = match_18 ? 18 : 19;
+idx_1415 = match_20 ? 20 : 21;
+idx_1617 = match_22 ? 22 : 23;
+idx_1819 = match_24 ? 24 : 25;
+idx_1a1b = match_26 ? 26 : 27;
+idx_1c1d = match_28 ? 28 : 29;
+idx_1e1f = match_30 ? 30 : 31;
+
+idx_0123 = (match_0 | match_1) ? idx_01 : idx_23;
+idx_4567 = (match_4 | match_5) ? idx_45 : idx_67;
+idx_89ab = (match_8 | match_9) ? idx_89 : idx_ab;
+idx_cdef = (match_12 | match_13) ? idx_cd : idx_ef;
+idx_1013 = (match_16 | match_17) ? idx_1011 : idx_1213;
+idx_1417 = (match_20 | match_21) ? idx_1415 : idx_1617;
+idx_181b = (match_24 | match_25) ? idx_1819 : idx_1a1b;
+idx_1c1f = (match_28 | match_29) ? idx_1c1d : idx_1e1f;
+
+idx_07 = (match_0 | match_1 | match_2 | match_3) ? idx_0123 : idx_4567;
+idx_8f = (match_8 | match_9 | match_10 | match_11) ? idx_89ab : idx_cdef;
+idx_1017 = (match_16 | match_17 | match_18 | match_19) ? idx_1013 : idx_1417;
+idx_181f = (match_24 | match_25 | match_26 | match_27) ? idx_181b : idx_1c1f;
+
+idx_0f = (match_0 | match_1 | match_2 | match_3 |
+          match_4 | match_5 | match_6 | match_7) ? idx_07 : idx_8f;
+idx_101f = (match_16 | match_17 | match_18 | match_19 |
+            match_20 | match_21 | match_22 | match_23) ? idx_1017 : idx_181f;
+
+matched_idx = (match_0 | match_1 | match_2 | match_3 |
+               match_4 | match_5 | match_6 | match_7 |
+               match_8 | match_9 | match_10 | match_11 |
+               match_12 | match_13 | match_14 | match_15) ? idx_0f : idx_101f;
+
+// Write result to Index register
+// If match found: Index = matched_idx
+// If no match: Index[31] = 1 (probe failure)
+var new_index[31:0];
+var probe_fail[0:0];
+probe_fail = ~any_match;
+new_index = {probe_fail, 26'b0, matched_idx};
+cp0_index = new_index;
+
+// Update PC
+pc = pc + 4;

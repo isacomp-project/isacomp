@@ -1,0 +1,20 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX LDVTSI - Load Virtual Translation Status Immediate
+// LDVTSI $X,$Y,Z: $X = virtual translation status for $Y+Z
+// Opcode: 0x99
+// Note: Simplified - returns 0 (no virtual memory in simple model)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x99;
+
+x = instr[23:16];
+
+rf[x] = 64'b0;
+pc = pc + 4;

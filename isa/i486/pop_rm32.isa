@@ -1,0 +1,163 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 POP r/m32 (0x8F /0)
+// Pop 32-bit value from stack into register or memory operand
+// Uses SS segment for stack access
+
+isa_state eip[31:0];
+var instr[7:0];
+isa_state modrm[7:0];
+
+isa_state xregs[31:0][2:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state SS[15:0];
+isa_state DS[15:0];
+
+var mod_bits[1:0];
+var reg_bits[2:0];
+var rm_bits[2:0];
+var dst_reg_idx[2:0];
+var addr_reg_idx[2:0];
+var base_offset[15:0];
+var disp8[7:0];
+var disp16_lo[7:0];
+var disp16_hi[7:0];
+var disp16[15:0];
+var signed_disp8[15:0];
+var offset[15:0];
+var is_mem_dst[0:0];
+var phys0[19:0];
+var phys1[19:0];
+var phys2[19:0];
+var phys3[19:0];
+var stkoff0[31:0];
+var stkoff1[31:0];
+var stkoff2[31:0];
+var stkoff3[31:0];
+var stkaddr0[31:0];
+var stkaddr1[31:0];
+var stkaddr2[31:0];
+var stkaddr3[31:0];
+var stack_val[31:0];
+var write_to_mem[0:0];
+var write_to_reg[0:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x8F;
+
+// Fetch ModR/M byte
+modrm = imem[eip + 1];
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_bits = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Check that reg field is 0 (POP)
+assume reg_bits == 0b000;
+
+dst_reg_idx = rm_bits;
+
+case (rm_bits) {
+  0b100: addr_reg_idx = 3'b110;
+  0b101: addr_reg_idx = 3'b111;
+  0b111: addr_reg_idx = 3'b011;
+}
+
+base_offset = xregs[addr_reg_idx][15:0];
+
+// Read displacement bytes using offset-based addressing
+disp8 = imem[eip + 2];
+disp16_lo = imem[eip + 2];
+disp16_hi = imem[eip + 3];
+disp16 = {disp16_hi, disp16_lo};
+signed_disp8 = {{8{disp8[7]}}, disp8};
+
+case (mod_bits) {
+  0b00: offset = base_offset;
+  0b01: offset = base_offset + signed_disp8;
+  0b10: offset = base_offset + disp16;
+  0b11: offset = 16'h0000;
+}
+
+case (mod_bits) {
+  0b00: is_mem_dst = 1'b1;
+  0b01: is_mem_dst = 1'b1;
+  0b10: is_mem_dst = 1'b1;
+  0b11: is_mem_dst = 1'b0;
+}
+
+// Update EIP based on displacement size
+case (mod_bits) {
+  0b00: eip = eip + 2;
+  0b01: eip = eip + 3;
+  0b10: eip = eip + 4;
+  0b11: eip = eip + 2;
+}
+
+phys0 = (DS << 4) + offset;
+phys1 = (DS << 4) + offset + 16'h0001;
+phys2 = (DS << 4) + offset + 16'h0002;
+phys3 = (DS << 4) + offset + 16'h0003;
+
+// Calculate stack offsets
+stkoff0 = xregs[4];
+stkoff1 = xregs[4] + 32'h00000001;
+stkoff2 = xregs[4] + 32'h00000002;
+stkoff3 = xregs[4] + 32'h00000003;
+
+// Calculate physical addresses using SS segment
+stkaddr0 = (SS << 4) + stkoff0;
+stkaddr1 = (SS << 4) + stkoff1;
+stkaddr2 = (SS << 4) + stkoff2;
+stkaddr3 = (SS << 4) + stkoff3;
+
+// Read value from stack (little-endian)
+var stack_val_b0[7:0];
+var stack_val_b1[7:0];
+var stack_val_b2[7:0];
+var stack_val_b3[7:0];
+stack_val_b0 = dmem[stkaddr0];
+stack_val_b1 = dmem[stkaddr1];
+stack_val_b2 = dmem[stkaddr2];
+stack_val_b3 = dmem[stkaddr3];
+stack_val = {stack_val_b3, stack_val_b2, stack_val_b1, stack_val_b0};
+
+// Increment ESP by 4 (dword size)
+xregs[4] = xregs[4] + 32'h00000004;
+
+case (is_mem_dst) {
+  1'b1: write_to_mem = 1'b1;
+  1'b0: write_to_mem = 1'b0;
+}
+
+case (is_mem_dst) {
+  1'b1: write_to_reg = 1'b0;
+  1'b0: write_to_reg = 1'b1;
+}
+
+case (write_to_mem) {
+  1'b1: dmem[phys0] = stack_val[7:0];
+  1'b0: dmem[phys0] = dmem[phys0];
+}
+
+case (write_to_mem) {
+  1'b1: dmem[phys1] = stack_val[15:8];
+  1'b0: dmem[phys1] = dmem[phys1];
+}
+
+case (write_to_mem) {
+  1'b1: dmem[phys2] = stack_val[23:16];
+  1'b0: dmem[phys2] = dmem[phys2];
+}
+
+case (write_to_mem) {
+  1'b1: dmem[phys3] = stack_val[31:24];
+  1'b0: dmem[phys3] = dmem[phys3];
+}
+
+case (write_to_reg) {
+  1'b1: xregs[dst_reg_idx] = stack_val;
+  1'b0: xregs[dst_reg_idx] = xregs[dst_reg_idx];
+}

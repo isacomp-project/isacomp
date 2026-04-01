@@ -1,0 +1,82 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA BVB instruction (Branch on Variable Bit - bit set)
+// BVB,< r,target - Branch if bit at SAR position is set (1)
+// Opcode: 0x30 (bits 31:26), uses SAR (CR11) for bit position
+//
+// Operation: shift GR[r] left by SAR, test MSB of result
+// c=0 (bit 15): branch if MSB=1 (bit at SAR position is set, condition "<")
+
+isa_state pc[31:0];
+isa_state psw[31:0];
+isa_state rf[31:0][4:0];
+isa_state sar[4:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:3, psw:3;
+aspect mmu/interruption.isa gates pc:1, psw:1, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:1;
+aspect mmu/delay_slot.isa gates pc:2, delay_slot, code_iasq:2, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var src[31:0];
+var bit_val[0:0];
+var shift_amt[4:0];
+var shifted[31:0];
+var w[11:0];
+var target_offset[31:0];
+var target[31:0];
+var taken[0:0];
+
+instr = umem[pc_pa];
+
+// BVB encoding: opcode=0x30
+assume instr[31:26] == 0b110000;
+
+// bits[25:21] must be zero for SAR-based BB
+assume instr[25:21] == 5'b00000;
+
+// Condition bit (bit 15) = 0 for branch if bit set ("<")
+assume instr[15] == 1'b0;
+
+// Source register at bits[20:16]
+r = instr[20:16];
+
+// Read source register
+src = (r == 0) ? 32'h0 : rf[r];
+
+// Extract bit at SAR position (HPPA numbers bits 0=MSB, 31=LSB)
+shift_amt = 5'd31 - sar;
+shifted = src >> shift_amt;
+bit_val = shifted[0];
+
+// HPPA branch displacement encoding (assemble_12):
+// w[11] (sign) = instr[0]
+// w[10] = instr[2]
+// w[9:0] = instr[12:3]
+w = {instr[0], instr[2], instr[12:4], instr[3]};
+
+// Sign-extend the 12-bit w to 32 bits and multiply by 4 (shift left 2)
+target_offset = {{18{w[11]}}, w, 2'b00};
+
+// Calculate target (relative to PC+8 due to delay slot)
+target = pc + 8 + target_offset;
+
+// Check condition (bit is set, "<")
+taken = (bit_val == 1'b1);
+
+// ,n flag: forward branch (instr[0]=0) nullifies delay slot when taken;
+//          backward (instr[0]=1) nullifies when not taken
+// Combined: nullify = n_bit && (taken XOR backward_branch)
+var n_nullify[0:0];
+n_nullify = instr[1] & (taken ^ instr[0]);
+psw when (n_nullify & ~instr_trap_taken & ~in_nullified) = psw | 32'h00200000;
+
+delay_slot when (~in_delay_slot & taken & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (~in_delay_slot & taken & ~instr_trap_taken & ~in_nullified) = target;
+pc = pc + 4;

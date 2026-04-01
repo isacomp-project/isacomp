@@ -1,0 +1,125 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 SRMMU TLB Write (STA to ASI 0x05)
+// Format 3: op=11, op3=010100, i=0, asi=0x05
+// STA rd, [rs1 + rs2] 0x05
+// Privileged instruction - writes a TLB entry directly
+//
+// Address format:
+// [11:6]  TLB entry index (0-63)
+// [31:12] VPN to store in entry
+//
+// Data (rd) format (PTE):
+// [31:8]  PPN - Physical Page Number
+// [7]     C   - Cacheable
+// [6]     M   - Modified
+// [5]     R   - Referenced
+// [4:2]   ACC - Access permissions
+// [1:0]   ET  - Entry Type (10 = valid PTE)
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][7:0];   // Integer register file (physical windowed)
+isa_state cwp[2:0];        // Current Window Pointer
+isa_state psr[31:0];       // Processor State Register
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect ../delay_slot.isa gates pc, delay_slot;
+
+// Include MMU registers and TLB
+#include "mmu_regs.isa"
+
+var rs1[4:0];
+var rs2[4:0];
+var rd[4:0];
+var asi[7:0];
+
+var r1[31:0];
+var r2[31:0];
+var addr[31:0];
+var data[31:0];
+
+var cwp_m1[2:0];
+var phys_rs1[7:0];
+var phys_rs2[7:0];
+var phys_rd[7:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b11;       // op = 11 (Load/Store)
+assume instr[24:19] == 0b010100;   // op3 = STA
+assume instr[13] == 0b0;           // i = 0 (register addressing with ASI)
+assume instr[12:5] == 8'h05;       // ASI = 0x05 (TLB Write)
+
+rs1 = instr[18:14];
+rs2 = instr[4:0];
+rd = instr[29:25];
+asi = instr[12:5];
+
+// Compute physical register indices
+cwp_m1 = cwp + 3'b111;
+phys_rs1 = (rs1[4:3] == 2'b00) ? {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs1[2:0]} :
+           (rs1[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs1[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs1[2:0]};
+phys_rs2 = (rs2[4:3] == 2'b00) ? {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rs2[2:0]} :
+           (rs2[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rs2[2:0]} :
+           ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rs2[2:0]};
+phys_rd = (rd[4:3] == 2'b00) ? {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b01) ? ({5'b0, cwp_m1} << 3) + 8'd8 + {5'b0, rd[2:0]} :
+          (rd[4:3] == 2'b10) ? ({5'b0, cwp} << 3) + 8'd72 + {5'b0, rd[2:0]} :
+          ({5'b0, cwp} << 3) + 8'd8 + {5'b0, rd[2:0]};
+
+r1 = (rs1 == 0) ? 32'b0 : rf[phys_rs1];
+r2 = (rs2 == 0) ? 32'b0 : rf[phys_rs2];
+data = (rd == 0) ? 32'b0 : rf[phys_rd];
+
+addr = r1 + r2;
+
+// Extract TLB entry index and VPN from address
+var tlb_idx[5:0];
+var new_vpn[19:0];
+tlb_idx = addr[11:6];
+new_vpn = addr[31:12];
+
+// Extract PTE fields from data
+var new_ppn[23:0];
+var new_c[0:0];
+var new_m[0:0];
+var new_r[0:0];
+var new_acc[2:0];
+var new_valid[0:0];
+
+new_ppn = data[31:8];
+new_c = data[7];
+new_m = data[6];
+new_r = data[5];
+new_acc = data[4:2];
+new_valid = (data[1:0] == 2'b10);  // ET = 10 means valid PTE
+
+// Get current context
+var write_ctx[7:0];
+write_ctx = mmu_ctx[7:0];
+
+// ============================================================================
+// Write TLB entry (guarded to only execute when this instruction runs)
+// ============================================================================
+// Use explicit write enable variable for proper gating
+var do_write[0:0];
+do_write = 1'b1;  // Always write when instruction executes
+
+tlb_vpn[tlb_idx] when (do_write) = new_vpn;
+tlb_ctx[tlb_idx] when (do_write) = write_ctx;
+tlb_ppn[tlb_idx] when (do_write) = new_ppn;
+tlb_c[tlb_idx] when (do_write) = new_c;
+tlb_m[tlb_idx] when (do_write) = new_m;
+tlb_r[tlb_idx] when (do_write) = new_r;
+tlb_acc[tlb_idx] when (do_write) = new_acc;
+tlb_v[tlb_idx] when (do_write) = new_valid;
+tlb_sz[tlb_idx] when (do_write) = 2'b00;  // Default to 4KB page
+
+pc = pc + 4;

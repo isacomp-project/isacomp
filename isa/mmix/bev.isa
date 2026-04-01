@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MMIX BEV - Branch if Even (forward)
+// BEV $X,RA: if $X is even then PC = PC + 4*RA
+// Opcode: 0x4E
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][7:0];
+mem umem[14:0];
+
+var x[7:0];
+var ra[15:0];
+var x_val[63:0];
+var offset[63:0];
+var cond[0:0];
+
+instr = umem[pc];
+assume instr[31:24] == 0x4E;
+
+x = instr[23:16];
+ra = instr[15:0];
+
+x_val = rf[x];
+offset = {48'h0, ra} << 2;
+
+cond = !x_val[0];
+
+pc = cond ? (pc + offset) : (pc + 4);

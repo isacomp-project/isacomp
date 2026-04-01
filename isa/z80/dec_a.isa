@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DEC A (0x3D) - Decrement A
+// A = A - 1
+// Affects: S, Z, H, P/V, N=1 (C not affected)
+
+isa_state pc[15:0];
+var instr[7:0];
+isa_state A[7:0];
+mem mainmem[15:0];
+isa_state flag_S[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_H[0:0];
+isa_state flag_PV[0:0];
+isa_state flag_N[0:0];
+
+var result[7:0];
+
+instr = mainmem[pc];
+assume instr == 0x3D;
+pc = pc + 1;
+
+result = A - 1;
+
+flag_S = result[7];
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+flag_H = (A[3:0] == 0x00) ? 1'b1 : 1'b0;  // Borrow from bit 4
+// P/V set if A was 0x80 (underflow from negative)
+flag_PV = (A == 0x80) ? 1'b1 : 1'b0;
+flag_N = 1'b1;
+// C not affected
+
+A = result;

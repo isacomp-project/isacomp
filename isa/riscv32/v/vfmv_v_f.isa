@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vfmv.v.f - Move FP Scalar to Vector (splat)
+// Encoding: vfmv.v.f vd, rs1
+// Operation: vd[i] = f[rs1] (broadcast scalar to all elements)
+
+isa_state pc[31:0];
+isa_state frf[31:0][4:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var vd[4:0];
+var scalar[31:0];
+var res[127:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b101;
+assume instr[31:26] == 0b010111;
+assume instr[25:25] == 0b1;
+assume instr[24:20] == 0b00000;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+vd = instr[11:7];
+
+scalar = frf[rs1];
+
+res[31:0] = scalar;
+res[63:32] = scalar;
+res[95:64] = scalar;
+res[127:96] = scalar;
+
+vrf[vd] = res;

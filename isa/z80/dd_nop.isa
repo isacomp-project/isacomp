@@ -1,0 +1,63 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 DD 00 - DD prefix passthrough
+// DD prefix consumed, base opcode 00 executes unchanged
+
+
+isa_state pc[15:0];
+var dd_instr[15:0];
+var pc_plus_1[15:0];
+mem mainmem[15:0];
+// Prime registers (needed to force mux generation when only EXX/EX AF,AF' write to them)
+isa_state A_prime[7:0];
+isa_state B_prime[7:0];
+isa_state C_prime[7:0];
+isa_state D_prime[7:0];
+isa_state E_prime[7:0];
+isa_state H_prime[7:0];
+isa_state L_prime[7:0];
+isa_state flag_S_prime[0:0];
+isa_state flag_Z_prime[0:0];
+isa_state flag_H_prime[0:0];
+isa_state flag_PV_prime[0:0];
+isa_state flag_N_prime[0:0];
+isa_state flag_C_prime[0:0];
+// Index registers (needed for DD/FD prefix instructions)
+isa_state IXH[7:0];
+isa_state IXL[7:0];
+isa_state IYH[7:0];
+isa_state IYL[7:0];
+// I, R, IFF2 registers (needed for ED prefix instructions)
+isa_state I[7:0];
+isa_state R[7:0];
+isa_state IFF2[0:0];
+isa_state IM[1:0];
+
+pc_plus_1 = pc + 1;
+dd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume dd_instr == 16'h00DD;
+pc = pc + 2;
+
+// Explicitly preserve prime registers to force mux generation
+A_prime = A_prime;
+B_prime = B_prime;
+C_prime = C_prime;
+D_prime = D_prime;
+E_prime = E_prime;
+H_prime = H_prime;
+L_prime = L_prime;
+flag_S_prime = flag_S_prime;
+flag_Z_prime = flag_Z_prime;
+flag_H_prime = flag_H_prime;
+flag_PV_prime = flag_PV_prime;
+flag_N_prime = flag_N_prime;
+flag_C_prime = flag_C_prime;
+// Preserve index registers
+IXH = IXH;
+IXL = IXL;
+IYH = IYH;
+IYL = IYL;
+// Preserve I, R, IFF2, IM
+I = I;
+R = R;
+IFF2 = IFF2;
+IM = IM;

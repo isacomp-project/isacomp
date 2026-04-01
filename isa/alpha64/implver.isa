@@ -1,0 +1,19 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[13:0];
+
+var rc[4:0];
+var Rc[63:0];
+var res[63:0];
+
+instr = umem[pc];
+assume instr[31:26] == 17;
+assume instr[11:5] == 108;
+assume instr[12] == 1;
+rc = instr[4:0];
+Rc = rf[rc];
+
+rf[rc] when (rc != 31) = FullSystem ? 1 : 2;
+pc = pc + 4;

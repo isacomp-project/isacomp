@@ -1,0 +1,40 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V LH (Load Halfword Signed) instruction
+// NOTE: This implementation only supports naturally aligned accesses
+// Uses mem primitive with 16-bit direct access
+// (i.e., addr[1] == 0, always loads from halfword 0 of the word)
+// For full unaligned support, shift logic is needed based on addr[1]
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rd[4:0];
+var r1[31:0];
+var imm[11:0];
+var sign_ext_imm[31:0];
+var addr[31:0];
+var halfword_data[15:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0000011;
+assume instr[14:12] == 0x1;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+
+r1 = rf[rs1];
+
+imm = instr[31:20];
+sign_ext_imm = {{20{imm[11]}}, imm};
+
+addr = r1 + sign_ext_imm;
+
+// Direct 16-bit load from memory
+halfword_data = umem[addr];
+
+// Sign-extend halfword to 32 bits
+rf[rd] when (rd != 0) = {{16{halfword_data[15]}}, halfword_data};
+pc = pc + 4;

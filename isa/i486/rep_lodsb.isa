@@ -1,0 +1,60 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 REP LODSB (0xF3 0xAC) - WITH PROPER SEGMENTATION
+// Repeat while CX != 0: Load byte from DS:[SI] into AL
+// IP stays constant until CX reaches 0
+// Uses DS segment for source
+
+isa_state eip[31:0];
+var prefix[7:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];     // 4GB memory (32-bit addressing)
+isa_state DS[15:0];            // Data segment register
+isa_state xregs[31:0][2:0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state SI[15:0] of xregs[6][15:0];
+isa_state CX[15:0] of xregs[1][15:0];
+isa_state flag_DF[0:0];
+
+var physical_addr[31:0];
+var byte_value[7:0];
+var cx_is_zero[0:0];
+var cx_not_zero[0:0];
+var new_si_inc[15:0];
+var new_si_dec[15:0];
+var new_ip[31:0];
+
+// Fetch REP prefix
+prefix = imem[eip];
+assume prefix == 0xF3;
+
+// Fetch LODSB instruction (at IP+1)
+instr = imem[eip + 1];
+assume instr == 0xAC;
+
+// Check counter
+cx_is_zero = CX == 16'h0000;
+cx_not_zero = CX != 16'h0000;
+
+// Calculate physical address using DS segment
+physical_addr = (DS << 4) + SI;  // DS:SI
+
+// Load byte from DS:[SI]
+byte_value = dmem[physical_addr];
+
+// Calculate new SI (increment or decrement)
+new_si_inc = SI + 16'h0001;
+new_si_dec = SI - 16'h0001;
+
+// Calculate new IP (advance past instruction)
+new_ip = eip + 32'h0002;
+
+// When CX != 0: Execute one iteration
+AL when(cx_not_zero) = byte_value;
+SI when(cx_not_zero) = flag_DF == 1'b0 ? new_si_inc : new_si_dec;
+CX when(cx_not_zero) = CX - 16'h0001;
+eip when(cx_not_zero) = eip;  // Stay at same IP (loop continues)
+
+// When CX == 0: Advance IP and exit
+eip when(cx_is_zero) = new_ip;

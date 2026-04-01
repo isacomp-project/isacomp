@@ -1,0 +1,66 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// HPPA PA-RISC 2.0 BB,< (SAR) instruction (64-bit)
+// BB,< r,sar,target - Branch on Bit Set using SAR position
+// Opcode: 0x30 (bits 31:26)
+// r=instr[25:21], position comes from SAR (CR11), 12-bit displacement
+// Tests if bit at SAR position (from MSB) is set
+
+isa_state pc[63:0];
+isa_state psw[63:0];
+isa_state rf[63:0][4:0];
+isa_state cr11[63:0];
+mem umem[25:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[63:0];
+
+// === Aspects (order matters: nullify -> interruption -> delay_slot) ===
+aspect mmu/nullify.isa gates pc:4, psw:4;
+aspect mmu/interruption.isa gates pc:2, psw:2, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level, shadow_r1, shadow_r8, shadow_r9, shadow_r16, shadow_r17, shadow_r24, shadow_r25, code_iasq:2;
+aspect mmu/delay_slot.isa gates pc:3, delay_slot:2, code_iasq:3, branch_target_space;
+
+
+var instr[31:0];
+var r[4:0];
+var src[63:0];
+var sar[5:0];
+var shifted[63:0];
+var w[11:0];
+var target_offset[63:0];
+var target[63:0];
+var taken[0:0];
+
+instr = umem[pc_pa];
+
+// BB (SAR),< encoding: opcode=0x30, c=instr[15:13]=111 (SAR set)
+assume instr[31:26] == 0b110000;
+assume instr[15] == 1'b0;
+
+r = instr[20:16];
+
+src = (r == 0) ? 64'h0 : rf[r];
+
+// Get bit position from SAR (6-bit for wide, 5-bit for narrow)
+var psw_W[0:0];
+psw_W = psw[27];
+sar = psw_W ? cr11[5:0] : {1'b0, cr11[4:0]};
+shifted = src << sar;
+
+w = {instr[0], instr[2], instr[12:4], instr[3]};
+target_offset = {{50{w[11]}}, w, 2'b00};
+target = pc + 8 + target_offset;
+
+// Condition: bit at SAR position is set
+var test_bit[0:0];
+test_bit = psw_W ? shifted[63] : shifted[31];
+taken = test_bit;
+
+delay_slot when (taken & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = 1;
+branch_target when (taken & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = target;
+
+var n_nullify[0:0];
+n_nullify = instr[1] & (taken ^ w[11]);
+psw when (n_nullify & ~in_delay_slot & ~instr_trap_taken & ~in_nullified) = psw | 64'h0000000000200000;
+
+pc = pc + 4;

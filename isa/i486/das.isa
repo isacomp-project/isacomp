@@ -1,0 +1,58 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 DAS (0x2F)
+// Decimal Adjust AL After Subtraction
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+isa_state AX[15:0] of xregs[0][15:0];
+isa_state AL[7:0] of xregs[0][7:0];
+isa_state AH[7:0] of xregs[0][15:8];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+isa_state flag_CF[0:0];
+isa_state flag_AF[0:0];
+
+var old_al[7:0];
+var old_cf[0:0];
+var old_af[0:0];
+var adj_low[0:0];
+var adj_high[0:0];
+var al_after_low[7:0];
+var al_final[7:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0x2F;
+eip = eip + 1;
+
+// Save old values
+old_al = AL;
+old_cf = flag_CF;
+old_af = flag_AF;
+
+// Determine if low nibble adjustment is needed
+adj_low = ((old_al[3:0] > 4'h9) || (old_af == 1'b1)) ? 1'b1 : 1'b0;
+
+// Calculate AL after low nibble adjustment (subtract 6)
+al_after_low = (adj_low == 1'b1) ? (old_al - 8'h06) : old_al;
+
+// Determine if high nibble adjustment is needed
+adj_high = ((old_al > 8'h99) || (old_cf == 1'b1)) ? 1'b1 : 1'b0;
+
+// Calculate final AL value (subtract 0x60)
+al_final = (adj_high == 1'b1) ? (al_after_low - 8'h60) : al_after_low;
+
+// Write final result
+AL = al_final;
+
+// Set flags
+flag_AF = adj_low;
+flag_CF = adj_high;

@@ -1,0 +1,48 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];  // Banked R0-R7 for RB=1
+isa_state sr[31:0];
+mem umem[23:0];
+isa_state macl[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var muluw_rn_lo[2:0];
+var muluw_rm_lo[2:0];
+var Rn[31:0];
+var Rm[31:0];
+
+// Register banking flags (unique to muluw instruction)
+var muluw_rb[0:0];
+var muluw_rn_bk[0:0];
+var muluw_rm_bk[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+instr = umem[pc];
+assume instr[15:12] == 0x2;
+assume instr[3:0] == 0xE;
+rn = instr[11:8];
+rm = instr[7:4];
+muluw_rn_lo = rn[2:0];
+muluw_rm_lo = rm[2:0];
+
+// Banking: R0-R7 use rf_bank when SR.RB=1
+muluw_rb = sr[29];  // RB bit (bit 29 in SR)
+muluw_rn_bk = (rn[3] == 1'b0) & muluw_rb;
+muluw_rm_bk = (rm[3] == 1'b0) & muluw_rb;
+
+Rn = muluw_rn_bk ? rf_bank[muluw_rn_lo] : rf[rn];
+Rm = muluw_rm_bk ? rf_bank[muluw_rm_lo] : rf[rm];
+
+// MULU.W stores 32-bit unsigned result in MACL
+// Zero-extend 16-bit operands to 32-bit before multiply
+macl = {16'b0, Rn[15:0]} * {16'b0, Rm[15:0]};
+pc = pc + 2;

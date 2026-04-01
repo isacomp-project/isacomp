@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var c_instr[15:0];
+isa_state rf[31:0][4:0];
+mem umem[12:0];
+
+var rd_prime[2:0];
+var rd[4:0];  // Full 5-bit register address
+var r1[31:0];
+var shamt[4:0];
+var res[31:0];
+
+// Read compressed instruction (16-bit)
+c_instr = umem[pc];
+
+// C.SRLI format: CB-type
+// Encoding: 100 shamt[5] 00 rs1'/rd' shamt[4:0] 01
+assume c_instr[1:0] == 0b01;
+assume c_instr[15:13] == 0b100;
+assume c_instr[11:10] == 0b00;
+
+pc = pc + 2;
+
+// Compressed register encoding: x8-x15
+rd_prime = c_instr[9:7];
+rd = {2'b01, rd_prime};  // Expand to full 5-bit register address
+
+// Shift amount: shamt[5:0] = {c_instr[12], c_instr[6:2]}
+// For RV32C, shamt[5] must be 0
+shamt = c_instr[6:2];
+
+r1 = rf[rd];
+
+res = r1 >> shamt;
+
+// No guard needed - rd is always 8-15, never 0
+rf[rd] = res;

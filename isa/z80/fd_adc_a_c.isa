@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 FD 89 - FD prefix passthrough
+// FD prefix consumed, base opcode 89 executes unchanged
+
+
+isa_state pc[15:0];
+var fd_instr[15:0];
+var pc_plus_1[15:0];
+isa_state A[7:0];
+isa_state C[7:0];
+isa_state flag_S;
+isa_state flag_Z;
+isa_state flag_H;
+isa_state flag_PV;
+isa_state flag_N;
+isa_state flag_C;
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+fd_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume fd_instr == 16'h89FD;
+pc = pc + 2;
+
+var carry_in[7:0];
+carry_in = {7'b0, flag_C};
+var result[8:0];
+result = {1'b0, A} + {1'b0, C} + {1'b0, carry_in};
+var half[4:0];
+half = {1'b0, A[3:0]} + {1'b0, C[3:0]} + {1'b0, carry_in[0]};
+
+A = result[7:0];
+flag_S = result[7];
+flag_Z = (result[7:0] == 8'b0);
+flag_H = half[4];
+flag_PV = (A[7] ^ C[7] ^ result[7] ^ result[8]);
+flag_N = 0;
+flag_C = result[8];

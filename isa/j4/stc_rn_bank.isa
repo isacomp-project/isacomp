@@ -1,0 +1,54 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// STC Rm_BANK,Rn - Store banked register to general register (privileged)
+// Encoding: 0000nnnn1mmm0010 (0x0n82..0x0nF2 for mmm=0..7)
+// Reads from the banked version of Rm (R0_BANK..R7_BANK) and stores to Rn
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+isa_state sr[31:0];
+mem umem[23:0];
+
+var rn[3:0];
+var rm_bank[2:0];
+var stc_bank_rn_lo[2:0];
+var Rm_bank[31:0];
+
+var stc_bank_rb[0:0];
+var stc_bank_rn_bk[0:0];
+
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+aspect delay_slot.isa gates pc, delay_slot;
+
+// MMU translation aspect for instruction fetch (PC -> pc_pa)
+#ifdef MMU
+aspect mmu_translate_instr_cam.isa gates pc, tea, spc, delay_slot;
+#endif
+
+#ifdef MMU
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+assume instr[15:12] == 0x0;
+assume instr[7] == 1'b1;
+assume instr[3:0] == 0x2;
+rn = instr[11:8];
+rm_bank = instr[6:4];
+stc_bank_rn_lo = rn[2:0];
+
+// SR[29] is RB (register bank), SR[28] is BL (block exceptions)
+stc_bank_rb = sr[29];  // RB bit (bit 29 in SR)
+stc_bank_rn_bk = (rn[3] == 1'b0) & stc_bank_rb;
+
+// Read from the specified banked register (R0_BANK..R7_BANK)
+// CRITICAL: Rm_BANK refers to the OPPOSITE bank from current SR.RB
+// When RB=0: Rm_BANK reads from bank1 (rf_bank[])
+// When RB=1: Rm_BANK reads from bank0 (rf[])
+Rm_bank = stc_bank_rb ? rf[{1'b0, rm_bank}] : rf_bank[rm_bank];
+
+// Store to destination register (with banking consideration for Rn)
+rf[rn] when (stc_bank_rn_bk == 0) = Rm_bank;
+rf_bank[stc_bank_rn_lo] when (stc_bank_rn_bk) = Rm_bank;
+pc = pc + 2;

@@ -1,0 +1,74 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenRISC lf.rem.s - FP Single-Precision Remainder
+// Format: lf.rem.s rD, rA, rB
+// Action: rD = rA - trunc(rA / rB) * rB (IEEE 754 single-precision remainder)
+// Opcode: 0x32, Function: 0x06
+//
+// Implemented compositionally:
+//   1. quotient  = fp_div(rA, rB, RTZ)    - divide with round-to-zero
+//   2. trunc_q   = fp_cvt_w_s(quotient, RTZ) - convert to integer (truncate)
+//   3. back      = fp_cvt_s_w(trunc_q, RNE)  - convert back to float
+//   4. product   = fp_mul(back, rB, RNE)     - multiply truncated quotient by divisor
+//   5. result    = fp_sub(rA, product, RNE)   - subtract to get remainder
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state fpcsr[31:0];
+
+var rD[4:0];
+var rA[4:0];
+var rB[4:0];
+var r1[31:0];
+var r2[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x32;
+assume instr[7:0] == 0x06;
+rD = instr[25:21];
+rA = instr[20:16];
+rB = instr[15:11];
+
+r1 = rf[rA];
+r2 = rf[rB];
+
+// Step 1: Compute quotient with round-to-zero (RTZ = 3'b001)
+var quotient[36:0];
+quotient = fp_div(r1, r2, 3'b001);
+
+// Step 2: Truncate quotient to integer (float->int with RTZ)
+var trunc_q[36:0];
+trunc_q = fp_cvt_w_s(quotient[31:0], 3'b001);
+
+// Step 3: Convert truncated integer back to float (int->float with RNE = 3'b000)
+var back[36:0];
+back = fp_cvt_s_w(trunc_q[31:0], 3'b000);
+
+// Step 4: Multiply truncated quotient by divisor (RNE)
+var product[36:0];
+product = fp_mul(back[31:0], r2, 3'b000);
+
+// Step 5: Subtract to get remainder: rA - trunc(rA/rB)*rB
+var fp_result[36:0];
+fp_result = fp_sub(r1, product[31:0], 3'b000);
+
+var res[31:0];
+var flags[4:0];
+res = fp_result[31:0];
+flags = fp_result[36:32];
+
+rf[rD] = res;
+
+// Update FPCSR exception flags (accumulate, don't clear)
+var new_fpcsr[31:0];
+new_fpcsr = fpcsr;
+new_fpcsr[8] = fpcsr[8] | flags[0];    // IXF |= NX
+new_fpcsr[4] = fpcsr[4] | flags[1];    // UNF |= UF
+new_fpcsr[3] = fpcsr[3] | flags[2];    // OVF |= OF
+new_fpcsr[11] = fpcsr[11] | flags[3];  // DZF |= DZ
+new_fpcsr[9] = fpcsr[9] | flags[4];    // IVF |= NV
+fpcsr = new_fpcsr;
+
+pc = pc + 4;

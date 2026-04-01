@@ -1,0 +1,53 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// OpenPOWER isel - Integer Select (A-Form)
+// isel RT,RA,RB,BC
+// Primary opcode 31, XO=15 (bits 5:1)
+// If CR[BC] = 1 then RT <- (RA); else RT <- (RB)
+// If RA=0, use 0 instead of (RA)
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[14:0];
+isa_state cr[31:0];
+
+var rt[4:0];
+var ra[4:0];
+var rb[4:0];
+var bc[4:0];
+var cr_bit[0:0];
+var ra_or_zero[63:0];
+var result[63:0];
+
+#ifdef VM
+aspect mmu.isa gates pc, msr, srr0, srr1;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+// Primary opcode 31
+assume instr[31:26] == 31;
+// XO field = 15 (bits 5:1)
+assume instr[5:1] == 15;
+
+// Extract register fields
+rt = instr[25:21];
+ra = instr[20:16];
+rb = instr[15:11];
+bc = instr[10:6];
+
+// Get CR bit (CR bit numbering is MSB 0)
+cr_bit = cr[31 - bc];
+
+// If RA=0, use 0; otherwise use (RA)
+ra_or_zero = (ra == 0) ? 64'h0 : rf[ra];
+
+// Select based on CR bit
+result = cr_bit ? ra_or_zero : rf[rb];
+
+#ifdef VM
+rf[rt] when (~instr_trap_taken) = result;
+#else
+rf[rt] = result;
+#endif
+pc = pc + 4;

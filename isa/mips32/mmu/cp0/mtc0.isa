@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MIPS32 MTC0 - Move To Coprocessor 0
+// Writes a general purpose register value to a CP0 register
+// Encoding: 010000 00100 rt rd 00000000 sel
+//           COP0   MT    rt rd          sel
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+mem umem[17:0];
+
+var rt[4:0];
+var rd[4:0];
+var sel[2:0];
+var gpr_val[31:0];
+
+#ifdef DELAY_SLOT
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect ../delay_slot.isa gates pc, delay_slot;
+#endif
+
+// Include TLB aspect for PC translation and CP0 state
+#ifdef MMU
+aspect ../tlb.isa gates pc, cp0_status, cp0_cause, cp0_epc, cp0_badvaddr, cp0_entryhi, cp0_context;
+instr = umem[pc_pa];
+#else
+instr = umem[pc];
+#endif
+
+// MTC0 encoding: opcode=010000, rs=00100 (MT), rt, rd, 00000000, sel
+assume instr[31:26] == 6'b010000;  // COP0 opcode
+assume instr[25:21] == 5'b00100;   // MT function
+// rt = instr[20:16] - source GPR
+// rd = instr[15:11] - CP0 register number
+// sel = instr[2:0]  - register select
+
+rt = instr[20:16];
+rd = instr[15:11];
+sel = instr[2:0];
+
+// Read source register
+gpr_val = rf[rt];
+
+// CP0 register selection based on rd
+var is_cp0_0[0:0];   // Index
+var is_cp0_2[0:0];   // EntryLo0
+var is_cp0_3[0:0];   // EntryLo1
+var is_cp0_4[0:0];   // Context
+var is_cp0_6[0:0];   // Wired
+var is_cp0_9[0:0];   // Count
+var is_cp0_10[0:0];  // EntryHi
+var is_cp0_11[0:0];  // Compare
+var is_cp0_12[0:0];  // Status
+var is_cp0_13[0:0];  // Cause
+var is_cp0_14[0:0];  // EPC
+var is_cp0_16[0:0];  // Config
+var is_cp0_30[0:0];  // ErrorEPC
+
+is_cp0_0 = (rd == 0);
+is_cp0_2 = (rd == 2);
+is_cp0_3 = (rd == 3);
+is_cp0_4 = (rd == 4);
+is_cp0_6 = (rd == 6);
+is_cp0_9 = (rd == 9);
+is_cp0_10 = (rd == 10);
+is_cp0_11 = (rd == 11);
+is_cp0_12 = (rd == 12);
+is_cp0_13 = (rd == 13);
+is_cp0_14 = (rd == 14);
+is_cp0_16 = (rd == 16);
+is_cp0_30 = (rd == 30);
+
+// Note: Some registers are read-only:
+// - Random ($1): Read-only, decrements each cycle
+// - BadVAddr ($8): Read-only, set by hardware on exceptions
+// - PRId ($15): Read-only processor ID
+
+// Write to appropriate CP0 register
+// Index: bits [4:0] are the TLB index, bit [31] is probe failure
+cp0_index when (is_cp0_0) = {gpr_val[31], 26'b0, gpr_val[4:0]};
+
+// EntryLo0: PFN[25:6], C[5:3], D[2], V[1], G[0]
+cp0_entrylo0 when (is_cp0_2) = gpr_val;
+
+// EntryLo1: PFN[25:6], C[5:3], D[2], V[1], G[0]
+cp0_entrylo1 when (is_cp0_3) = gpr_val;
+
+// Context: PTEBase[31:23], BadVPN2[22:4], 0[3:0]
+// Only PTEBase is writable
+cp0_context when (is_cp0_4) = {gpr_val[31:23], cp0_context[22:0]};
+
+// Wired: bits [4:0] are the number of wired TLB entries
+cp0_wired when (is_cp0_6) = {27'b0, gpr_val[4:0]};
+
+// Count: 32-bit timer counter
+cp0_count when (is_cp0_9) = gpr_val;
+
+// EntryHi: VPN2[31:13], 0[12:8], ASID[7:0]
+cp0_entryhi when (is_cp0_10) = {gpr_val[31:13], 5'b0, gpr_val[7:0]};
+
+// Compare: Timer compare value, writing clears timer interrupt
+cp0_compare when (is_cp0_11) = gpr_val;
+
+// Status: Complex register with many fields
+// Key fields: CU[31:28], BEV[22], IM[15:8], KSU[4:3], ERL[2], EXL[1], IE[0]
+cp0_status when (is_cp0_12) = gpr_val;
+
+// Cause: Only IP[1:0] (software interrupts) and DC/IV/WP are writable
+// Preserve hardware-set fields
+var cause_writable[31:0];
+cause_writable = {cp0_cause[31], gpr_val[30], cp0_cause[29:28],
+                  gpr_val[27], gpr_val[26], gpr_val[25:24], gpr_val[23],
+                  cp0_cause[22:10], gpr_val[9:8], cp0_cause[7:0]};
+cp0_cause when (is_cp0_13) = cause_writable;
+
+// EPC: Exception Program Counter
+cp0_epc when (is_cp0_14) = gpr_val;
+
+// Config: Limited writeability depending on implementation
+cp0_config when (is_cp0_16) = gpr_val;
+
+// ErrorEPC: Error Exception Program Counter
+cp0_errorepc when (is_cp0_30) = gpr_val;
+
+// When writing to Wired, also reset Random to max value
+// Random cycles between Wired and 31
+var new_random[31:0];
+new_random = 31;
+cp0_random when (is_cp0_6) = new_random;
+
+// Update PC
+pc = pc + 4;

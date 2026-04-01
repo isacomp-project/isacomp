@@ -1,0 +1,72 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vsetvli - Set Vector Length Immediate
+// Encoding: vsetvli rd, rs1, vtypei
+// Sets vl based on AVL in rs1 and vtype immediate
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state vl[31:0];          // Vector length
+isa_state vtype[31:0];       // Vector type register
+isa_state vlmax[31:0];       // Maximum vector length
+mem umem[12:0];
+
+var instr[31:0];
+var rs1[4:0];
+var rd[4:0];
+var avl[31:0];
+var vtypei[10:0];
+var vsew[2:0];
+var vlmul[2:0];
+var vta[0:0];
+var vma[0:0];
+var new_vl[31:0];
+var new_vtype[31:0];
+var sew_bytes[31:0];
+
+instr = umem[pc];
+// Opcode for vector config: 1010111 (OP-V)
+assume instr[6:0] == 0b1010111;
+// funct3 = 111 for vsetvli
+assume instr[14:12] == 0b111;
+// Bit 31 = 0 for vsetvli (vs vsetivli which has bit 31 = 1)
+assume instr[31] == 0b0;
+
+pc = pc + 4;
+
+rs1 = instr[19:15];
+rd = instr[11:7];
+
+// vtypei is in bits [30:20]
+vtypei = instr[30:20];
+
+// Extract vtype fields
+vsew = vtypei[5:3];      // Selected Element Width
+vlmul = vtypei[2:0];     // Vector Length Multiplier
+vta = vtypei[6:6];       // Vector Tail Agnostic
+vma = vtypei[7:7];       // Vector Mask Agnostic
+
+// Read AVL (Application Vector Length) from rs1
+// If rs1 = 0 and rd != 0, use ~0 (max)
+// If rs1 = 0 and rd = 0, keep current vl
+avl = rf[rs1];
+
+// Calculate SEW in bytes: 1 << (vsew + 3) / 8 = 1 << vsew
+sew_bytes = 1 << vsew;
+
+// Build new vtype register value
+new_vtype = vtypei;
+
+// Set vl based on AVL and VLMAX
+// Simplified: vl = min(avl, vlmax)
+// For this implementation, assume VLEN=128 bits
+// vlmax = VLEN / SEW * LMUL
+new_vl = avl;
+
+// Update vtype
+vtype = new_vtype;
+
+// Update vl
+vl = new_vl;
+
+// Write new vl to rd if rd != 0
+rf[rd] when (rd != 0) = new_vl;

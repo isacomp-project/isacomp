@@ -1,0 +1,47 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 BSWAP r32 (0x0F C8+r) - Parameterized
+// Opcodes: 0x0F C8 (EAX), 0x0F C9 (ECX), 0x0F CA (EDX), 0x0F CB (EBX),
+//          0x0F CC (ESP), 0x0F CD (EBP), 0x0F CE (ESI), 0x0F CF (EDI)
+// Byte swap: reverse byte order in 32-bit register
+// No flags affected
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+
+// 32-bit register file: EAX(0), ECX(1), EDX(2), EBX(3), ESP(4), EBP(5), ESI(6), EDI(7)
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var reg_idx[2:0];
+var old_val[31:0];
+var new_val[31:0];
+
+// Fetch first byte of instruction
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+// Fetch second byte
+instr2 = imem[eip];
+
+// Check this is a BSWAP r32 instruction (0xC8-0xCF)
+assume instr2[7:3] == 0b11001;  // Upper 5 bits must be 11001
+
+eip = eip + 1;
+
+// Extract register index from lower 3 bits of second opcode byte
+reg_idx = instr2[2:0];
+
+// Read old value
+old_val = xregs[reg_idx];
+
+// Reverse byte order: byte0 <-> byte3, byte1 <-> byte2
+new_val = {old_val[7:0], old_val[15:8], old_val[23:16], old_val[31:24]};
+
+// Write back swapped value
+xregs[reg_idx] = new_val;
+
+// BSWAP does not affect any flags

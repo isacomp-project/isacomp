@@ -1,0 +1,263 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 SRMMU Data Store Translation Aspect
+// Translates addr (virtual address) to addr_pa (physical address) for stores
+// Uses CAM-based TLB lookup with context matching
+//
+// This aspect should be included in all data store .isa files when MMU is enabled.
+// Requires: addr variable must be defined before including this aspect
+// Outputs: addr_pa (physical address), data_access_exception flag
+// Special: Updates M (modified/dirty) bit on successful write
+
+// Include MMU registers and TLB arrays
+
+// Physical address output (36-bit for SRMMU)
+var addr_pa[35:0];
+
+// Exception signaling
+var data_access_exception[0:0];
+
+// ============================================================================
+// Extract processor state for permission checking
+// ============================================================================
+var store_is_supervisor[0:0];
+store_is_supervisor = psr[7];  // PSR.S (supervisor mode)
+
+var store_mmu_enabled[0:0];
+store_mmu_enabled = mmu_ctrl[0];  // MMU Control.E
+
+var store_current_ctx[7:0];
+store_current_ctx = mmu_ctx[7:0];
+
+// ============================================================================
+// Address decomposition (store-specific names to avoid conflict with load)
+// ============================================================================
+var store_addr_vpn[19:0];         // Virtual Page Number for 4KB pages
+var store_addr_offset[11:0];      // Page offset (preserved through translation)
+
+store_addr_vpn = store_va[31:12];
+store_addr_offset = store_va[11:0];
+
+// ============================================================================
+// CAM Lookup - find VPN matches in TLB (using store-specific VPN)
+// ============================================================================
+var store_vpn_matches[63:0];
+store_vpn_matches = tlb_vpn@[store_addr_vpn];
+
+// ============================================================================
+// Context and Valid filtering
+// ============================================================================
+var st_cv_0[0:0]; var st_cv_1[0:0]; var st_cv_2[0:0]; var st_cv_3[0:0];
+var st_cv_4[0:0]; var st_cv_5[0:0]; var st_cv_6[0:0]; var st_cv_7[0:0];
+var st_cv_8[0:0]; var st_cv_9[0:0]; var st_cv_10[0:0]; var st_cv_11[0:0];
+var st_cv_12[0:0]; var st_cv_13[0:0]; var st_cv_14[0:0]; var st_cv_15[0:0];
+var st_cv_16[0:0]; var st_cv_17[0:0]; var st_cv_18[0:0]; var st_cv_19[0:0];
+var st_cv_20[0:0]; var st_cv_21[0:0]; var st_cv_22[0:0]; var st_cv_23[0:0];
+var st_cv_24[0:0]; var st_cv_25[0:0]; var st_cv_26[0:0]; var st_cv_27[0:0];
+var st_cv_28[0:0]; var st_cv_29[0:0]; var st_cv_30[0:0]; var st_cv_31[0:0];
+var st_cv_32[0:0]; var st_cv_33[0:0]; var st_cv_34[0:0]; var st_cv_35[0:0];
+var st_cv_36[0:0]; var st_cv_37[0:0]; var st_cv_38[0:0]; var st_cv_39[0:0];
+var st_cv_40[0:0]; var st_cv_41[0:0]; var st_cv_42[0:0]; var st_cv_43[0:0];
+var st_cv_44[0:0]; var st_cv_45[0:0]; var st_cv_46[0:0]; var st_cv_47[0:0];
+var st_cv_48[0:0]; var st_cv_49[0:0]; var st_cv_50[0:0]; var st_cv_51[0:0];
+var st_cv_52[0:0]; var st_cv_53[0:0]; var st_cv_54[0:0]; var st_cv_55[0:0];
+var st_cv_56[0:0]; var st_cv_57[0:0]; var st_cv_58[0:0]; var st_cv_59[0:0];
+var st_cv_60[0:0]; var st_cv_61[0:0]; var st_cv_62[0:0]; var st_cv_63[0:0];
+
+// Valid AND context match for each entry
+st_cv_0 = tlb_v[0] & (tlb_ctx[0] == store_current_ctx);
+st_cv_1 = tlb_v[1] & (tlb_ctx[1] == store_current_ctx);
+st_cv_2 = tlb_v[2] & (tlb_ctx[2] == store_current_ctx);
+st_cv_3 = tlb_v[3] & (tlb_ctx[3] == store_current_ctx);
+st_cv_4 = tlb_v[4] & (tlb_ctx[4] == store_current_ctx);
+st_cv_5 = tlb_v[5] & (tlb_ctx[5] == store_current_ctx);
+st_cv_6 = tlb_v[6] & (tlb_ctx[6] == store_current_ctx);
+st_cv_7 = tlb_v[7] & (tlb_ctx[7] == store_current_ctx);
+st_cv_8 = tlb_v[8] & (tlb_ctx[8] == store_current_ctx);
+st_cv_9 = tlb_v[9] & (tlb_ctx[9] == store_current_ctx);
+st_cv_10 = tlb_v[10] & (tlb_ctx[10] == store_current_ctx);
+st_cv_11 = tlb_v[11] & (tlb_ctx[11] == store_current_ctx);
+st_cv_12 = tlb_v[12] & (tlb_ctx[12] == store_current_ctx);
+st_cv_13 = tlb_v[13] & (tlb_ctx[13] == store_current_ctx);
+st_cv_14 = tlb_v[14] & (tlb_ctx[14] == store_current_ctx);
+st_cv_15 = tlb_v[15] & (tlb_ctx[15] == store_current_ctx);
+st_cv_16 = tlb_v[16] & (tlb_ctx[16] == store_current_ctx);
+st_cv_17 = tlb_v[17] & (tlb_ctx[17] == store_current_ctx);
+st_cv_18 = tlb_v[18] & (tlb_ctx[18] == store_current_ctx);
+st_cv_19 = tlb_v[19] & (tlb_ctx[19] == store_current_ctx);
+st_cv_20 = tlb_v[20] & (tlb_ctx[20] == store_current_ctx);
+st_cv_21 = tlb_v[21] & (tlb_ctx[21] == store_current_ctx);
+st_cv_22 = tlb_v[22] & (tlb_ctx[22] == store_current_ctx);
+st_cv_23 = tlb_v[23] & (tlb_ctx[23] == store_current_ctx);
+st_cv_24 = tlb_v[24] & (tlb_ctx[24] == store_current_ctx);
+st_cv_25 = tlb_v[25] & (tlb_ctx[25] == store_current_ctx);
+st_cv_26 = tlb_v[26] & (tlb_ctx[26] == store_current_ctx);
+st_cv_27 = tlb_v[27] & (tlb_ctx[27] == store_current_ctx);
+st_cv_28 = tlb_v[28] & (tlb_ctx[28] == store_current_ctx);
+st_cv_29 = tlb_v[29] & (tlb_ctx[29] == store_current_ctx);
+st_cv_30 = tlb_v[30] & (tlb_ctx[30] == store_current_ctx);
+st_cv_31 = tlb_v[31] & (tlb_ctx[31] == store_current_ctx);
+st_cv_32 = tlb_v[32] & (tlb_ctx[32] == store_current_ctx);
+st_cv_33 = tlb_v[33] & (tlb_ctx[33] == store_current_ctx);
+st_cv_34 = tlb_v[34] & (tlb_ctx[34] == store_current_ctx);
+st_cv_35 = tlb_v[35] & (tlb_ctx[35] == store_current_ctx);
+st_cv_36 = tlb_v[36] & (tlb_ctx[36] == store_current_ctx);
+st_cv_37 = tlb_v[37] & (tlb_ctx[37] == store_current_ctx);
+st_cv_38 = tlb_v[38] & (tlb_ctx[38] == store_current_ctx);
+st_cv_39 = tlb_v[39] & (tlb_ctx[39] == store_current_ctx);
+st_cv_40 = tlb_v[40] & (tlb_ctx[40] == store_current_ctx);
+st_cv_41 = tlb_v[41] & (tlb_ctx[41] == store_current_ctx);
+st_cv_42 = tlb_v[42] & (tlb_ctx[42] == store_current_ctx);
+st_cv_43 = tlb_v[43] & (tlb_ctx[43] == store_current_ctx);
+st_cv_44 = tlb_v[44] & (tlb_ctx[44] == store_current_ctx);
+st_cv_45 = tlb_v[45] & (tlb_ctx[45] == store_current_ctx);
+st_cv_46 = tlb_v[46] & (tlb_ctx[46] == store_current_ctx);
+st_cv_47 = tlb_v[47] & (tlb_ctx[47] == store_current_ctx);
+st_cv_48 = tlb_v[48] & (tlb_ctx[48] == store_current_ctx);
+st_cv_49 = tlb_v[49] & (tlb_ctx[49] == store_current_ctx);
+st_cv_50 = tlb_v[50] & (tlb_ctx[50] == store_current_ctx);
+st_cv_51 = tlb_v[51] & (tlb_ctx[51] == store_current_ctx);
+st_cv_52 = tlb_v[52] & (tlb_ctx[52] == store_current_ctx);
+st_cv_53 = tlb_v[53] & (tlb_ctx[53] == store_current_ctx);
+st_cv_54 = tlb_v[54] & (tlb_ctx[54] == store_current_ctx);
+st_cv_55 = tlb_v[55] & (tlb_ctx[55] == store_current_ctx);
+st_cv_56 = tlb_v[56] & (tlb_ctx[56] == store_current_ctx);
+st_cv_57 = tlb_v[57] & (tlb_ctx[57] == store_current_ctx);
+st_cv_58 = tlb_v[58] & (tlb_ctx[58] == store_current_ctx);
+st_cv_59 = tlb_v[59] & (tlb_ctx[59] == store_current_ctx);
+st_cv_60 = tlb_v[60] & (tlb_ctx[60] == store_current_ctx);
+st_cv_61 = tlb_v[61] & (tlb_ctx[61] == store_current_ctx);
+st_cv_62 = tlb_v[62] & (tlb_ctx[62] == store_current_ctx);
+st_cv_63 = tlb_v[63] & (tlb_ctx[63] == store_current_ctx);
+
+// Combine into context-valid mask
+var store_ctx_valid_mask[63:0];
+store_ctx_valid_mask = {st_cv_63, st_cv_62, st_cv_61, st_cv_60, st_cv_59, st_cv_58, st_cv_57, st_cv_56,
+                        st_cv_55, st_cv_54, st_cv_53, st_cv_52, st_cv_51, st_cv_50, st_cv_49, st_cv_48,
+                        st_cv_47, st_cv_46, st_cv_45, st_cv_44, st_cv_43, st_cv_42, st_cv_41, st_cv_40,
+                        st_cv_39, st_cv_38, st_cv_37, st_cv_36, st_cv_35, st_cv_34, st_cv_33, st_cv_32,
+                        st_cv_31, st_cv_30, st_cv_29, st_cv_28, st_cv_27, st_cv_26, st_cv_25, st_cv_24,
+                        st_cv_23, st_cv_22, st_cv_21, st_cv_20, st_cv_19, st_cv_18, st_cv_17, st_cv_16,
+                        st_cv_15, st_cv_14, st_cv_13, st_cv_12, st_cv_11, st_cv_10, st_cv_9, st_cv_8,
+                        st_cv_7, st_cv_6, st_cv_5, st_cv_4, st_cv_3, st_cv_2, st_cv_1, st_cv_0};
+
+// Final match
+var store_tlb_match[63:0];
+store_tlb_match = store_vpn_matches & store_ctx_valid_mask;
+
+// ============================================================================
+// Find first matching entry
+// ============================================================================
+var store_tlb_hit[0:0];
+var store_tlb_hit_idx[6:0];
+store_tlb_hit = |store_tlb_match;
+store_tlb_hit_idx = ctz(store_tlb_match);
+
+var store_hit_idx[5:0];
+store_hit_idx = store_tlb_hit_idx[5:0];
+
+// ============================================================================
+// Read matched TLB entry data
+// ============================================================================
+var store_matched_ppn[23:0];
+var store_matched_acc[2:0];
+var store_matched_c[0:0];
+var store_matched_m[0:0];
+
+store_matched_ppn = tlb_ppn[store_hit_idx];
+store_matched_acc = tlb_acc[store_hit_idx];
+store_matched_c = tlb_c[store_hit_idx];
+store_matched_m = tlb_m[store_hit_idx];
+
+// ============================================================================
+// Permission checking for data write
+// ACC encoding for write permission:
+// 000 = super read only - NO write
+// 001 = super read/write - YES for super
+// 010 = super read/execute - NO write
+// 011 = super read/write/execute - YES for super
+// 100 = super execute only - NO write
+// 101 = user read only, super read only - NO write
+// 110 = user read/execute, super all - YES for super only
+// 111 = user all, super all - YES for both
+// ============================================================================
+var write_allowed[0:0];
+var super_write[0:0];
+var user_write[0:0];
+
+// Supervisor can write for ACC in {001, 011, 110, 111}
+super_write = (store_matched_acc == 3'b001) | (store_matched_acc == 3'b011) |
+              (store_matched_acc == 3'b110) | (store_matched_acc == 3'b111);
+
+// User can write only for ACC = 111
+user_write = (store_matched_acc == 3'b111);
+
+write_allowed = store_is_supervisor ? super_write : user_write;
+
+// ============================================================================
+// Exception detection
+// ============================================================================
+var store_tlb_miss[0:0];
+var store_prot_error[0:0];
+
+// TLB miss: MMU enabled, no TLB hit
+store_tlb_miss = store_mmu_enabled & (~store_tlb_hit);
+
+// Protection error: TLB hit but no write permission
+store_prot_error = store_mmu_enabled & store_tlb_hit & (~write_allowed);
+
+// Any data access exception
+data_access_exception = store_tlb_miss | store_prot_error;
+
+// ============================================================================
+// Fault Status Register update
+// AT = 101 (supervisor data store) or 100 (user data store)
+// FT = 100 (translation error) for miss, 010 (protection error) for prot
+// ============================================================================
+var store_fault_at[2:0];
+var store_fault_ft[2:0];
+var store_new_fsr[31:0];
+
+store_fault_at = store_is_supervisor ? 3'b101 : 3'b100;
+store_fault_ft = store_tlb_miss ? 3'b100 : 3'b010;
+
+store_new_fsr = {14'b0, 8'b0, 2'b00, store_fault_at, store_fault_ft, 1'b1, mmu_fsr[0:0]};
+
+// Update FSR and FAR on exception
+mmu_fsr when (data_access_exception) = store_new_fsr;
+mmu_far when (data_access_exception) = store_va;
+
+// ============================================================================
+// Trap vector calculation
+// data_access_exception = trap type 0x09
+// ============================================================================
+var store_trap_vector[31:0];
+store_trap_vector = {tbr[31:12], 8'h09, 4'b0000};
+
+// Update PC: trap handler on exception, otherwise pc + 4
+pc = data_access_exception ? store_trap_vector : (pc + 4);
+
+// Update PSR: set S bit, clear ET bit
+var store_new_psr[31:0];
+store_new_psr = {psr[31:8], 1'b1, psr[6:5], 1'b0, psr[3:0]};
+psr when (data_access_exception) = store_new_psr;
+
+// ============================================================================
+// Compute physical address
+// ============================================================================
+var store_translated_pa[35:0];
+var store_passthrough_pa[35:0];
+
+store_translated_pa = {store_matched_ppn, store_addr_offset};
+store_passthrough_pa = {4'b0000, store_va};
+
+addr_pa = data_access_exception ? {4'b0, store_trap_vector} :
+          store_mmu_enabled ? store_translated_pa : store_passthrough_pa;
+
+// ============================================================================
+// Update Referenced and Modified bits on successful access
+// ============================================================================
+var store_success[0:0];
+store_success = store_mmu_enabled & store_tlb_hit & (~data_access_exception);
+
+tlb_r[store_hit_idx] when (store_success) = 1'b1;
+tlb_m[store_hit_idx] when (store_success) = 1'b1;

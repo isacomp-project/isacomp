@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SHRD r/m16, r16, imm8 (0x0F 0xAC) - Shift Right Double with immediate count
+// In real mode, 0FAC is 16-bit. Shift destination right, filling with bits from source.
+// Count is masked to 5 bits. Result is undefined for count > 16.
+
+isa_state eip[31:0];
+var instr[7:0];
+var instr2[7:0];
+isa_state modrm[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+isa_state flag_CF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_PF[0:0];
+
+var mod_bits[1:0];
+var reg_idx[2:0];
+var rm_bits[2:0];
+var dest_val[15:0];
+var src_val[15:0];
+var imm8[7:0];
+var count[4:0];
+var result[15:0];
+var cf_bit[0:0];
+
+// Fetch first opcode byte
+instr = imem[eip];
+assume instr == 0x0F;
+eip = eip + 1;
+
+// Fetch second opcode byte
+instr2 = imem[eip];
+assume instr2 == 0xAC;
+eip = eip + 1;
+
+// Fetch ModR/M byte
+modrm = imem[eip];
+eip = eip + 1;
+
+// Decode ModR/M
+mod_bits = modrm[7:6];
+reg_idx = modrm[5:3];
+rm_bits = modrm[2:0];
+
+// Register-direct mode only
+assume mod_bits == 0b11;
+
+// Read immediate count
+imm8 = imem[eip];
+eip = eip + 1;
+
+// Read values (16-bit)
+dest_val = xregs[rm_bits][15:0];
+src_val = xregs[reg_idx][15:0];
+
+// Mask count to 5 bits (Intel spec)
+count = imm8[4:0];
+
+// SHRD: shift {src, dest} right by count, result is lower 16 bits
+// For count=N: result = (dest >> N) | (src << (16-N))
+case (count) {
+  5'd0: result = dest_val;
+  5'd1: result = {src_val[0:0], dest_val[15:1]};
+  5'd2: result = {src_val[1:0], dest_val[15:2]};
+  5'd3: result = {src_val[2:0], dest_val[15:3]};
+  5'd4: result = {src_val[3:0], dest_val[15:4]};
+  5'd5: result = {src_val[4:0], dest_val[15:5]};
+  5'd6: result = {src_val[5:0], dest_val[15:6]};
+  5'd7: result = {src_val[6:0], dest_val[15:7]};
+  5'd8: result = {src_val[7:0], dest_val[15:8]};
+  5'd9: result = {src_val[8:0], dest_val[15:9]};
+  5'd10: result = {src_val[9:0], dest_val[15:10]};
+  5'd11: result = {src_val[10:0], dest_val[15:11]};
+  5'd12: result = {src_val[11:0], dest_val[15:12]};
+  5'd13: result = {src_val[12:0], dest_val[15:13]};
+  5'd14: result = {src_val[13:0], dest_val[15:14]};
+  5'd15: result = {src_val[14:0], dest_val[15:15]};
+  5'd16: result = src_val;
+}
+
+// CF = last bit shifted out = dest_val[count-1] for count > 0
+case (count) {
+  5'd0: cf_bit = 1'b0;
+  5'd1: cf_bit = dest_val[0];
+  5'd2: cf_bit = dest_val[1];
+  5'd3: cf_bit = dest_val[2];
+  5'd4: cf_bit = dest_val[3];
+  5'd5: cf_bit = dest_val[4];
+  5'd6: cf_bit = dest_val[5];
+  5'd7: cf_bit = dest_val[6];
+  5'd8: cf_bit = dest_val[7];
+  5'd9: cf_bit = dest_val[8];
+  5'd10: cf_bit = dest_val[9];
+  5'd11: cf_bit = dest_val[10];
+  5'd12: cf_bit = dest_val[11];
+  5'd13: cf_bit = dest_val[12];
+  5'd14: cf_bit = dest_val[13];
+  5'd15: cf_bit = dest_val[14];
+  5'd16: cf_bit = dest_val[15];
+}
+
+// Write result (preserve upper 16 bits of register)
+xregs[rm_bits] = {xregs[rm_bits][31:16], result};
+
+// Set flags
+flag_CF = cf_bit;
+flag_SF = result[15];
+flag_ZF = result == 16'h0000;
+flag_PF = ~(result[0] ^ result[1] ^ result[2] ^ result[3] ^ result[4] ^ result[5] ^ result[6] ^ result[7]);
+
+// OF and AF are undefined

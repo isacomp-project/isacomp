@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// Z80 CB CB - SET 1,E (Set bit 1)
+// Does not affect flags
+
+isa_state pc[15:0];
+var cb_instr[15:0];
+var pc_plus_1[15:0];
+isa_state E[7:0];
+mem mainmem[15:0];
+
+pc_plus_1 = pc + 1;
+cb_instr = {mainmem[pc_plus_1], mainmem[pc]};
+assume cb_instr == 0xCBCB;
+pc = pc_plus_1 + 1;
+
+// Set bit 1
+E = E | 8'h02;

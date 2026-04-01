@@ -1,0 +1,123 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// MC68020 MOVE.B (bd16,An,Xn),Dn - Move byte from full indexed word displacement to data register
+// Full ext: BS=0 (base used), IS=0 (index used), BD=word (16-bit), I/IS=0000
+// EA = An + sign_extend(bd16) + Xn * scale
+// Opcode: 0001 DDD 000 110 AAA + full ext + bd16
+
+isa_state pc[31:0];
+var instr[15:0];
+isa_state dregs[31:0][2:0];
+isa_state aregs[31:0][2:0];
+mem dmem[25:0];
+#ifdef MMU
+// MMU state (added by MMU preprocessor)
+isa_state tc[31:0];
+isa_state tt0[31:0];
+isa_state tt1[31:0];
+isa_state crp[63:0];
+isa_state srp[63:0];
+isa_state vbr[31:0];
+isa_state ssp[31:0];
+isa_state usp[31:0];
+#endif
+isa_state flag_X[0:0];
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var mbfw_dst_reg[2:0];
+var mbfw_base_reg[2:0];
+var mbfw_ext[15:0];
+var mbfw_idx_reg[2:0];
+var mbfw_idx_is_addr[0:0];
+var mbfw_idx_is_long[0:0];
+var mbfw_scale[1:0];
+var mbfw_raw_idx[31:0];
+var mbfw_idx_val[31:0];
+var mbfw_scaled_idx[31:0];
+var mbfw_bd16[15:0];
+var mbfw_bd16_ext[31:0];
+var mbfw_src_addr[31:0];
+var mbfw_mem_word[15:0];
+var mbfw_byte_val[7:0];
+var mbfw_result[31:0];
+
+// Include interrupt and exception handling aspects
+aspect m68k_exception.isa gates pc:2, sr:2, ssp:2, aregs:2, dmem:2, flag_C:2, flag_N:2, flag_Z:2, flag_V:2, flag_X:2, usp:2;
+aspect m68k_interrupt.isa gates sr;
+#ifdef MMU
+aspect mmu/atc_translate_instr.isa gates pc, dmem;
+#else
+var pc_pa[31:0];
+pc_pa = pc;
+var pc_pa_delta[31:0];
+pc_pa_delta = 32'd0;
+#endif
+
+// Fetch instruction
+instr = dmem[pc_pa];
+assume instr[15:12] == 0b0001;  // MOVE.B
+assume instr[8:6] == 0b000;     // Dest mode: Dn
+assume instr[5:3] == 0b110;     // Source mode: indexed
+pc when (~m68k_exc_taken) = pc + 2;
+
+mbfw_dst_reg = instr[11:9];
+mbfw_base_reg = instr[2:0];
+
+// Fetch full extension word
+mbfw_ext = dmem[pc + pc_pa_delta];
+assume mbfw_ext[8] == 0b1;       // Full format
+assume mbfw_ext[7] == 0b0;       // BS=0: base register used
+assume mbfw_ext[6] == 0b0;       // IS=0: index used
+assume mbfw_ext[5:4] == 0b10;    // BD size = word (16-bit)
+assume mbfw_ext[3:0] == 0b0000;  // No memory indirect
+pc when (~m68k_exc_taken) = pc + 2;
+
+// Decode index
+mbfw_idx_reg = mbfw_ext[14:12];
+mbfw_idx_is_addr = mbfw_ext[15];
+mbfw_idx_is_long = mbfw_ext[11];
+mbfw_scale = mbfw_ext[10:9];
+
+mbfw_raw_idx = mbfw_idx_is_addr ? aregs[mbfw_idx_reg] : dregs[mbfw_idx_reg];
+mbfw_idx_val = mbfw_idx_is_long ? mbfw_raw_idx : {{16{mbfw_raw_idx[15]}}, mbfw_raw_idx[15:0]};
+
+mbfw_scaled_idx = mbfw_scale == 2'b00 ? mbfw_idx_val :
+                  mbfw_scale == 2'b01 ? (mbfw_idx_val << 1) :
+                  mbfw_scale == 2'b10 ? (mbfw_idx_val << 2) :
+                                        (mbfw_idx_val << 3);
+
+// Fetch 16-bit base displacement
+mbfw_bd16 = dmem[pc + pc_pa_delta];
+pc when (~m68k_exc_taken) = pc + 2;
+mbfw_bd16_ext = {{16{mbfw_bd16[15]}}, mbfw_bd16};
+
+// Source effective address = An + sign_extend(bd16) + Xn*scale
+mbfw_src_addr = aregs[mbfw_base_reg] + mbfw_bd16_ext + mbfw_scaled_idx;
+
+// Read byte from memory
+#ifdef MMU
+var mmu_va[31:0];
+mmu_va = {mbfw_src_addr[31:1], 1'b0};
+var is_write[0:0];
+is_write = 1'b0;
+aspect mmu/atc_translate_data.isa gates pc:1, sr:1, ssp:1, aregs:1, dmem:1, flag_C:1, flag_N:1, flag_Z:1, flag_V:1, flag_X:1, usp:1;
+#endif
+
+#ifdef MMU
+mbfw_mem_word = dmem[ea_pa];
+#else
+mbfw_mem_word = dmem[{mbfw_src_addr[31:1], 1'b0}];
+#endif
+mbfw_byte_val = mbfw_src_addr[0] ? mbfw_mem_word[7:0] : mbfw_mem_word[15:8];
+
+// Write to data register (low byte only, upper 24 bits unchanged)
+mbfw_result = {dregs[mbfw_dst_reg][31:8], mbfw_byte_val};
+dregs[mbfw_dst_reg] when (~m68k_exc_taken & ~data_exc_taken) = mbfw_result;
+
+// Update CCR
+flag_N when (~m68k_exc_taken & ~data_exc_taken) = mbfw_byte_val[7];
+flag_Z when (~m68k_exc_taken & ~data_exc_taken) = mbfw_byte_val == 0;
+flag_V when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;
+flag_C when (~m68k_exc_taken & ~data_exc_taken) = 1'b0;

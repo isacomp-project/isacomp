@@ -1,0 +1,98 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// =============================================================================
+// HPPA LDW instruction (with interruption and data trap framework)
+// =============================================================================
+// LDW d(b),t - Load Word: t = mem[b + sign_ext(d)]
+// Opcode: 0x12 (bits 31:26), short displacement format
+//
+// This shows how load instructions
+// integrate with the nullify aspect, interruption aspect (instruction fetch
+// path), and the data_trap_load aspect (data access path).
+//
+// STATE NAMING: Uses crNN naming per CR Audit (CR_AUDIT_REPORT.md).
+//   cr14=IVA, cr18/cr18_back=IAOQ, cr19=IIR, cr20=ISR, cr21=IOR, cr22=IPSW
+//
+// =============================================================================
+
+isa_state pc[31:0];
+isa_state rf[31:0][4:0];
+isa_state psw[31:0];
+
+// Interruption shadow registers (crNN naming)
+isa_state cr22[31:0];       // IPSW - Interruption PSW
+isa_state cr19[31:0];       // IIR  - Interruption Instruction Register
+isa_state cr20[31:0];       // ISR  - Interruption Space Register
+isa_state cr21[31:0];       // IOR  - Interruption Offset Register
+isa_state cr17[31:0];       // IIASQ - Interruption IA Space Queue (front)
+isa_state cr18[31:0];       // IIAOQ - Interruption IA Offset Queue (front)
+isa_state cr18_back[31:0];  // IIAOQ back (paired with cr18)
+
+// Interrupt vector and external interrupt registers
+isa_state cr14[31:0];       // IVA  - Interruption Vector Address
+isa_state cr15[31:0];       // EIEM - External Interrupt Enable Mask
+isa_state cr16[31:0];       // ITMR - Interval Timer
+ext isa_state cr23[31:0];   // EIRR - External Interrupt Request Register (managed by testbench/SoC)
+
+// Temporary/scratch registers
+isa_state cr24[31:0];       // TR0
+isa_state cr25[31:0];       // TR1
+isa_state cr26[31:0];       // TR2
+isa_state cr27[31:0];       // TR3
+isa_state cr28[31:0];       // TR4
+isa_state cr29[31:0];       // TR5
+isa_state cr30[31:0];       // TR6
+isa_state cr31[31:0];       // TR7
+
+isa_state priv_level[1:0];
+
+ext isa_state timer_irq_pending[0:0];
+ext isa_state ext_irq_lines[31:0];
+mem umem[25:0];
+
+var instr[31:0];
+var b[4:0];
+var t[4:0];
+var disp[13:0];
+var sign_ext_disp[31:0];
+var base[31:0];
+var addr[31:0];
+var data[31:0];
+
+// =========================================================================
+// Instruction fetch with nullification and interruption handling
+// =========================================================================
+aspect nullify.isa gates pc, psw;
+aspect interruption.isa gates pc, psw, cr17, cr17_back, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level;
+
+instr = umem[pc_pa];
+
+// LDW encoding: opcode=0x12
+assume instr[31:26] == 0b010010;
+
+// Extract fields
+b = instr[25:21];
+t = instr[20:16];
+disp = instr[13:0];
+
+// Sign-extend 14-bit displacement (low-sign-extended format)
+sign_ext_disp = {{18{disp[13]}}, disp};
+
+// Calculate effective address
+base = (b == 0) ? 32'h0 : rf[b];
+addr = base + sign_ext_disp;
+
+// =========================================================================
+// Data path with load trap handling
+// =========================================================================
+aspect data_trap_load.isa gates pc, psw, cr18, cr18_back, cr19, cr20, cr21, cr22, priv_level;
+
+// Load word from physical address (provided by data_trap_load aspect)
+data = umem[addr_pa];
+
+// =========================================================================
+// Write result: gate on nullification, instruction-level and data-level traps
+// =========================================================================
+rf[t] when (t != 0 & ~in_nullified & ~instr_trap_taken & ~load_trap_taken) = data;
+
+// Advance PC (only if no trap and not nullified - those are handled by aspects)
+pc when (~in_nullified & ~instr_trap_taken & ~load_trap_taken) = pc + 4;

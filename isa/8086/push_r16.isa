@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// 8086 PUSH r16 - WITH PROPER SEGMENTATION
+// Opcodes: 0x50-0x57 (PUSH AX/CX/DX/BX/SP/BP/SI/DI)
+// Uses SS segment for stack access
+
+isa_state ip[15:0];
+var instr[7:0];
+
+// Word register file: AX, CX, DX, BX, SP, BP, SI, DI
+isa_state xregs[15:0][2:0];
+
+isa_state imem[7:0][15:0];
+isa_state dmem[7:0][19:0];     // 1MB memory (20-bit addressing)
+isa_state SS[15:0];            // Stack segment register
+
+var reg_idx[2:0];
+var reg_val[15:0];
+var offset_lo[15:0];             // 16-bit stack offset
+var offset_hi[15:0];             // 16-bit stack offset + 1
+var physical_addr_lo[19:0];      // 20-bit physical address
+var physical_addr_hi[19:0];      // 20-bit physical address
+
+// Fetch instruction
+instr = imem[ip];
+
+// Check this is a PUSH r16 instruction (0x50-0x57)
+assume instr[7:3] == 0b01010;  // Upper 5 bits must be 01010
+
+ip = ip + 1;
+
+// Extract register index from lower 3 bits of opcode
+reg_idx = instr[2:0];
+
+// Read the register value using indexed access
+reg_val = xregs[reg_idx];
+
+// Decrement SP by 2 (word size) - stack grows downward
+// SP is xregs[4], so read and write to it directly
+xregs[4] = xregs[4] - 16'h0002;
+
+// Calculate stack offsets (SP and SP+1, with wraparound at 16 bits)
+offset_lo = xregs[4];
+offset_hi = xregs[4] + 16'h0001;  // Wraps at 16-bit boundary
+
+// Calculate physical addresses using SS segment
+physical_addr_lo = (SS << 4) + offset_lo;
+physical_addr_hi = (SS << 4) + offset_hi;
+
+// Write register to stack (little-endian: low byte at lower address)
+dmem[physical_addr_lo] = reg_val[7:0];
+dmem[physical_addr_hi] = reg_val[15:8];

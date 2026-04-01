@@ -1,0 +1,37 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V SB (Store Byte) instruction for RV64I
+// Uses mem primitive with 8-bit direct access
+
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[12:0];
+
+var rs1[4:0];
+var rs2[4:0];
+var r1[63:0];
+var r2[63:0];
+var imm[11:0];
+var sign_ext_imm[63:0];
+var addr[63:0];
+var byte_data[7:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b0100011;
+assume instr[14:12] == 0x0;
+
+rs1 = instr[19:15];
+rs2 = instr[24:20];
+
+r1 = rf[rs1];
+r2 = rf[rs2];
+
+imm = {instr[31:25], instr[11:7]};
+sign_ext_imm = {{52{imm[11]}}, imm};
+
+addr = r1 + sign_ext_imm;
+
+// Extract lower byte from r2 and store to memory
+byte_data = r2[7:0];
+umem[addr] = byte_data;
+pc = pc + 4;

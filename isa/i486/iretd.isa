@@ -1,0 +1,71 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 IRETD (0xCF)
+// Opcode: 0xCF
+// Interrupt return (32-bit) - pop EIP, CS, EFLAGS from stack
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+isa_state ESP[31:0] of xregs[4];
+
+// Segment registers
+isa_state CS[15:0];
+isa_state SS[15:0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+// Flags
+isa_state flag_CF[0:0];
+isa_state flag_PF[0:0];
+isa_state flag_AF[0:0];
+isa_state flag_ZF[0:0];
+isa_state flag_SF[0:0];
+isa_state flag_DF[0:0];
+isa_state flag_OF[0:0];
+isa_state flag_IF[0:0];
+isa_state flag_TF[0:0];
+
+var new_eip[31:0];
+var new_cs[15:0];
+var eflags[31:0];
+var esp_temp[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+
+// Check this is IRETD instruction
+assume instr == 0xCF;
+
+// Pop EIP (4 bytes, little-endian)
+esp_temp = ESP;
+new_eip = {dmem[esp_temp + 3], dmem[esp_temp + 2], dmem[esp_temp + 1], dmem[esp_temp]};
+ESP = esp_temp + 4;
+
+// Pop CS (4 bytes, take lower 16 bits, little-endian)
+esp_temp = ESP;
+new_cs = {dmem[esp_temp + 1], dmem[esp_temp]};
+ESP = esp_temp + 4;
+
+// Pop EFLAGS (4 bytes, little-endian)
+esp_temp = ESP;
+eflags = {dmem[esp_temp + 3], dmem[esp_temp + 2], dmem[esp_temp + 1], dmem[esp_temp]};
+ESP = esp_temp + 4;
+
+// Restore individual flags from EFLAGS
+// EFLAGS format: bit 11:OF, 10:DF, 9:IF, 8:TF, 7:SF, 6:ZF, 4:AF, 2:PF, 0:CF
+flag_CF = eflags[0];
+flag_PF = eflags[2];
+flag_AF = eflags[4];
+flag_ZF = eflags[6];
+flag_SF = eflags[7];
+flag_TF = eflags[8];
+flag_IF = eflags[9];
+flag_DF = eflags[10];
+flag_OF = eflags[11];
+
+// Jump to return address
+eip = new_eip;
+CS = new_cs;

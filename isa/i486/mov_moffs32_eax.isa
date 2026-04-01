@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 MOV moffs32, EAX (0xA3)
+// Store EAX to memory at absolute 32-bit address
+
+isa_state eip[31:0];
+var instr[7:0];
+
+// 32-bit register file
+isa_state xregs[31:0][2:0];
+
+// Register aliases using 'of' for subsetting
+isa_state EAX[31:0] of xregs[0];
+
+isa_state imem[7:0][31:0];
+isa_state dmem[7:0][31:0];
+
+var addr_b0[7:0];
+var addr_b1[7:0];
+var addr_b2[7:0];
+var addr_b3[7:0];
+var addr[31:0];
+
+// Fetch instruction
+instr = imem[eip];
+assume instr == 0xA3;
+
+// Fetch 32-bit address (little-endian)
+addr_b0 = imem[eip + 1];
+addr_b1 = imem[eip + 2];
+addr_b2 = imem[eip + 3];
+addr_b3 = imem[eip + 4];
+
+addr = {addr_b3, addr_b2, addr_b1, addr_b0};
+
+// Store EAX to memory (little-endian)
+dmem[addr] = EAX[7:0];
+dmem[addr + 1] = EAX[15:8];
+dmem[addr + 2] = EAX[23:16];
+dmem[addr + 3] = EAX[31:24];
+
+// Update EIP: opcode (1) + address (4) = 5 bytes
+eip = eip + 5;
+
+// MOV does not affect flags

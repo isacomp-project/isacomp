@@ -1,0 +1,17 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// i486 SALC (0xD6) - undocumented
+// Set AL on Carry (AL = CF ? 0xFF : 0x00)
+isa_state eip[31:0];
+var instr[7:0];
+isa_state imem[7:0][31:0];
+isa_state xregs[31:0][2:0];
+isa_state flag_CF[0:0];
+
+instr = imem[eip];
+assume instr == 0xD6;
+eip = eip + 1;
+
+case (flag_CF) {
+  1'b1: xregs[0][7:0] = 8'hFF;
+  1'b0: xregs[0][7:0] = 8'h00;
+}

@@ -1,0 +1,59 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// RISC-V Vector Extension: vsadd.vi - Saturating Signed Add (vector-immediate)
+// Encoding: vsadd.vi vd, vs2, imm, vm
+// Operation: vd[i] = sat_add_signed(vs2[i], sign_extend(imm))
+
+isa_state pc[31:0];
+isa_state vrf[127:0][4:0];
+isa_state vl[31:0];
+isa_state vtype[31:0];
+mem umem[12:0];
+
+var instr[31:0];
+var imm[4:0];
+var vs2[4:0];
+var vd[4:0];
+var vm[0:0];
+var v2[127:0];
+var res[127:0];
+var imm_ext[31:0];
+var sum0[32:0];
+var sum1[32:0];
+var sum2[32:0];
+var sum3[32:0];
+var overflow0[0:0];
+var overflow1[0:0];
+var overflow2[0:0];
+var overflow3[0:0];
+
+instr = umem[pc];
+assume instr[6:0] == 0b1010111;
+assume instr[14:12] == 0b011;
+assume instr[31:26] == 0b100001;
+
+pc = pc + 4;
+
+imm = instr[19:15];
+vs2 = instr[24:20];
+vd = instr[11:7];
+vm = instr[25:25];
+
+v2 = vrf[vs2];
+imm_ext = {{27{imm[4]}}, imm};
+
+sum0 = {v2[31], v2[31:0]} + {imm_ext[31], imm_ext};
+sum1 = {v2[63], v2[63:32]} + {imm_ext[31], imm_ext};
+sum2 = {v2[95], v2[95:64]} + {imm_ext[31], imm_ext};
+sum3 = {v2[127], v2[127:96]} + {imm_ext[31], imm_ext};
+
+overflow0 = (v2[31] == imm_ext[31]) && (sum0[31] != v2[31]);
+overflow1 = (v2[63] == imm_ext[31]) && (sum1[31] != v2[63]);
+overflow2 = (v2[95] == imm_ext[31]) && (sum2[31] != v2[95]);
+overflow3 = (v2[127] == imm_ext[31]) && (sum3[31] != v2[127]);
+
+res[31:0] = overflow0 ? (v2[31] ? 32'h80000000 : 32'h7FFFFFFF) : sum0[31:0];
+res[63:32] = overflow1 ? (v2[63] ? 32'h80000000 : 32'h7FFFFFFF) : sum1[31:0];
+res[95:64] = overflow2 ? (v2[95] ? 32'h80000000 : 32'h7FFFFFFF) : sum2[31:0];
+res[127:96] = overflow3 ? (v2[127] ? 32'h80000000 : 32'h7FFFFFFF) : sum3[31:0];
+
+vrf[vd] = res;

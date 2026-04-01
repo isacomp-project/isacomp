@@ -1,0 +1,45 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// SPARCv8 FiTOs instruction (Convert Integer to Single)
+// Format 3: op=10, op3=110100, opf=011000100
+// FiTOs rs2, rd
+// rd <- (float)rs2
+
+isa_state pc[31:0];
+var instr[31:0];
+isa_state frf[31:0][4:0];  // FP register file (32 single-precision)
+isa_state fsr[31:0];       // Floating-point State Register
+mem umem[23:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect
+aspect delay_slot.isa gates pc, delay_slot;
+
+var rs2[4:0];
+var rd[4:0];
+var int_val[31:0];
+var result[31:0];
+var rm[1:0];
+
+instr = umem[pc];
+assume instr[31:30] == 0b10;         // op = 10 (Format 3)
+assume instr[24:19] == 0b110100;     // op3 = FPop1
+assume instr[13:5] == 0b011000100;   // opf = FiTOs
+
+rs2 = instr[4:0];
+rd = instr[29:25];
+
+// Get rounding mode from FSR (bits 31:30)
+rm = fsr[31:30];
+
+// Read integer value from FP register (treated as 32-bit integer)
+int_val = frf[rs2];
+
+// Convert integer to single-precision float
+result = fp_cvt_s_w(int_val, {1'b0, rm});
+
+// Write result to FP register
+frf[rd] = result;
+pc = pc + 4;

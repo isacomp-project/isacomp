@@ -1,0 +1,25 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[31:0];
+isa_state rf[31:0][4:0];
+isa_state imem[31:0][9:0];
+isa_state dmem[31:0][9:0];
+isa_state flag[0:0];
+
+var imm[27:0];
+var sign_ext_imm[31:0];
+var branch_offset[31:0];
+var pc_plus_4[31:0];
+var branch_dest[31:0];
+
+instr = imem[pc];
+assume instr[31:26] == 0x04;
+imm = {instr[25:0], 2'b0};
+
+sign_ext_imm = {{4{imm[27]}}, imm};
+branch_offset = sign_ext_imm;
+
+pc_plus_4 = pc + 4;
+branch_dest = pc + branch_offset;
+
+pc = flag ? branch_dest : pc_plus_4;

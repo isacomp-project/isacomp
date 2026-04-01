@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[63:0];
+var instr[31:0];
+isa_state rf[63:0][4:0];
+mem umem[13:0];
+
+var ra[4:0];
+
+instr = umem[pc];
+assume instr[31:26] == 48;
+ra = instr[25:21];
+
+var branch_offset[63:0];
+branch_offset = {{43{instr[20]}}, instr[20:0], 2'b00};
+rf[ra] when (ra != 31) = pc + 4;
+pc = pc + 4 + branch_offset;

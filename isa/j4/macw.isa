@@ -1,0 +1,113 @@
+// SPDX-License-Identifier: BSD-3-Clause
+isa_state pc[31:0];
+var instr[15:0];
+isa_state rf[31:0][3:0];
+isa_state rf_bank[31:0][2:0];
+mem umem[23:0];
+isa_state mach[31:0];
+isa_state macl[31:0];
+isa_state t[0:0];
+
+// System registers (needed for exception handling)
+isa_state sr[31:0];
+isa_state vbr[31:0];
+isa_state ssr[31:0];
+isa_state spc[31:0];
+
+var rn[3:0];
+var rm[3:0];
+var Rn[31:0];
+var Rm[31:0];
+var macw_rb[0:0];
+var macw_rn_lo[2:0];
+var macw_rm_lo[2:0];
+var macw_rn_bk[0:0];
+var macw_rm_bk[0:0];
+var addr_n[31:0];
+var addr_m[31:0];
+var word_n[31:0];
+var word_m[31:0];
+var data_n[15:0];
+var data_m[15:0];
+var data_n_ext[31:0];
+var data_m_ext[31:0];
+var product[31:0];
+var result[31:0];
+
+// Address error checking - MAC.W loads two 16-bit values
+var load_addr[31:0];
+var load_size[1:0];
+var macw_addr_n_ok[0:0];
+var macw_addr_m_ok[0:0];
+var macw_no_error[0:0];
+
+// Branch delay slot state
+isa_state delay_slot[0:0];
+isa_state branch_target[31:0];
+
+// Include delay slot aspect - handles PC override if we're in a delay slot
+aspect delay_slot.isa gates pc, delay_slot;
+
+// Include exception handling aspect
+aspect exception.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+// Include address error detection for loads
+aspect addr_error_load.isa gates pc, sr, vbr, rf, umem, ssr, spc;
+
+instr = umem[pc];
+assume instr[15:12] == 0x4;
+assume instr[3:0] == 0xF;
+rn = instr[11:8];
+rm = instr[7:4];
+
+macw_rn_lo = rn[2:0];
+macw_rm_lo = rm[2:0];
+macw_rb = sr[29];  // RB bit (bit 29 in SR)
+macw_rn_bk = (rn[3] == 1'b0) & macw_rb;
+macw_rm_bk = (rm[3] == 1'b0) & macw_rb;
+
+Rn = macw_rn_bk ? rf_bank[macw_rn_lo] : rf[rn];
+Rm = macw_rm_bk ? rf_bank[macw_rm_lo] : rf[rm];
+
+// Load words from addresses pointed by Rn and Rm
+addr_n = Rn;
+addr_m = Rm;
+
+// Check both addresses for 2-byte alignment
+macw_addr_n_ok = (addr_n[0] == 1'b0);
+macw_addr_m_ok = (addr_m[0] == 1'b0);
+macw_no_error = macw_addr_n_ok & macw_addr_m_ok;
+
+// Set up aspect variables (use first bad address for exception info)
+load_addr = macw_addr_n_ok ? addr_m : addr_n;
+load_size = 2'b10;  // Word access (16-bit)
+
+word_n = umem[addr_n];
+word_m = umem[addr_m];
+
+// Extract halfwords - big endian: addr[1]=0 means high halfword, addr[1]=1 means low halfword
+// For word-aligned addresses (typical case), use high halfword
+data_n = word_n[31:16];
+data_m = word_m[31:16];
+
+// Sign extend 16-bit to 32-bit for signed multiply
+data_n_ext = {{16{data_n[15]}}, data_n};
+data_m_ext = {{16{data_m[15]}}, data_m};
+
+// Multiply (signed 16x16 -> 32)
+product = data_n_ext * data_m_ext;
+
+// Accumulate with MACL (32-bit accumulate for MAC.W)
+result = macl + product;
+
+// Only update state if no address error
+macl when (macw_no_error) = result;
+
+// Post-increment both registers by 2 (only if no error)
+rf[rn] when (macw_no_error & (macw_rn_bk == 0)) = Rn + 2;
+rf_bank[macw_rn_lo] when (macw_no_error & macw_rn_bk) = Rn + 2;
+rf[rm] when (macw_no_error & (macw_rm_bk == 0)) = Rm + 2;
+rf_bank[macw_rm_lo] when (macw_no_error & macw_rm_bk) = Rm + 2;
+
+// Only advance PC if no address error
+pc when (macw_no_error) = pc + 2;

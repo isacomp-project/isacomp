@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: BSD-3-Clause
+// PDP-11 ASH instruction - Autoincrement
+// ASH src, Rn: shift Rn by src[5:0]
+
+isa_state pc[15:0];
+var instr[15:0];
+isa_state rf[15:0][2:0];  // 8 registers, R7 is PC
+isa_state umem[7:0][15:0];      // Byte-addressable memory
+isa_state flag_N[0:0];
+isa_state flag_Z[0:0];
+isa_state flag_V[0:0];
+isa_state flag_C[0:0];
+
+var src_reg[2:0];
+var dst_reg[2:0];
+var src_val[15:0];
+var operand[15:0];
+var shift_right[0:0];
+var neg_count[5:0];
+var result[15:0];
+var src_addr[15:0];
+var s_lo[7:0];
+var s_hi[7:0];
+
+
+// Fetch instruction (little-endian)
+var instr_lo[7:0];
+var instr_hi[7:0];
+instr_lo = umem[pc];
+instr_hi = umem[pc + 1];
+instr = {instr_hi, instr_lo};
+
+
+assume instr[15:9] == 0b0111010;  // ASH opcode (072)
+assume instr[5:3] == 0b010;       // Source mode 2 (Autoincrement)
+assume instr[2:0] != 0b111;       // Source reg != 7
+
+dst_reg = instr[8:6];  // Destination register
+src_reg = instr[2:0];
+
+pc = pc + 2;
+
+// Fetch source operand
+src_addr = rf[src_reg];
+rf[src_reg] = rf[src_reg] + 2;
+s_lo = umem[src_addr];
+s_hi = umem[src_addr + 1];
+src_val = {s_hi, s_lo};
+
+operand = dst_reg == 7 ? pc : rf[dst_reg];
+shift_right = src_val[5];
+neg_count = ~src_val[5:0] + 1;
+
+// Variable arithmetic shift using 6-bit signed shift count
+result = shift_right ? (operand >>> neg_count[4:0]) : (operand << src_val[4:0]);
+
+rf[dst_reg] when (dst_reg != 7) = result;
+
+flag_N = result[15];
+flag_Z = result == 0 ? 1'b1 : 1'b0;
+flag_V = operand[15] != result[15] ? 1'b1 : 1'b0;
+flag_C = shift_right ? operand[0] : operand[15];
