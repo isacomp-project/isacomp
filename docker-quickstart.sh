@@ -69,7 +69,7 @@ case $choice in
     1)
         print_msg "$BLUE" "Building ISAComp Docker image..."
         print_msg "$YELLOW" "This may take 10-20 minutes on first build..."
-        docker build -t isacomp:latest . || {
+        docker build --cache-from=ghcr.io/isacomp-project/isacomp:build-cache-amd64 --cache-from=ghcr.io/isacomp-project/isacomp:build-cache-arm64 -t isacomp:latest . || {
             print_msg "$RED" "Build failed!"
             exit 1
         }
